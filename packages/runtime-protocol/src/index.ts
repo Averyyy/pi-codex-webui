@@ -205,7 +205,17 @@ const initializeMessageSchema = z.object({
     runtimeProfileId: z.string().min(1),
     cwd: z.string().min(1),
     agentDir: z.string().min(1),
-    nativeSessionFile: z.string().min(1),
+    target: z.discriminatedUnion("mode", [
+      z.object({
+        mode: z.literal("resume"),
+        nativeSessionFile: z.string().min(1),
+      }),
+      z.object({ mode: z.literal("new") }),
+      z.object({
+        mode: z.literal("duplicate"),
+        sourceSessionFile: z.string().min(1),
+      }),
+    ]),
   }),
 })
 

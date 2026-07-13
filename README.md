@@ -14,8 +14,12 @@ input, editor, notifications, status, widgets, and editor draft updates.
 Packages, extensions, and skills have dedicated Global/Current Project settings
 pages backed by Pi's real SettingsManager and DefaultPackageManager. Resource
 changes respect Pi project trust, persist atomically, reload idle runtimes
-immediately, and defer busy runtime reloads until `agent_settled`. Later-phase
-features are not shown until their backing operation exists.
+immediately, and defer busy runtime reloads until `agent_settled`. Developer
+settings can enable the separately packaged Pi Client distribution, store its
+Pi Server token outside `config.json`, run an authenticated connection test,
+and choose the default runtime for new sessions. Existing sessions keep their
+original runtime binding; migration is an explicit duplicate that records its
+source. Later-phase features are not shown until their backing operation exists.
 
 ## Run the packaged app
 

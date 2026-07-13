@@ -36,6 +36,7 @@ export function getAppPaths() {
     root,
     config: path.join(root, "config.json"),
     database: path.join(root, "state.db"),
+    secrets: path.join(root, "secrets"),
     sessionLocks: path.join(root, "locks", "sessions"),
     temporary: path.join(root, "tmp"),
   }
@@ -59,4 +60,14 @@ export function getPiWorkerPath() {
     return path.resolve(process.env.PI_WEB_CODEX_PI_WORKER_PATH)
   }
   return path.resolve(process.cwd(), "../../packages/worker-pi/dist/worker.mjs")
+}
+
+export function getPiClientWorkerPath() {
+  if (process.env.PI_WEB_CODEX_PI_CLIENT_WORKER_PATH) {
+    return path.resolve(process.env.PI_WEB_CODEX_PI_CLIENT_WORKER_PATH)
+  }
+  return path.resolve(
+    process.cwd(),
+    "../../packages/worker-pi-client/dist/worker.mjs"
+  )
 }

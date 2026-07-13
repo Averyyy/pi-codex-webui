@@ -1,5 +1,5 @@
 {
-  "name": "@workspace/worker-pi",
+  "name": "@workspace/worker-pi-client",
   "version": "0.0.0",
   "type": "module",
   "private": true,
@@ -14,7 +14,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@earendil-works/pi-coding-agent": "0.80.6",
+    "@earendil-works/pi-coding-agent": "npm:@averyyy/pi-coding-agent@0.80.6-piclient.7",
     "proper-lockfile": "^4.1.2"
   },
   "devDependencies": {

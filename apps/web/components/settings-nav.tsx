@@ -4,6 +4,7 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import {
   BlocksIcon,
+  Code2Icon,
   PackageIcon,
   PaletteIcon,
   Settings2Icon,
@@ -31,6 +32,7 @@ const sections = [
   { href: "/settings/packages", label: "Packages", icon: PackageIcon },
   { href: "/settings/extensions", label: "Extensions", icon: BlocksIcon },
   { href: "/settings/skills", label: "Skills", icon: SparklesIcon },
+  { href: "/settings/developer", label: "Developer", icon: Code2Icon },
 ]
 
 export function SettingsNav() {

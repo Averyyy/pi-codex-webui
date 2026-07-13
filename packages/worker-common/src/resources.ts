@@ -1,15 +1,12 @@
 import { createHash } from "node:crypto"
 import path from "node:path"
 
-import {
-  CONFIG_DIR_NAME,
+import type {
   DefaultPackageManager,
-  hasTrustRequiringProjectResources,
-  ProjectTrustStore,
+  PackageSource,
+  PathMetadata,
+  ResolvedResource,
   SettingsManager,
-  type PackageSource,
-  type PathMetadata,
-  type ResolvedResource,
 } from "@earendil-works/pi-coding-agent"
 import {
   resourceCatalogSchema,
@@ -20,6 +17,7 @@ import {
 } from "@workspace/runtime-protocol"
 
 import { createSettingsManager } from "./settings.js"
+import type { CodingAgentModule } from "./coding-agent.js"
 
 type ResourceMessage = Extract<
   HostToWorkerMessage,
@@ -98,33 +96,48 @@ function packageView(
   }
 }
 
-export function projectTrustedForWeb(cwd: string, agentDir: string) {
-  if (!hasTrustRequiringProjectResources(cwd)) return true
-  const stored = new ProjectTrustStore(agentDir).get(cwd)
+export function projectTrustedForWeb(
+  codingAgent: CodingAgentModule,
+  cwd: string,
+  agentDir: string
+) {
+  if (!codingAgent.hasTrustRequiringProjectResources(cwd)) return true
+  const stored = new codingAgent.ProjectTrustStore(agentDir).get(cwd)
   if (stored !== null) return stored
-  const globalSettings = createSettingsManager(cwd, agentDir, false)
+  const globalSettings = createSettingsManager(
+    codingAgent,
+    cwd,
+    agentDir,
+    false
+  )
   return globalSettings.getDefaultProjectTrust() === "always"
 }
 
 async function resolveState(
+  codingAgent: CodingAgentModule,
   cwd: string,
   agentDir: string
 ): Promise<ResourceState> {
-  const trustRequired = hasTrustRequiringProjectResources(cwd)
-  const projectTrusted = projectTrustedForWeb(cwd, agentDir)
-  const settingsManager = createSettingsManager(cwd, agentDir, projectTrusted)
-  const packageManager = new DefaultPackageManager({
+  const trustRequired = codingAgent.hasTrustRequiringProjectResources(cwd)
+  const projectTrusted = projectTrustedForWeb(codingAgent, cwd, agentDir)
+  const settingsManager = createSettingsManager(
+    codingAgent,
+    cwd,
+    agentDir,
+    projectTrusted
+  )
+  const packageManager = new codingAgent.DefaultPackageManager({
     cwd,
     agentDir,
     settingsManager,
   })
   const resolved = await packageManager.resolve(async () => "skip")
 
-  const globalSettings = SettingsManager.inMemory(
+  const globalSettings = codingAgent.SettingsManager.inMemory(
     settingsManager.getGlobalSettings(),
     { projectTrusted: false }
   )
-  const globalPackageManager = new DefaultPackageManager({
+  const globalPackageManager = new codingAgent.DefaultPackageManager({
     cwd,
     agentDir,
     settingsManager: globalSettings,
@@ -243,6 +256,7 @@ function setTopLevelPaths(
 }
 
 function setTopLevelResource(
+  codingAgent: CodingAgentModule,
   state: ResourceState,
   record: ResourceRecord,
   scope: SettingsScope,
@@ -257,7 +271,7 @@ function setTopLevelResource(
   const baseDir =
     record.resource.metadata.baseDir ??
     (scope === "project"
-      ? path.join(state.catalog.cwd, CONFIG_DIR_NAME)
+      ? path.join(state.catalog.cwd, codingAgent.CONFIG_DIR_NAME)
       : agentDir)
   const pattern =
     scope === "project" && record.view.inherited
@@ -270,13 +284,16 @@ function setTopLevelResource(
 }
 
 function packageOperationSource(
+  codingAgent: CodingAgentModule,
   configured: PackageView,
   cwd: string,
   agentDir: string
 ) {
   if (!configured.installedPath) return configured.source
   const scopeBase =
-    configured.scope === "project" ? path.join(cwd, CONFIG_DIR_NAME) : agentDir
+    configured.scope === "project"
+      ? path.join(cwd, codingAgent.CONFIG_DIR_NAME)
+      : agentDir
   return path.resolve(scopeBase, configured.source) ===
     path.resolve(configured.installedPath)
     ? configured.installedPath
@@ -284,6 +301,7 @@ function packageOperationSource(
 }
 
 function packageSourceForProject(
+  codingAgent: CodingAgentModule,
   state: ResourceState,
   record: ResourceRecord,
   agentDir: string
@@ -293,11 +311,17 @@ function packageSourceForProject(
     (pkg) => pkg.scope === "global" && pkg.source === source
   )
   return configured
-    ? packageOperationSource(configured, state.catalog.cwd, agentDir)
+    ? packageOperationSource(
+        codingAgent,
+        configured,
+        state.catalog.cwd,
+        agentDir
+      )
     : source
 }
 
 function setPackageResource(
+  codingAgent: CodingAgentModule,
   state: ResourceState,
   record: ResourceRecord,
   scope: SettingsScope,
@@ -311,7 +335,7 @@ function setPackageResource(
       : state.settingsManager.getGlobalSettings()
   const source =
     scope === "project" && record.view.inherited
-      ? packageSourceForProject(state, record, agentDir)
+      ? packageSourceForProject(codingAgent, state, record, agentDir)
       : record.resource.metadata.source
   const packages = [...(settings.packages ?? [])]
   let packageIndex = packages.findIndex(
@@ -350,11 +374,12 @@ function setPackageResource(
 }
 
 async function setResourceEnabled(
+  codingAgent: CodingAgentModule,
   message: Extract<ResourceMessage, { type: "resources.set-enabled" }>
 ) {
   const { cwd, agentDir, resourceId, resourceType, writeScope, enabled } =
     message.payload
-  const state = await resolveState(cwd, agentDir)
+  const state = await resolveState(codingAgent, cwd, agentDir)
   if (writeScope === "project" && !state.catalog.projectTrusted) {
     throw new Error("Trust this project before changing project resources.")
   }
@@ -375,22 +400,39 @@ async function setResourceEnabled(
     record.view.inherited &&
     record.inheritedEnabled === enabled
   if (record.resource.metadata.origin === "package") {
-    setPackageResource(state, record, writeScope, enabled, inherit, agentDir)
+    setPackageResource(
+      codingAgent,
+      state,
+      record,
+      writeScope,
+      enabled,
+      inherit,
+      agentDir
+    )
   } else {
-    setTopLevelResource(state, record, writeScope, enabled, inherit, agentDir)
+    setTopLevelResource(
+      codingAgent,
+      state,
+      record,
+      writeScope,
+      enabled,
+      inherit,
+      agentDir
+    )
   }
   await state.settingsManager.flush()
-  return (await resolveState(cwd, agentDir)).catalog
+  return (await resolveState(codingAgent, cwd, agentDir)).catalog
 }
 
 async function mutatePackage(
+  codingAgent: CodingAgentModule,
   message: Extract<
     ResourceMessage,
     { type: "packages.install" | "packages.remove" | "packages.update" }
   >
 ) {
   const { cwd, agentDir } = message.payload
-  const state = await resolveState(cwd, agentDir)
+  const state = await resolveState(codingAgent, cwd, agentDir)
   if (message.type === "packages.install") {
     if (message.payload.scope === "project" && !state.catalog.projectTrusted) {
       throw new Error("Trust this project before installing project packages.")
@@ -408,7 +450,12 @@ async function mutatePackage(
     if (configured.scope === "project" && !state.catalog.projectTrusted) {
       throw new Error("Trust this project before changing project packages.")
     }
-    const source = packageOperationSource(configured, cwd, agentDir)
+    const source = packageOperationSource(
+      codingAgent,
+      configured,
+      cwd,
+      agentDir
+    )
     if (message.type === "packages.remove") {
       await state.packageManager.removeAndPersist(source, {
         local: configured.scope === "project",
@@ -418,26 +465,29 @@ async function mutatePackage(
     }
   }
   await state.settingsManager.flush()
-  return (await resolveState(cwd, agentDir)).catalog
+  return (await resolveState(codingAgent, cwd, agentDir)).catalog
 }
 
-export async function handleResourceMessage(message: ResourceMessage) {
+export async function handleResourceMessage(
+  codingAgent: CodingAgentModule,
+  message: ResourceMessage
+) {
   const { cwd, agentDir } = message.payload
   if (message.type === "resources.catalog") {
-    return (await resolveState(cwd, agentDir)).catalog
+    return (await resolveState(codingAgent, cwd, agentDir)).catalog
   }
   if (message.type === "resources.set-enabled") {
-    return setResourceEnabled(message)
+    return setResourceEnabled(codingAgent, message)
   }
   if (
     message.type === "packages.install" ||
     message.type === "packages.remove" ||
     message.type === "packages.update"
   ) {
-    return mutatePackage(message)
+    return mutatePackage(codingAgent, message)
   }
-  new ProjectTrustStore(agentDir).set(cwd, message.payload.trusted)
-  return (await resolveState(cwd, agentDir)).catalog
+  new codingAgent.ProjectTrustStore(agentDir).set(cwd, message.payload.trusted)
+  return (await resolveState(codingAgent, cwd, agentDir)).catalog
 }
 
 export function isResourceMessage(

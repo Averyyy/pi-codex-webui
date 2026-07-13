@@ -12,21 +12,23 @@ import {
 } from "node:fs"
 import path from "node:path"
 
-import {
-  CONFIG_DIR_NAME,
-  SettingsManager,
-} from "@earendil-works/pi-coding-agent"
 import lockfile from "proper-lockfile"
+
+import type { CodingAgentModule } from "./coding-agent.js"
 
 type SettingsScope = "global" | "project"
 
 class AtomicSettingsStorage {
   private readonly paths: Record<SettingsScope, string>
 
-  constructor(cwd: string, agentDir: string) {
+  constructor(codingAgent: CodingAgentModule, cwd: string, agentDir: string) {
     this.paths = {
       global: path.join(path.resolve(agentDir), "settings.json"),
-      project: path.join(path.resolve(cwd), CONFIG_DIR_NAME, "settings.json"),
+      project: path.join(
+        path.resolve(cwd),
+        codingAgent.CONFIG_DIR_NAME,
+        "settings.json"
+      ),
     }
   }
 
@@ -78,11 +80,13 @@ class AtomicSettingsStorage {
 }
 
 export function createSettingsManager(
+  codingAgent: CodingAgentModule,
   cwd: string,
   agentDir: string,
   projectTrusted: boolean
 ) {
-  return SettingsManager.fromStorage(new AtomicSettingsStorage(cwd, agentDir), {
-    projectTrusted,
-  })
+  return codingAgent.SettingsManager.fromStorage(
+    new AtomicSettingsStorage(codingAgent, cwd, agentDir),
+    { projectTrusted }
+  )
 }

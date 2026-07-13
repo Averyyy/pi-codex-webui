@@ -6,9 +6,9 @@ import { mkdir, open, readFile, rename, rm } from "node:fs/promises"
 import { getAppPaths } from "@/lib/app-paths"
 
 import {
-  configSchema,
   DEFAULT_CONFIG,
   mergeConfig,
+  parseConfig,
   type AppConfig,
   type ConfigPatch,
 } from "@/lib/config-schema"
@@ -17,7 +17,7 @@ export async function loadConfig(): Promise<AppConfig> {
   const { config } = getAppPaths()
 
   try {
-    return configSchema.parse(JSON.parse(await readFile(config, "utf8")))
+    return parseConfig(JSON.parse(await readFile(config, "utf8")))
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
       return structuredClone(DEFAULT_CONFIG)

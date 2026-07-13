@@ -1,31 +1,27 @@
 {
-  "name": "@workspace/worker-pi",
+  "name": "@workspace/worker-common",
   "version": "0.0.0",
   "type": "module",
   "private": true,
-  "files": [
-    "dist"
-  ],
+  "exports": {
+    ".": "./src/index.ts"
+  },
   "scripts": {
-    "build": "tsup",
-    "dev": "tsup --watch",
     "lint": "eslint",
-    "format": "prettier --write \"src/**/*.ts\" \"tsup.config.ts\"",
+    "format": "prettier --write \"src/**/*.ts\"",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@earendil-works/pi-coding-agent": "0.80.6",
     "proper-lockfile": "^4.1.2"
   },
   "devDependencies": {
+    "@earendil-works/pi-coding-agent": "0.80.6",
     "@types/node": "^26.1.1",
     "@types/proper-lockfile": "^4.1.4",
     "@workspace/eslint-config": "workspace:*",
     "@workspace/runtime-protocol": "workspace:*",
     "@workspace/typescript-config": "workspace:*",
-    "@workspace/worker-common": "workspace:*",
     "eslint": "^9",
-    "tsup": "^8.5.1",
     "typescript": "^5.9.3"
   }
 }

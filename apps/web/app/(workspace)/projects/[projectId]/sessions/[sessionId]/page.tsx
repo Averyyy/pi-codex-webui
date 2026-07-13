@@ -1,11 +1,13 @@
 import { notFound } from "next/navigation"
 
+import { Badge } from "@workspace/ui/components/badge"
 import { Separator } from "@workspace/ui/components/separator"
 
 import { SessionRuntime } from "@/components/session-runtime"
 import { SessionOperations } from "@/components/session-operations"
 import { SessionTranscript } from "@/components/transcript"
 import { getSessionSnapshot } from "@/lib/catalog"
+import { loadConfig } from "@/lib/config"
 import { getMutationToken } from "@/lib/request-security"
 import { getRuntimeSupervisor } from "@/lib/runtime-supervisor"
 import { displaySessionTitle, formatTimestamp } from "@/lib/session-display"
@@ -14,7 +16,10 @@ export default async function SessionPage({
   params,
 }: PageProps<"/projects/[projectId]/sessions/[sessionId]">) {
   const { projectId, sessionId } = await params
-  const snapshot = await getSessionSnapshot(sessionId)
+  const [snapshot, config] = await Promise.all([
+    getSessionSnapshot(sessionId),
+    loadConfig(),
+  ])
   if (!snapshot || snapshot.session.projectId !== projectId) notFound()
   const runtime = getRuntimeSupervisor().state(sessionId)
 
@@ -27,16 +32,28 @@ export default async function SessionPage({
               <h1 className="truncate text-base font-semibold">
                 {displaySessionTitle(snapshot.session)}
               </h1>
-              <p className="mt-1 truncate text-xs text-muted-foreground">
-                {snapshot.session.projectName} ·{" "}
-                {formatTimestamp(snapshot.session.updatedAt)}
-              </p>
+              <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
+                <span className="truncate">
+                  {snapshot.session.projectName} ·{" "}
+                  {formatTimestamp(snapshot.session.updatedAt)}
+                </span>
+                <Badge variant="outline" className="shrink-0">
+                  {snapshot.session.runtimeKind === "pi" ? "Pi" : "Pi Client"}
+                </Badge>
+              </div>
             </div>
             <SessionOperations
               sessionId={sessionId}
               projectId={projectId}
               title={displaySessionTitle(snapshot.session)}
               mutationToken={getMutationToken()}
+              runtimeProfileId={snapshot.session.runtimeProfileId}
+              runtimeProfiles={Object.entries(config.developer.runtime.profiles)
+                .filter(([, profile]) => profile.enabled)
+                .map(([id, profile]) => ({
+                  id,
+                  label: profile.kind === "pi" ? "Pi" : "Pi Client",
+                }))}
             />
           </div>
         </div>

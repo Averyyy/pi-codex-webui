@@ -34,6 +34,9 @@ interface SessionRow {
   updated_at: string
   message_count: number
   first_message: string
+  runtime_kind: "pi" | "pi-client"
+  runtime_profile_id: string
+  migrated_from_session_id: string | null
   project_path?: string
   project_name?: string
 }
@@ -52,7 +55,8 @@ interface SearchRow {
 
 interface RuntimeTargetRow {
   id: string
-  runtime_kind: "pi"
+  project_id: string
+  runtime_kind: "pi" | "pi-client"
   runtime_profile_id: string
   native_session_id: string
   native_session_file: string
@@ -64,6 +68,12 @@ interface SessionIdentityRow {
   project_id: string
   native_session_id: string
   native_session_file: string
+}
+
+interface ProjectRuntimeRow {
+  id: string
+  canonical_path: string
+  default_runtime_profile_id: string | null
 }
 
 function projectSummary(row: ProjectRow): ProjectSummary {
@@ -87,6 +97,9 @@ function sessionSummary(row: SessionRow): SessionSummary {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     messageCount: row.message_count,
+    runtimeKind: row.runtime_kind,
+    runtimeProfileId: row.runtime_profile_id,
+    migratedFromSessionId: row.migrated_from_session_id,
   }
 }
 
@@ -108,7 +121,8 @@ export async function listWorkspaceProjects(): Promise<WorkspaceProject[]> {
     .prepare(
       `SELECT id, project_id, native_session_id, native_session_file,
               parent_session_file, title, created_at, updated_at,
-              message_count, first_message
+              message_count, first_message, runtime_kind,
+              runtime_profile_id, migrated_from_session_id
        FROM sessions
        ORDER BY updated_at DESC`
     )
@@ -151,7 +165,8 @@ export async function listProjectSessions(projectId: string) {
       .prepare(
         `SELECT id, project_id, native_session_id, native_session_file,
                 parent_session_file, title, created_at, updated_at,
-                message_count, first_message
+                message_count, first_message, runtime_kind,
+                runtime_profile_id, migrated_from_session_id
          FROM sessions
          WHERE project_id = ?
          ORDER BY updated_at DESC`
@@ -168,7 +183,9 @@ export async function getSessionSnapshot(sessionId: string) {
       `SELECT sessions.id, project_id, native_session_id,
               native_session_file, parent_session_file, title,
               sessions.created_at, sessions.updated_at, message_count,
-              first_message, projects.canonical_path AS project_path,
+              first_message, runtime_kind, runtime_profile_id,
+              migrated_from_session_id,
+              projects.canonical_path AS project_path,
               projects.display_name AS project_name
        FROM sessions
        JOIN projects ON projects.id = sessions.project_id
@@ -217,7 +234,7 @@ export async function getSessionRuntimeTarget(sessionId: string) {
   const database = await getDatabase()
   const row = database
     .prepare(
-      `SELECT sessions.id, runtime_kind, runtime_profile_id,
+      `SELECT sessions.id, project_id, runtime_kind, runtime_profile_id,
               native_session_id, native_session_file,
               projects.canonical_path AS project_path
        FROM sessions
@@ -228,11 +245,49 @@ export async function getSessionRuntimeTarget(sessionId: string) {
   if (!row) return null
   return {
     webSessionId: row.id,
+    projectId: row.project_id,
     runtimeKind: row.runtime_kind,
     runtimeProfileId: row.runtime_profile_id,
     nativeSessionId: row.native_session_id,
     nativeSessionFile: row.native_session_file,
     cwd: row.project_path,
+  }
+}
+
+export async function getProjectRuntimeTarget(projectId: string) {
+  await syncPiSessionIndex()
+  const database = await getDatabase()
+  const row = database
+    .prepare(
+      `SELECT id, canonical_path, default_runtime_profile_id
+       FROM projects WHERE id = ?`
+    )
+    .get(projectId) as unknown as ProjectRuntimeRow | undefined
+  return row
+    ? {
+        projectId: row.id,
+        cwd: row.canonical_path,
+        defaultRuntimeProfileId: row.default_runtime_profile_id,
+      }
+    : null
+}
+
+export async function bindSessionRuntime(
+  sessionId: string,
+  runtimeKind: "pi" | "pi-client",
+  runtimeProfileId: string,
+  migratedFromSessionId: string | null = null
+) {
+  const database = await getDatabase()
+  const result = database
+    .prepare(
+      `UPDATE sessions
+       SET runtime_kind = ?, runtime_profile_id = ?, migrated_from_session_id = ?
+       WHERE id = ?`
+    )
+    .run(runtimeKind, runtimeProfileId, migratedFromSessionId, sessionId)
+  if (result.changes !== 1) {
+    throw new Error(`Cannot bind missing Web session ${sessionId}.`)
   }
 }
 

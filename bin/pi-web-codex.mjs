@@ -241,6 +241,14 @@ async function main() {
         "dist",
         "worker.mjs"
       ),
+      PI_WEB_CODEX_PI_CLIENT_WORKER_PATH: path.join(
+        packageRoot,
+        "dist",
+        "workers",
+        "pi-client",
+        "dist",
+        "worker.mjs"
+      ),
     },
     stdio: "inherit",
   })

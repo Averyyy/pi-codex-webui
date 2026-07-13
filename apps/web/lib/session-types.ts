@@ -16,6 +16,9 @@ export interface SessionSummary {
   createdAt: string
   updatedAt: string
   messageCount: number
+  runtimeKind: "pi" | "pi-client"
+  runtimeProfileId: string
+  migratedFromSessionId: string | null
 }
 
 export interface WorkspaceProject extends ProjectSummary {

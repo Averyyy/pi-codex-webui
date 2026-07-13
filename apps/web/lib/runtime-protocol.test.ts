@@ -36,6 +36,33 @@ test("IPC schemas reject uncorrelated requests and responses", () => {
   )
 })
 
+test("runtime initialization declares resume, new, or duplicate explicitly", () => {
+  const base = {
+    type: "runtime.initialize",
+    requestId: "request-1",
+    payload: {
+      webSessionId: "web-1",
+      runtimeProfileId: "pi-client-default",
+      cwd: "/tmp/project",
+      agentDir: "/tmp/agent",
+    },
+  }
+  assert.equal(
+    hostToWorkerMessageSchema.parse({
+      ...base,
+      payload: { ...base.payload, target: { mode: "new" } },
+    }).type,
+    "runtime.initialize"
+  )
+  assert.equal(
+    hostToWorkerMessageSchema.safeParse({
+      ...base,
+      payload: { ...base.payload, nativeSessionFile: "/tmp/session.jsonl" },
+    }).success,
+    false
+  )
+})
+
 test("prompt acceptance records whether Pi queued the message", () => {
   assert.deepEqual(
     promptAcceptedSchema.parse({ accepted: true, queued: true }),

@@ -718,6 +718,7 @@ Pi 为默认选项。
       "default": "pi",
       "profiles": {
         "pi": {
+          "kind": "pi",
           "enabled": true
         },
         "pi-client-default": {
@@ -921,8 +922,8 @@ Pi extensions 拥有本地用户权限，可以：
 ## 9.2 Worker 类型
 
 ```text
-dist/workers/pi-worker.mjs
-dist/workers/pi-client-worker.mjs
+dist/workers/pi/dist/worker.mjs
+dist/workers/pi-client/dist/worker.mjs
 ```
 
 每个 active session 默认对应一个 worker。

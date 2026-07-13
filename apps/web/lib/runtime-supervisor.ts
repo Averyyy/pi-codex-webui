@@ -33,13 +33,23 @@ import {
   type WorkerToHostMessage,
 } from "@workspace/runtime-protocol"
 
-import { getPiAgentDir, getPiWorkerPath, getAppPaths } from "@/lib/app-paths"
 import {
+  getAppPaths,
+  getPiAgentDir,
+  getPiClientWorkerPath,
+  getPiWorkerPath,
+} from "@/lib/app-paths"
+import {
+  bindSessionRuntime,
   getSessionIdentityByNativeFile,
   getSessionRuntimeTarget,
 } from "@/lib/catalog"
 import { getEventHub, type EventHub } from "@/lib/event-hub"
 import { RuntimeRequestError } from "@/lib/runtime-error"
+import {
+  resolveNewSessionRuntime,
+  runtimeWorkerCredentials,
+} from "@/lib/runtime-profiles"
 
 export interface RuntimeState {
   status: RuntimeStatus
@@ -54,12 +64,13 @@ interface PendingRequest {
 
 interface ManagedRuntime {
   webSessionId: string
+  runtimeKind: "pi" | "pi-client"
   runtimeProfileId: string
   nativeSessionId: string
   nativeSessionFile: string
   cwd: string
   child: ChildProcess
-  lockPath: string
+  lockPath: string | null
   status: RuntimeStatus
   snapshot: RuntimeSnapshot | null
   pending: Map<string, PendingRequest>
@@ -81,6 +92,11 @@ type SessionReplacementMessage = Extract<
     type: "session.new" | "session.clone" | "session.fork" | "session.import"
   }
 >
+
+type RuntimeInitializeTarget = Extract<
+  HostToWorkerMessage,
+  { type: "runtime.initialize" }
+>["payload"]["target"]
 
 type ResourceRequestMessage = Extract<
   HostToWorkerMessage,
@@ -136,11 +152,24 @@ function processIsAlive(pid: number) {
   }
 }
 
-function workerEnvironment() {
+type WorkerCredentials = Awaited<ReturnType<typeof runtimeWorkerCredentials>>
+
+function workerEnvironment(
+  credentials: WorkerCredentials = { kind: "pi" },
+  agentDir = getPiAgentDir()
+) {
   const environment = { ...process.env }
+  environment.PI_CODING_AGENT_DIR = agentDir
   delete environment.PI_SERVER_MODE
   delete environment.PI_SERVER_URL
   delete environment.PI_SERVER_AUTH_TOKEN
+  if (credentials.kind === "pi-client") {
+    environment.PI_SERVER_MODE = "true"
+    environment.PI_SERVER_URL = credentials.serverUrl
+    if (credentials.authToken) {
+      environment.PI_SERVER_AUTH_TOKEN = credentials.authToken
+    }
+  }
   return environment
 }
 
@@ -163,7 +192,7 @@ export class RuntimeSupervisor {
       clearInterval(this.idleTimer)
       for (const runtime of this.runtimes.values()) {
         runtime.child.kill("SIGTERM")
-        rmSync(runtime.lockPath, { force: true })
+        if (runtime.lockPath) rmSync(runtime.lockPath, { force: true })
       }
     })
   }
@@ -397,13 +426,31 @@ export class RuntimeSupervisor {
     return result
   }
 
-  newSession(sessionId: string) {
-    return this.replaceRuntimeSession(sessionId, (nextWebSessionId) => ({
-      type: "session.new",
-      requestId: requestId(),
-      sessionId,
-      payload: { nextWebSessionId },
-    }))
+  async createSession(projectId: string, explicitRuntimeProfileId?: string) {
+    const target = await resolveNewSessionRuntime(
+      projectId,
+      explicitRuntimeProfileId
+    )
+    return this.launchUnboundRuntime(target, { mode: "new" }, null)
+  }
+
+  async duplicateIntoRuntime(sessionId: string, runtimeProfileId: string) {
+    const source = await getSessionRuntimeTarget(sessionId)
+    if (!source) {
+      throw new RuntimeRequestError("SessionNotFound", "Session not found.")
+    }
+    const target = await resolveNewSessionRuntime(
+      source.projectId,
+      runtimeProfileId
+    )
+    return this.launchUnboundRuntime(
+      target,
+      {
+        mode: "duplicate",
+        sourceSessionFile: await realpath(source.nativeSessionFile),
+      },
+      sessionId
+    )
   }
 
   clone(sessionId: string) {
@@ -665,6 +712,11 @@ export class RuntimeSupervisor {
           "The indexed Pi session does not match the replacement runtime."
         )
       }
+      await bindSessionRuntime(
+        identity.id,
+        runtime.runtimeKind,
+        runtime.runtimeProfileId
+      )
 
       let snapshot = result.snapshot
       if (identity.id !== provisionalWebSessionId) {
@@ -684,6 +736,9 @@ export class RuntimeSupervisor {
         nativeSessionFile: identity.nativeSessionFile,
       })
       const previousLockPath = runtime.lockPath
+      if (!previousLockPath) {
+        throw new Error("Active runtime is missing its session lock.")
+      }
       const previousWebSessionId = runtime.webSessionId
       await rm(previousLockPath, { force: true })
       this.runtimes.delete(previousWebSessionId)
@@ -720,6 +775,151 @@ export class RuntimeSupervisor {
     }
   }
 
+  private async launchUnboundRuntime(
+    target: {
+      projectId: string
+      cwd: string
+      profileId: string
+      runtimeKind: "pi" | "pi-client"
+    },
+    initializationTarget: RuntimeInitializeTarget,
+    migratedFromSessionId: string | null
+  ) {
+    if (!target.cwd) {
+      throw new RuntimeRequestError(
+        "SessionCwdMissing",
+        "The project does not record a working directory."
+      )
+    }
+    const cwdStats = await stat(target.cwd)
+    if (!cwdStats.isDirectory()) {
+      throw new RuntimeRequestError(
+        "SessionCwdInvalid",
+        `The project working directory is not a directory: ${target.cwd}`
+      )
+    }
+
+    const credentials = await runtimeWorkerCredentials(target.profileId)
+    if (credentials.kind !== target.runtimeKind) {
+      throw new RuntimeRequestError(
+        "RuntimeProfileMismatch",
+        `Runtime profile ${target.profileId} changed while creating the session.`
+      )
+    }
+    const workerPath = await realpath(
+      credentials.kind === "pi-client"
+        ? getPiClientWorkerPath()
+        : getPiWorkerPath()
+    )
+    await access(workerPath)
+
+    const provisionalWebSessionId = randomUUID()
+    const child = fork(workerPath, [], {
+      cwd: target.cwd,
+      env: workerEnvironment(credentials),
+      execArgv: [],
+      stdio: ["ignore", "pipe", "pipe", "ipc"],
+    })
+    const managed: ManagedRuntime = {
+      webSessionId: provisionalWebSessionId,
+      runtimeKind: target.runtimeKind,
+      runtimeProfileId: target.profileId,
+      nativeSessionId: "",
+      nativeSessionFile: "",
+      cwd: target.cwd,
+      child,
+      lockPath: null,
+      status: "starting",
+      snapshot: null,
+      pending: new Map(),
+      lastActivityAt: Date.now(),
+      cleaned: false,
+      pendingResourceReload: false,
+    }
+    this.runtimes.set(provisionalWebSessionId, managed)
+    this.bindChild(managed)
+    this.eventHub.publish({
+      type: "runtime.starting",
+      sessionId: provisionalWebSessionId,
+      payload: {},
+    })
+
+    try {
+      let snapshot = runtimeSnapshotSchema.parse(
+        await this.request(managed, {
+          type: "runtime.initialize",
+          requestId: requestId(),
+          payload: {
+            webSessionId: provisionalWebSessionId,
+            runtimeProfileId: target.profileId,
+            cwd: target.cwd,
+            agentDir: getPiAgentDir(),
+            target: initializationTarget,
+          },
+        })
+      )
+      const identity = await getSessionIdentityByNativeFile(
+        snapshot.nativeSessionFile
+      )
+      if (!identity || identity.nativeSessionId !== snapshot.nativeSessionId) {
+        throw new RuntimeRequestError(
+          "SessionIndexFailed",
+          "The new runtime session was not indexed with the expected identity."
+        )
+      }
+      if (identity.projectId !== target.projectId) {
+        throw new RuntimeRequestError(
+          "SessionProjectMismatch",
+          "The new runtime session belongs to a different project."
+        )
+      }
+      await bindSessionRuntime(
+        identity.id,
+        target.runtimeKind,
+        target.profileId,
+        migratedFromSessionId
+      )
+
+      if (identity.id !== provisionalWebSessionId) {
+        snapshot = runtimeSnapshotSchema.parse(
+          await this.request(managed, {
+            type: "runtime.rebind-web-session",
+            requestId: requestId(),
+            payload: { webSessionId: identity.id },
+          })
+        )
+      }
+      managed.lockPath = await this.acquireSessionLock({
+        webSessionId: identity.id,
+        runtimeProfileId: target.profileId,
+        nativeSessionId: identity.nativeSessionId,
+        nativeSessionFile: identity.nativeSessionFile,
+      })
+      this.runtimes.delete(provisionalWebSessionId)
+      managed.webSessionId = identity.id
+      managed.nativeSessionId = identity.nativeSessionId
+      managed.nativeSessionFile = identity.nativeSessionFile
+      managed.snapshot = snapshot
+      managed.status = "ready"
+      this.runtimes.set(identity.id, managed)
+      this.eventHub.publish({
+        type: "runtime.ready",
+        sessionId: identity.id,
+        payload: snapshot,
+      })
+      return {
+        projectId: identity.projectId,
+        sessionId: identity.id,
+        snapshot,
+      }
+    } catch (error) {
+      managed.status = "stopping"
+      managed.child.kill("SIGTERM")
+      await this.cleanup(managed)
+      throw error
+    }
+  }
+
   private async startRuntime(sessionId: string) {
     const target = await getSessionRuntimeTarget(sessionId)
     if (!target) {
@@ -742,8 +942,19 @@ export class RuntimeSupervisor {
       )
     }
 
+    const credentials = await runtimeWorkerCredentials(target.runtimeProfileId)
+    if (credentials.kind !== target.runtimeKind) {
+      throw new RuntimeRequestError(
+        "RuntimeProfileMismatch",
+        `Session runtime binding does not match profile ${target.runtimeProfileId}.`
+      )
+    }
     const [workerPath, nativeSessionFile] = await Promise.all([
-      realpath(getPiWorkerPath()),
+      realpath(
+        credentials.kind === "pi-client"
+          ? getPiClientWorkerPath()
+          : getPiWorkerPath()
+      ),
       realpath(target.nativeSessionFile),
     ])
     await access(workerPath)
@@ -756,12 +967,13 @@ export class RuntimeSupervisor {
 
     const child = fork(workerPath, [], {
       cwd: target.cwd,
-      env: workerEnvironment(),
+      env: workerEnvironment(credentials),
       execArgv: [],
       stdio: ["ignore", "pipe", "pipe", "ipc"],
     })
     const managed: ManagedRuntime = {
       webSessionId: sessionId,
+      runtimeKind: target.runtimeKind,
       runtimeProfileId: target.runtimeProfileId,
       nativeSessionId: target.nativeSessionId,
       nativeSessionFile,
@@ -793,7 +1005,7 @@ export class RuntimeSupervisor {
             runtimeProfileId: target.runtimeProfileId,
             cwd: target.cwd,
             agentDir: getPiAgentDir(),
-            nativeSessionFile,
+            target: { mode: "resume", nativeSessionFile },
           },
         })
       )
@@ -1171,7 +1383,7 @@ export class RuntimeSupervisor {
     if (this.runtimes.get(runtime.webSessionId) === runtime) {
       this.runtimes.delete(runtime.webSessionId)
     }
-    await rm(runtime.lockPath, { force: true })
+    if (runtime.lockPath) await rm(runtime.lockPath, { force: true })
   }
 
   private async acquireSessionLock(target: {

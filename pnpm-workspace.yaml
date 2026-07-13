@@ -12,3 +12,7 @@ allowBuilds:
 
 minimumReleaseAgeExclude:
   - tsx@4.23.1
+  - '@averyyy/pi-agent-core@0.80.6-piclient.7'
+  - '@averyyy/pi-ai@0.80.6-piclient.7'
+  - '@averyyy/pi-coding-agent@0.80.6-piclient.7'
+  - '@averyyy/pi-tui@0.80.6-piclient.7'

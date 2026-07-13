@@ -13,6 +13,7 @@ import {
   MoreHorizontalIcon,
   PencilIcon,
   PlusIcon,
+  Repeat2Icon,
 } from "lucide-react"
 import { toast } from "sonner"
 
@@ -44,7 +45,7 @@ import {
 import { Switch } from "@workspace/ui/components/switch"
 import type { SessionStats, SessionTree } from "@workspace/runtime-protocol"
 
-type DialogKind = "rename" | "fork" | "tree" | "stats" | "import"
+type DialogKind = "rename" | "fork" | "tree" | "stats" | "import" | "runtime"
 
 interface ReplacementResult {
   projectId: string
@@ -72,11 +73,15 @@ export function SessionOperations({
   projectId,
   title,
   mutationToken,
+  runtimeProfileId,
+  runtimeProfiles,
 }: {
   sessionId: string
   projectId: string
   title: string
   mutationToken: string
+  runtimeProfileId: string
+  runtimeProfiles: Array<{ id: string; label: string }>
 }) {
   const router = useRouter()
   const [dialog, setDialog] = useState<DialogKind | null>(null)
@@ -86,6 +91,12 @@ export function SessionOperations({
   const [selectedEntryId, setSelectedEntryId] = useState("")
   const [summarize, setSummarize] = useState(false)
   const [file, setFile] = useState<File | null>(null)
+  const runtimeTargets = runtimeProfiles.filter(
+    (profile) => profile.id !== runtimeProfileId
+  )
+  const [selectedRuntimeProfileId, setSelectedRuntimeProfileId] = useState(
+    runtimeTargets[0]?.id ?? ""
+  )
   const [working, setWorking] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -203,6 +214,18 @@ export function SessionOperations({
     })
   }
 
+  async function duplicateIntoRuntime() {
+    if (!selectedRuntimeProfileId) return
+    await run(async () => {
+      navigateTo(
+        await mutate<ReplacementResult>(
+          `/api/v1/sessions/${sessionId}/duplicate-runtime`,
+          { runtimeProfileId: selectedRuntimeProfileId }
+        )
+      )
+    })
+  }
+
   async function fork() {
     if (!selectedEntryId) return
     await run(async () => {
@@ -291,6 +314,11 @@ export function SessionOperations({
           <DropdownMenuItem onSelect={clone}>
             <CopyIcon /> Clone 当前分支
           </DropdownMenuItem>
+          {runtimeTargets.length ? (
+            <DropdownMenuItem onSelect={() => setDialog("runtime")}>
+              <Repeat2Icon /> Duplicate into runtime
+            </DropdownMenuItem>
+          ) : null}
           <DropdownMenuItem onSelect={() => void openTree("fork")}>
             <GitForkIcon /> Fork
           </DropdownMenuItem>
@@ -441,6 +469,43 @@ export function SessionOperations({
                   ) : null}
                 </dl>
               ) : null}
+            </div>
+          ) : null}
+
+          {dialog === "runtime" ? (
+            <div className="grid gap-5">
+              <DialogHeader>
+                <DialogTitle>Duplicate into selected runtime</DialogTitle>
+                <DialogDescription>
+                  复制当前分支并绑定到目标 runtime；原 session 与绑定保持不变。
+                </DialogDescription>
+              </DialogHeader>
+              <Select
+                value={selectedRuntimeProfileId}
+                onValueChange={setSelectedRuntimeProfileId}
+              >
+                <SelectTrigger className="w-full" aria-label="目标 runtime">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {runtimeTargets.map((profile) => (
+                    <SelectItem key={profile.id} value={profile.id}>
+                      {profile.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <DialogFooter>
+                <Button
+                  onClick={duplicateIntoRuntime}
+                  disabled={working || !selectedRuntimeProfileId}
+                >
+                  {working ? (
+                    <LoaderCircleIcon className="animate-spin" />
+                  ) : null}
+                  创建副本
+                </Button>
+              </DialogFooter>
             </div>
           ) : null}
 

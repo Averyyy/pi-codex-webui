@@ -60,20 +60,20 @@ if (await exists(publicRoot)) {
 const pnpmEntrypoint = process.env.npm_execpath
 if (!pnpmEntrypoint)
   throw new Error("npm_execpath is required to deploy workers.")
-const workerRoot = path.join(root, "dist", "workers", "pi")
-await run(
-  process.execPath,
-  [
-    pnpmEntrypoint,
-    "--filter",
-    "@workspace/worker-pi",
-    "deploy",
-    "--prod",
-    workerRoot,
-  ],
-  { cwd: root }
-)
-await removeTypeScript(workerRoot)
+async function deployWorker(packageName, directory) {
+  const workerRoot = path.join(root, "dist", "workers", directory)
+  await run(
+    process.execPath,
+    [pnpmEntrypoint, "--filter", packageName, "deploy", "--prod", workerRoot],
+    { cwd: root }
+  )
+  await removeTypeScript(workerRoot)
+}
+
+await Promise.all([
+  deployWorker("@workspace/worker-pi", "pi"),
+  deployWorker("@workspace/worker-pi-client", "pi-client"),
+])
 
 const leakedSource = (await sourceFiles(path.join(root, "dist"))).find((file) =>
   /\.tsx?$/.test(file)

@@ -179,7 +179,7 @@ function replaceSession(
            title, created_at, updated_at, message_count, first_message,
            file_mtime_ns, indexed_size, indexed_lines, ends_with_newline,
            content_hash, last_entry_id
-         ) VALUES (?, ?, 'pi', 'pi-default', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ) VALUES (?, ?, 'pi', 'pi', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(native_session_file) DO UPDATE SET
            project_id = excluded.project_id,
            native_session_id = excluded.native_session_id,
