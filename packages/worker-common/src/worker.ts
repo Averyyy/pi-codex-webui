@@ -5,8 +5,10 @@ import type {
   AgentSessionEvent,
   AgentSessionRuntime,
   ExtensionUIContext,
+  KeybindingsManager,
   SessionManager,
 } from "@earendil-works/pi-coding-agent"
+import type { EditorComponent, EditorTheme } from "@earendil-works/pi-tui"
 import {
   hostToWorkerMessageSchema,
   type ExtensionUIRequest,
@@ -24,15 +26,22 @@ import {
   projectTrustedForWeb,
 } from "./resources.js"
 import { createSettingsManager } from "./settings.js"
-import type { CodingAgentModule } from "./coding-agent.js"
+import type { CodingAgentModule, TuiModule } from "./coding-agent.js"
 import { createMcpToolDefinitions } from "./mcp.js"
+import { createFooterData, TuiSurfaceManager } from "./tui-surfaces.js"
 
 let codingAgent: CodingAgentModule
+let tuiModule: TuiModule
 let runtime: AgentSessionRuntime | undefined
 let webSessionId: string | undefined
 let nativeSessionFile: string | undefined
 let unsubscribe: (() => void) | undefined
 let eventSequence = 0
+let surfaceManager: TuiSurfaceManager | undefined
+let editorComponentFactory: Parameters<
+  ExtensionUIContext["setEditorComponent"]
+>[0]
+const extensionStatuses = new Map<string, string>()
 const pendingExtensionRequests = new Map<
   string,
   (response: ExtensionUIResponse) => void
@@ -183,6 +192,58 @@ function emitExtensionUI(requestId: string, payload: ExtensionUIRequest) {
   })
 }
 
+function currentTheme() {
+  codingAgent.initTheme(currentRuntime().services.settingsManager.getTheme())
+  const value = (globalThis as typeof globalThis & { [key: symbol]: unknown })[
+    Symbol.for("@earendil-works/pi-coding-agent:theme")
+  ]
+  if (!value) throw new Error("Pi did not initialize its TUI theme.")
+  return value as ExtensionUIContext["theme"]
+}
+
+function currentSurfaceManager() {
+  if (!surfaceManager) throw new Error("Pi TUI surfaces are not initialized.")
+  return surfaceManager
+}
+
+function createEditorTheme(theme: ExtensionUIContext["theme"]): EditorTheme {
+  return {
+    borderColor: (text) => theme.fg("borderMuted", text),
+    selectList: codingAgent.getSelectListTheme(),
+  }
+}
+
+function resetSurfaceManager() {
+  surfaceManager?.dispose()
+  extensionStatuses.clear()
+  editorComponentFactory = undefined
+  const session = currentRuntime().session
+  const theme = currentTheme()
+  surfaceManager = new TuiSurfaceManager(
+    tuiModule,
+    theme,
+    tuiModule.getKeybindings() as unknown as KeybindingsManager,
+    createFooterData(
+      currentRuntime().cwd,
+      extensionStatuses,
+      () =>
+        new Set(
+          session.modelRegistry.getAvailable().map((model) => model.provider)
+        ).size
+    ),
+    (event) => {
+      if (!webSessionId) {
+        throw new Error("Pi runtime identity is not initialized.")
+      }
+      send({
+        type: "tui.surface.event",
+        sessionId: webSessionId,
+        payload: event,
+      })
+    }
+  )
+}
+
 function createDialogPromise<T>(
   options: { signal?: AbortSignal; timeout?: number } | undefined,
   defaultValue: T,
@@ -217,6 +278,7 @@ function createDialogPromise<T>(
 function createExtensionUIContext() {
   const emit = (payload: ExtensionUIRequest) =>
     emitExtensionUI(randomUUID(), payload)
+  const theme = currentTheme()
   return {
     select: (
       title: string,
@@ -265,37 +327,87 @@ function createExtensionUIContext() {
       ),
     notify: (message: string, notifyType?: "info" | "warning" | "error") =>
       emit({ method: "notify", message, notifyType }),
-    setStatus: (statusKey: string, statusText: string | undefined) =>
-      emit({ method: "setStatus", statusKey, statusText }),
+    setStatus: (statusKey: string, statusText: string | undefined) => {
+      if (statusText === undefined) extensionStatuses.delete(statusKey)
+      else extensionStatuses.set(statusKey, statusText)
+      currentSurfaceManager().requestRender("footer")
+      emit({ method: "setStatus", statusKey, statusText })
+    },
     setWidget: (
       widgetKey: string,
       content: unknown,
       options?: { placement?: "aboveEditor" | "belowEditor" }
     ) => {
+      const slot = `widget:${widgetKey}`
       if (content === undefined || Array.isArray(content)) {
+        currentSurfaceManager().remove(slot)
         emit({
           method: "setWidget",
           widgetKey,
           widgetLines: content,
           widgetPlacement: options?.placement,
         })
+      } else if (typeof content === "function") {
+        emit({ method: "setWidget", widgetKey })
+        currentSurfaceManager().set(
+          slot,
+          "inline",
+          options?.placement ?? "aboveEditor",
+          (tui) => content(tui, theme)
+        )
+      } else {
+        throw new TypeError(
+          "Pi widgets must be line arrays or component factories."
+        )
       }
     },
-    setEditorText: (text: string) => emit({ method: "set_editor_text", text }),
-    pasteToEditor: (text: string) => emit({ method: "set_editor_text", text }),
-    getEditorText: () => "",
-    onTerminalInput: () => () => {},
+    setEditorText: (text: string) => {
+      const editor =
+        currentSurfaceManager().component<EditorComponent>("editor")
+      if (editor) {
+        editor.setText(text)
+        currentSurfaceManager().requestRender("editor")
+      } else emit({ method: "set_editor_text", text })
+    },
+    pasteToEditor: (text: string) => {
+      const editor =
+        currentSurfaceManager().component<EditorComponent>("editor")
+      if (editor) editor.handleInput(`\x1b[200~${text}\x1b[201~`)
+      else emit({ method: "set_editor_text", text })
+    },
+    getEditorText: () =>
+      currentSurfaceManager().component<EditorComponent>("editor")?.getText() ??
+      "",
+    onTerminalInput: (handler) => currentSurfaceManager().onInput(handler),
     setWorkingMessage: () => {},
     setWorkingVisible: () => {},
     setWorkingIndicator: () => {},
     setHiddenThinkingLabel: () => {},
-    setFooter: () => {},
-    setHeader: () => {},
-    setTitle: () => {},
-    custom: async () => undefined,
+    setFooter: (factory) => {
+      if (factory) currentSurfaceManager().setFooter(factory)
+      else currentSurfaceManager().remove("footer")
+    },
+    setHeader: (factory) => {
+      if (factory) {
+        currentSurfaceManager().set("header", "inline", "header", (tui) =>
+          factory(tui, theme)
+        )
+      } else currentSurfaceManager().remove("header")
+    },
+    setTitle: (title: string) => emit({ method: "set_title", title }),
+    custom: (factory, options) =>
+      currentSurfaceManager().custom(factory, options),
     addAutocompleteProvider: () => {},
-    setEditorComponent: () => {},
-    getEditorComponent: () => undefined,
+    setEditorComponent: (factory) => {
+      editorComponentFactory = factory
+      if (factory) {
+        currentSurfaceManager().setEditor(factory, createEditorTheme(theme))
+      } else currentSurfaceManager().remove("editor")
+    },
+    getEditorComponent: () => editorComponentFactory,
+    get theme() {
+      return theme
+    },
     getAllThemes: () => [],
     getTheme: () => undefined,
     setTheme: () => ({
@@ -304,10 +416,11 @@ function createExtensionUIContext() {
     }),
     getToolsExpanded: () => false,
     setToolsExpanded: () => {},
-  } as unknown as ExtensionUIContext
+  } as ExtensionUIContext
 }
 
 async function bindSession(session: AgentSession) {
+  resetSurfaceManager()
   await session.bindExtensions({
     uiContext: createExtensionUIContext(),
     mode: "rpc",
@@ -454,6 +567,8 @@ async function initialize(
 
 async function shutdown() {
   unsubscribe?.()
+  surfaceManager?.dispose()
+  surfaceManager = undefined
   for (const resolve of pendingExtensionRequests.values()) {
     resolve({ cancelled: true })
   }
@@ -592,6 +707,17 @@ async function dispatch(message: HostToWorkerMessage) {
     )
     await session.reload()
     respond(message.requestId, { success: true, data: snapshot(session) })
+  } else if (message.type === "tui.surface.list") {
+    respond(message.requestId, {
+      success: true,
+      data: await currentSurfaceManager().snapshots(),
+    })
+  } else if (message.type === "tui.surface.action") {
+    currentSurfaceManager().action(
+      message.payload.surfaceId,
+      message.payload.action
+    )
+    respond(message.requestId, { success: true })
   } else if (message.type === "session.prompt") {
     await prompt(message)
   } else if (message.type === "session.abort") {
@@ -692,8 +818,12 @@ async function dispatch(message: HostToWorkerMessage) {
   }
 }
 
-export function startWorker(agentModule: CodingAgentModule) {
+export function startWorker(
+  agentModule: CodingAgentModule,
+  terminalModule: TuiModule
+) {
   codingAgent = agentModule
+  tuiModule = terminalModule
 
   process.on("message", (raw: unknown) => {
     const parsed = hostToWorkerMessageSchema.safeParse(raw)

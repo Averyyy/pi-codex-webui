@@ -1317,42 +1317,42 @@ extension identity
 
 ## 12.3 TUI-only Extension 功能
 
-不能承诺自动把任意 TUI component 转换成 React。
+任意 TUI component 不会被自动转换成 React，也不会从字符输出中猜测
+button、list、form 等语义。兼容层保留组件原有的 `render()` 与
+`handleInput()` 行为。
 
-例如：
+Extension UI 分成三层：
 
-- `ctx.ui.custom()`
-- custom footer
-- custom header
-- custom editor component
-- raw terminal input listener
-- TUI tool renderer
-- TUI theme component
+1. 有稳定 Web 语义的 API 使用原生 Web 组件，例如 `select()`、`confirm()`、
+   `input()`、`editor()`、通知、状态和 string-array widget。
+2. 需要原生 Web 专属能力时，可以在未来增加显式、声明式 Web
+   Contribution；当前没有具体 consumer，因此不先增加空 manifest 或假 UI。
+3. 其余通过 Extension UI Context 暴露的组件 API 使用 Virtual TUI fallback：
+   `custom()`、component `setWidget()`、`setFooter()`、`setHeader()`、
+   `setEditorComponent()` 和 raw terminal input listener。
 
-这些需要 `pi-web-codex` Web Contribution API。
+Virtual TUI 的执行边界：
 
-示例：
+- 真实 Pi `TUI` 和 extension component 继续运行在对应 SDK Worker。
+- Worker 内的 virtual terminal 维护 columns、rows、ANSI screen state、title、
+  progress、input 和 resize。
+- Worker 通过版本化 `tui.surface.*` IPC 向 Host 发送 surface event 和 snapshot。
+- Host 通过 SSE 发送 frame event，通过带本地 mutation token 的 REST 接收
+  ordered input、resize 和 close action。
+- Web 统一复用 `<PiTuiSurface>` 与 xterm.js 显示，不为每个 extension 编写一套
+  React renderer。
 
-```ts
-export interface WebContributionManifest {
-  extensionId: string
+第一版按 8 ms 合并连续键盘输入，并在同一 Promise queue 中保持 input/resize
+顺序。只有 custom dialog/overlay 可以由浏览器主动 close；inline widget、header、
+footer 和 editor 的生命周期仍由 extension 控制。
 
-  toolRenderers?: WebToolRendererContribution[]
-  settingsPages?: WebSettingsContribution[]
-  panels?: WebPanelContribution[]
-  commands?: WebCommandContribution[]
-}
-```
+明确限制：
 
-第一版优先支持 declarative schema。
-
-不允许第三方 extension 直接向主 Next.js 应用注入任意 React 代码。
-
-需要复杂 UI 时使用：
-
-```text
-sandboxed iframe
-```
+- `kittyProtocolActive` 为 false，不承诺终端图片协议。
+- 未通过 Extension UI Context 安装到 TUI 的内部 renderer 不会自动出现于 Web。
+- REST 输入适合交互式 extension；如果以后出现经过测量的高帧率/游戏类需求，
+  再以同一 domain protocol 增加 WebSocket transport。
+- 不允许第三方 extension 向主 Next.js 应用注入任意 React 代码。
 
 并配置严格 CSP。
 
@@ -2600,13 +2600,31 @@ SQLite 只用于应用 metadata 和派生搜索索引。
 
 ### ADR-013：Extension Compatibility
 
-标准 Extension UI 通过 Web UI Context 支持。
+标准 Extension UI 通过 Web UI Context 映射为原生 Web 组件。
 
-任意 TUI component 不自动转换为 React，复杂 UI 使用显式 Web Contribution API。
+任意 TUI component 不自动转换为 React；component API 由 ADR-015 的 Virtual
+TUI 承载，显式 Web Contribution 仅用于真正需要 Web 专属语义的功能。
 
 ### ADR-014：固定端口失败策略
 
 端口冲突时明确失败，不自动选择下一个端口。
+
+### ADR-015：真实 Pi TUI 的 Virtual Terminal 兼容层
+
+决定：Worker 保持真实 Pi `TUI` 与 component 生命周期，浏览器只承载版本化的
+terminal surface。Web 不解析字符来推断业务语义；可明确映射的标准 API 继续使用
+原生 Web UI，未映射的 component API 使用 Virtual TUI fallback。
+
+理由：component 的状态、focus、keyboard、paste、resize 和 overlay 行为都属于
+Pi TUI runtime。把组件留在 Worker 能保持这些行为，并用一个 `<PiTuiSurface>`
+复用所有兼容 UI；为字符输出编写启发式 React 转换既不完整也无法保持输入语义。
+
+Transport 保持 ADR-005：Worker→Host 用 IPC，Host→Browser 用 SSE，Browser→Host
+第一版用带 mutation token 的 REST action。只有出现经过测量且 REST 无法满足的
+高频输入需求时，才新增 WebSocket transport。
+
+显式 Web Contribution 仍是可选的产品层扩展点，不是 TUI compatibility 的前置
+条件；没有具体 extension contract 和 consumer 时不创建该实体。
 
 ---
 

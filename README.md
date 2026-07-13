@@ -9,8 +9,11 @@ full-text search, plus an isolated Pi SDK worker. Session pages lazily activate
 their worker and expose real prompt streaming, tool events, abort, model,
 thinking, queue, compaction, and retry state. Pi-backed session operations cover
 new, resume, rename, fork, clone, tree navigation, JSONL/HTML export, JSONL
-import, and statistics. Web-compatible extensions can use confirm, select,
-input, editor, notifications, status, widgets, and editor draft updates.
+import, and statistics. Extensions can use native Web confirm, select, input,
+editor, notification, status, and line-widget controls. Component widgets,
+custom dialogs and overlays, headers, footers, raw terminal input, and custom
+editors keep running as real Pi TUI components inside the worker and render in
+the browser through versioned virtual-terminal surfaces.
 Packages, extensions, and skills have dedicated Global/Current Project settings
 pages backed by Pi's real SettingsManager and DefaultPackageManager. Resource
 changes respect Pi project trust, persist atomically, reload idle runtimes

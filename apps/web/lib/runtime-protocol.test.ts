@@ -8,6 +8,8 @@ import {
   promptAcceptedSchema,
   resourceCatalogSchema,
   runtimeStatusSchema,
+  tuiSurfaceActionSchema,
+  tuiSurfaceSnapshotSchema,
   workerToHostMessageSchema,
 } from "@workspace/runtime-protocol"
 
@@ -111,6 +113,46 @@ test("extension UI protocol distinguishes dialogs from notifications", () => {
       method: "setWidget",
       widgetKey: "status",
       widgetLines: "not-an-array",
+    }).success,
+    false
+  )
+})
+
+test("TUI surface protocol bounds snapshots and ordered actions", () => {
+  const snapshot = tuiSurfaceSnapshotSchema.parse({
+    version: 1,
+    surfaceId: "90c47420-c2cd-4280-9524-6e7dc3e6096e",
+    mode: "inline",
+    placement: "aboveEditor",
+    progress: false,
+    columns: 120,
+    rows: 32,
+    revision: 4,
+    data: "\u001b[2Jready",
+  })
+  assert.equal(snapshot.columns, 120)
+  assert.deepEqual(
+    tuiSurfaceActionSchema.parse({ version: 1, action: "input", data: "x" }),
+    {
+      version: 1,
+      action: "input",
+      data: "x",
+    }
+  )
+  assert.equal(
+    tuiSurfaceActionSchema.safeParse({
+      action: "resize",
+      version: 1,
+      columns: 0,
+      rows: 24,
+    }).success,
+    false
+  )
+  assert.equal(
+    tuiSurfaceActionSchema.safeParse({
+      action: "input",
+      version: 1,
+      data: "x".repeat(65_537),
     }).success,
     false
   )

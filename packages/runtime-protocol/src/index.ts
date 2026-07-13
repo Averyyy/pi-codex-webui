@@ -236,6 +236,95 @@ export const extensionUIRequestSchema = z.discriminatedUnion("method", [
     widgetPlacement: z.enum(["aboveEditor", "belowEditor"]).optional(),
   }),
   z.object({ method: z.literal("set_editor_text"), text: z.string() }),
+  z.object({ method: z.literal("set_title"), title: z.string() }),
+])
+
+export const tuiSurfaceModeSchema = z.enum([
+  "inline",
+  "dialog",
+  "overlay",
+  "editor",
+])
+
+export const tuiSurfacePlacementSchema = z.enum([
+  "header",
+  "aboveEditor",
+  "belowEditor",
+  "footer",
+])
+
+export const tuiSurfaceProtocolVersionSchema = z.literal(1)
+
+export const tuiSurfaceSnapshotSchema = z.object({
+  version: tuiSurfaceProtocolVersionSchema,
+  surfaceId: z.uuid(),
+  mode: tuiSurfaceModeSchema,
+  placement: tuiSurfacePlacementSchema.optional(),
+  title: z.string().optional(),
+  progress: z.boolean(),
+  columns: z.number().int().min(20).max(400),
+  rows: z.number().int().min(3).max(200),
+  revision: z.number().int().nonnegative(),
+  data: z.string(),
+})
+
+export const tuiSurfaceSnapshotsSchema = z.array(tuiSurfaceSnapshotSchema)
+
+export const tuiSurfaceEventSchema = z.discriminatedUnion("kind", [
+  z.object({
+    version: tuiSurfaceProtocolVersionSchema,
+    kind: z.literal("open"),
+    surface: tuiSurfaceSnapshotSchema,
+  }),
+  z.object({
+    version: tuiSurfaceProtocolVersionSchema,
+    kind: z.literal("write"),
+    surfaceId: z.uuid(),
+    revision: z.number().int().positive(),
+    data: z.string(),
+  }),
+  z.object({
+    version: tuiSurfaceProtocolVersionSchema,
+    kind: z.literal("title"),
+    surfaceId: z.uuid(),
+    title: z.string(),
+  }),
+  z.object({
+    version: tuiSurfaceProtocolVersionSchema,
+    kind: z.literal("progress"),
+    surfaceId: z.uuid(),
+    active: z.boolean(),
+  }),
+  z.object({
+    version: tuiSurfaceProtocolVersionSchema,
+    kind: z.literal("close"),
+    surfaceId: z.uuid(),
+    value: z.string().optional(),
+  }),
+  z.object({
+    version: tuiSurfaceProtocolVersionSchema,
+    kind: z.literal("submit"),
+    surfaceId: z.uuid(),
+    value: z.string(),
+  }),
+])
+
+export const tuiSurfaceActionSchema = z.discriminatedUnion("action", [
+  z.object({
+    version: tuiSurfaceProtocolVersionSchema,
+    action: z.literal("input"),
+    data: z.string().min(1).max(65_536),
+  }),
+  z.object({
+    version: tuiSurfaceProtocolVersionSchema,
+    action: z.literal("resize"),
+    columns: z.number().int().min(20).max(400),
+    rows: z.number().int().min(3).max(200),
+  }),
+  z.object({
+    version: tuiSurfaceProtocolVersionSchema,
+    action: z.literal("close"),
+  }),
 ])
 
 export const resourceKindSchema = z.enum([
@@ -434,6 +523,22 @@ const extensionUIResponseMessageSchema = z.object({
   }),
 })
 
+const tuiSurfaceListMessageSchema = z.object({
+  type: z.literal("tui.surface.list"),
+  requestId: z.string().min(1),
+  sessionId: z.string().min(1),
+})
+
+const tuiSurfaceActionMessageSchema = z.object({
+  type: z.literal("tui.surface.action"),
+  requestId: z.string().min(1),
+  sessionId: z.string().min(1),
+  payload: z.object({
+    surfaceId: z.uuid(),
+    action: tuiSurfaceActionSchema,
+  }),
+})
+
 const shutdownMessageSchema = z.object({
   type: z.literal("runtime.shutdown"),
   requestId: z.string().min(1),
@@ -526,6 +631,8 @@ export const hostToWorkerMessageSchema = z.discriminatedUnion("type", [
   importMessageSchema,
   rebindWebSessionMessageSchema,
   extensionUIResponseMessageSchema,
+  tuiSurfaceListMessageSchema,
+  tuiSurfaceActionMessageSchema,
   reloadResourcesMessageSchema,
   resourceCatalogMessageSchema,
   resourceToggleMessageSchema,
@@ -585,6 +692,12 @@ const extensionUIRequestMessageSchema = z.object({
   payload: extensionUIRequestSchema,
 })
 
+const tuiSurfaceEventMessageSchema = z.object({
+  type: z.literal("tui.surface.event"),
+  sessionId: z.string().min(1),
+  payload: tuiSurfaceEventSchema,
+})
+
 const mcpCallRequestMessageSchema = z.object({
   type: z.literal("mcp.call.request"),
   requestId: z.string().min(1),
@@ -609,6 +722,7 @@ export const workerToHostMessageSchema = z.discriminatedUnion("type", [
   runtimeLogMessageSchema,
   runtimeFatalMessageSchema,
   extensionUIRequestMessageSchema,
+  tuiSurfaceEventMessageSchema,
   mcpCallRequestMessageSchema,
   mcpCallCancelMessageSchema,
 ])
@@ -634,6 +748,11 @@ export type SessionNavigationResult = z.infer<
 >
 export type ExtensionUIRequest = z.infer<typeof extensionUIRequestSchema>
 export type ExtensionUIResponse = z.infer<typeof extensionUIResponseSchema>
+export type TuiSurfaceMode = z.infer<typeof tuiSurfaceModeSchema>
+export type TuiSurfacePlacement = z.infer<typeof tuiSurfacePlacementSchema>
+export type TuiSurfaceSnapshot = z.infer<typeof tuiSurfaceSnapshotSchema>
+export type TuiSurfaceEvent = z.infer<typeof tuiSurfaceEventSchema>
+export type TuiSurfaceAction = z.infer<typeof tuiSurfaceActionSchema>
 export type ResourceView = z.infer<typeof resourceViewSchema>
 export type PackageView = z.infer<typeof packageViewSchema>
 export type ResourceCatalog = z.infer<typeof resourceCatalogSchema>

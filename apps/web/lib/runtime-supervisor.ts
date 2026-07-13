@@ -23,6 +23,7 @@ import {
   sessionReplacementSchema,
   sessionStatsSchema,
   sessionTreeSchema,
+  tuiSurfaceSnapshotsSchema,
   runtimeSnapshotSchema,
   workerToHostMessageSchema,
   type HostToWorkerMessage,
@@ -583,6 +584,42 @@ export class RuntimeSupervisor {
       requestId: requestId(),
       sessionId,
       payload: { extensionRequestId, response },
+    })
+  }
+
+  async tuiSurfaces(sessionId: string) {
+    const runtime = this.runtimes.get(sessionId)
+    if (!runtime || runtime.cleaned) return []
+    return tuiSurfaceSnapshotsSchema.parse(
+      await this.request(runtime, {
+        type: "tui.surface.list",
+        requestId: requestId(),
+        sessionId,
+      })
+    )
+  }
+
+  async actOnTuiSurface(
+    sessionId: string,
+    surfaceId: string,
+    action: Extract<
+      HostToWorkerMessage,
+      { type: "tui.surface.action" }
+    >["payload"]["action"]
+  ) {
+    const runtime = this.runtimes.get(sessionId)
+    if (!runtime || runtime.cleaned) {
+      throw new RuntimeRequestError(
+        "RuntimeNotActive",
+        "The Pi runtime is not active."
+      )
+    }
+    runtime.lastActivityAt = Date.now()
+    await this.request(runtime, {
+      type: "tui.surface.action",
+      requestId: requestId(),
+      sessionId,
+      payload: { surfaceId, action },
     })
   }
 
@@ -1192,6 +1229,14 @@ export class RuntimeSupervisor {
         type: "extension.ui.request",
         sessionId: runtime.webSessionId,
         payload: { requestId: message.requestId, ...message.payload },
+      })
+      return
+    }
+    if (message.type === "tui.surface.event") {
+      this.eventHub.publish({
+        type: "tui.surface",
+        sessionId: runtime.webSessionId,
+        payload: message.payload,
       })
       return
     }

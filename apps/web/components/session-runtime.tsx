@@ -1,6 +1,12 @@
 "use client"
 
-import { useEffect, useRef, useState, type FormEvent } from "react"
+import {
+  useEffect,
+  useEffectEvent,
+  useRef,
+  useState,
+  type FormEvent,
+} from "react"
 import { useRouter } from "next/navigation"
 import {
   LoaderCircleIcon,
@@ -35,10 +41,18 @@ import type {
   ExtensionUIResponse,
   RuntimeSnapshot,
   RuntimeStatus,
+  TuiSurfaceAction,
+  TuiSurfaceEvent,
+  TuiSurfaceSnapshot,
 } from "@workspace/runtime-protocol"
-import { extensionUIRequestSchema } from "@workspace/runtime-protocol"
+import {
+  extensionUIRequestSchema,
+  tuiSurfaceEventSchema,
+  tuiSurfaceSnapshotsSchema,
+} from "@workspace/runtime-protocol"
 
 import { Markdown } from "@/components/markdown"
+import { PiTuiSurface } from "@/components/pi-tui-surface"
 import { notifyWhenHidden } from "@/lib/browser-notifications"
 
 interface RuntimeEvent {
@@ -87,8 +101,33 @@ const EVENT_TYPES = [
   "retry.start",
   "retry.end",
   "extension.ui.request",
+  "tui.surface",
   "resync.required",
 ]
+
+type PendingSurfaceEvent = Extract<
+  TuiSurfaceEvent,
+  { kind: "write" | "title" | "progress" }
+>
+
+function applySurfaceEvents(
+  surface: TuiSurfaceSnapshot,
+  events: PendingSurfaceEvent[]
+) {
+  return events.reduce((current, event) => {
+    if (event.kind === "write") {
+      return event.revision > current.revision
+        ? {
+            ...current,
+            revision: event.revision,
+            data: current.data + event.data,
+          }
+        : current
+    }
+    if (event.kind === "title") return { ...current, title: event.title }
+    return { ...current, progress: event.active }
+  }, surface)
+}
 
 function messageFromPayload(payload: unknown) {
   if (
@@ -219,19 +258,124 @@ export function SessionRuntime({
       { lines: string[]; placement: "aboveEditor" | "belowEditor" }
     >
   >({})
+  const [tuiSurfaces, setTuiSurfaces] = useState<
+    Record<string, TuiSurfaceSnapshot>
+  >({})
+  const pendingSurfaceEvents = useRef(new Map<string, PendingSurfaceEvent[]>())
+  const closedSurfaces = useRef(new Set<string>())
   const wasBusy = useRef(false)
+
+  async function mutate<T>(
+    path: string,
+    method: "POST" | "PUT",
+    body?: unknown
+  ) {
+    const response = await fetch(path, {
+      method,
+      headers: {
+        ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+        "X-Pi-Web-Codex-Mutation-Token": mutationToken,
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    })
+    const text = await response.text()
+    const result = text ? (JSON.parse(text) as unknown) : null
+    if (!response.ok) {
+      const message =
+        typeof result === "object" &&
+        result !== null &&
+        "error" in result &&
+        typeof result.error === "string"
+          ? result.error
+          : `Pi runtime 操作失败（HTTP ${response.status}）。`
+      throw new Error(message)
+    }
+    if (result === null) throw new Error("Pi runtime 返回了空响应。")
+    return result as T
+  }
+
+  async function sendMessage(rawMessage: string, clearDraft = false) {
+    const message = rawMessage.trim()
+    if (!message || submitting) return
+
+    setSubmitting(true)
+    setError(null)
+    try {
+      await mutate(`/api/v1/sessions/${sessionId}/messages`, "POST", {
+        message,
+        images: [],
+        streamingBehavior,
+      })
+      if (clearDraft) {
+        setDraft((current) => (current.trim() === message ? "" : current))
+      }
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : String(failure))
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const sendTuiMessage = useEffectEvent((message: string) => {
+    void sendMessage(message)
+  })
+
+  const loadTuiSurfaces = useEffectEvent(async () => {
+    const response = await fetch(`/api/v1/sessions/${sessionId}/tui-surfaces`, {
+      cache: "no-store",
+    })
+    if (!response.ok) {
+      throw new Error(`TUI surfaces 同步失败（HTTP ${response.status}）。`)
+    }
+    const snapshots = tuiSurfaceSnapshotsSchema.parse(await response.json())
+    setTuiSurfaces((current) => {
+      const next = { ...current }
+      for (const snapshot of snapshots) {
+        if (closedSurfaces.current.has(snapshot.surfaceId)) continue
+        const existing = current[snapshot.surfaceId]
+        const base =
+          existing && existing.revision >= snapshot.revision
+            ? existing
+            : snapshot
+        const pending = pendingSurfaceEvents.current.get(snapshot.surfaceId)
+        next[snapshot.surfaceId] = pending
+          ? applySurfaceEvents(base, pending)
+          : base
+        pendingSurfaceEvents.current.delete(snapshot.surfaceId)
+      }
+      return next
+    })
+  })
+
+  async function actOnTuiSurface(surfaceId: string, action: TuiSurfaceAction) {
+    await mutate(`/api/v1/tui-surfaces/${surfaceId}`, "POST", {
+      sessionId,
+      action,
+    })
+  }
 
   useEffect(() => {
     const events = new EventSource(`/api/v1/events?sessionId=${sessionId}`)
+    void loadTuiSurfaces().catch((failure: unknown) =>
+      setError(failure instanceof Error ? failure.message : String(failure))
+    )
     const handle = (source: Event) => {
       const event = JSON.parse(
         (source as MessageEvent<string>).data
       ) as RuntimeEvent
-      if (event.type === "runtime.starting") setStatus("starting")
+      if (event.type === "runtime.starting") {
+        setStatus("starting")
+        setTuiSurfaces({})
+        pendingSurfaceEvents.current.clear()
+        closedSurfaces.current.clear()
+      }
       if (event.type === "runtime.ready") {
         setStatus("ready")
         setSnapshot(event.payload as RuntimeSnapshot)
         setError(null)
+        void loadTuiSurfaces().catch((failure: unknown) =>
+          setError(failure instanceof Error ? failure.message : String(failure))
+        )
       }
       if (event.type === "runtime.busy") {
         wasBusy.current = true
@@ -248,10 +392,16 @@ export function SessionRuntime({
       if (event.type === "runtime.stopped") {
         setStatus("stopped")
         setSnapshot(null)
+        setTuiSurfaces({})
+        pendingSurfaceEvents.current.clear()
+        closedSurfaces.current.clear()
       }
       if (event.type === "runtime.crashed") {
         wasBusy.current = false
         setStatus("crashed")
+        setTuiSurfaces({})
+        pendingSurfaceEvents.current.clear()
+        closedSurfaces.current.clear()
         setError("Pi worker 意外退出；历史 JSONL 仍可读取。")
         notifyWhenHidden(
           "Pi Runtime 已崩溃",
@@ -314,6 +464,52 @@ export function SessionRuntime({
         setRetrying(retryDescription(event.payload))
       }
       if (event.type === "retry.end") setRetrying(null)
+      if (event.type === "tui.surface") {
+        const tuiEvent = tuiSurfaceEventSchema.parse(event.payload)
+        if (tuiEvent.kind === "open") {
+          const id = tuiEvent.surface.surfaceId
+          closedSurfaces.current.delete(id)
+          setTuiSurfaces((current) => {
+            const existing = current[id]
+            const base =
+              existing && existing.revision >= tuiEvent.surface.revision
+                ? existing
+                : tuiEvent.surface
+            const pending = pendingSurfaceEvents.current.get(id)
+            pendingSurfaceEvents.current.delete(id)
+            return {
+              ...current,
+              [id]: pending ? applySurfaceEvents(base, pending) : base,
+            }
+          })
+        } else if (tuiEvent.kind === "close") {
+          closedSurfaces.current.add(tuiEvent.surfaceId)
+          pendingSurfaceEvents.current.delete(tuiEvent.surfaceId)
+          setTuiSurfaces((current) => {
+            const next = { ...current }
+            delete next[tuiEvent.surfaceId]
+            return next
+          })
+          if (tuiEvent.value !== undefined) setDraft(tuiEvent.value)
+        } else if (tuiEvent.kind === "submit") {
+          sendTuiMessage(tuiEvent.value)
+        } else {
+          setTuiSurfaces((current) => {
+            const surface = current[tuiEvent.surfaceId]
+            if (!surface) {
+              const pending =
+                pendingSurfaceEvents.current.get(tuiEvent.surfaceId) ?? []
+              pending.push(tuiEvent)
+              pendingSurfaceEvents.current.set(tuiEvent.surfaceId, pending)
+              return current
+            }
+            return {
+              ...current,
+              [tuiEvent.surfaceId]: applySurfaceEvents(surface, [tuiEvent]),
+            }
+          })
+        }
+      }
       if (event.type === "extension.ui.request") {
         if (
           typeof event.payload !== "object" ||
@@ -351,6 +547,8 @@ export function SessionRuntime({
           })
         } else if (request.method === "set_editor_text") {
           setDraft(request.text)
+        } else if (request.method === "set_title") {
+          document.title = request.title
         } else {
           setExtensionValue(
             request.method === "editor"
@@ -365,7 +563,12 @@ export function SessionRuntime({
           })
         }
       }
-      if (event.type === "resync.required") router.refresh()
+      if (event.type === "resync.required") {
+        router.refresh()
+        void loadTuiSurfaces().catch((failure: unknown) =>
+          setError(failure instanceof Error ? failure.message : String(failure))
+        )
+      }
     }
 
     for (const type of EVENT_TYPES) events.addEventListener(type, handle)
@@ -389,54 +592,9 @@ export function SessionRuntime({
     return () => window.clearTimeout(timer)
   }, [extensionRequest])
 
-  async function mutate<T>(
-    path: string,
-    method: "POST" | "PUT",
-    body?: unknown
-  ) {
-    const response = await fetch(path, {
-      method,
-      headers: {
-        ...(body === undefined ? {} : { "Content-Type": "application/json" }),
-        "X-Pi-Web-Codex-Mutation-Token": mutationToken,
-      },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    })
-    const text = await response.text()
-    const result = text ? (JSON.parse(text) as unknown) : null
-    if (!response.ok) {
-      const message =
-        typeof result === "object" &&
-        result !== null &&
-        "error" in result &&
-        typeof result.error === "string"
-          ? result.error
-          : `Pi runtime 操作失败（HTTP ${response.status}）。`
-      throw new Error(message)
-    }
-    if (result === null) throw new Error("Pi runtime 返回了空响应。")
-    return result as T
-  }
-
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    const message = draft.trim()
-    if (!message || submitting) return
-
-    setSubmitting(true)
-    setError(null)
-    try {
-      await mutate(`/api/v1/sessions/${sessionId}/messages`, "POST", {
-        message,
-        images: [],
-        streamingBehavior,
-      })
-      setDraft((current) => (current.trim() === message ? "" : current))
-    } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure))
-    } finally {
-      setSubmitting(false)
-    }
+    await sendMessage(draft, true)
   }
 
   async function abort() {
@@ -572,10 +730,43 @@ export function SessionRuntime({
   const isBusy = status === "busy"
   const hasStreamingContent = streaming.text || streaming.thinking
   const widgets = Object.entries(extensionWidgets)
+  const surfaces = Object.values(tuiSurfaces)
+  const editorSurface = surfaces.find((surface) => surface.mode === "editor")
+  const modalSurface = surfaces
+    .filter(
+      (surface) => surface.mode === "dialog" || surface.mode === "overlay"
+    )
+    .at(-1)
+  const inlineSurfaces = (placement: TuiSurfaceSnapshot["placement"]) =>
+    surfaces.filter(
+      (surface) => surface.mode === "inline" && surface.placement === placement
+    )
+
+  const renderTuiSurface = (surface: TuiSurfaceSnapshot) => (
+    <section
+      key={surface.surfaceId}
+      className="grid gap-2 rounded-xl border bg-background p-2"
+    >
+      {surface.title || surface.progress ? (
+        <div className="flex items-center gap-2 px-1 text-xs text-muted-foreground">
+          {surface.progress ? (
+            <LoaderCircleIcon className="size-3 animate-spin" />
+          ) : null}
+          {surface.title ? <span>{surface.title}</span> : null}
+        </div>
+      ) : null}
+      <PiTuiSurface
+        surface={surface}
+        onAction={(action) => actOnTuiSurface(surface.surfaceId, action)}
+        onError={(failure) => setError(failure.message)}
+      />
+    </section>
+  )
 
   return (
     <div className="sticky bottom-0 z-10 -mx-4 border-t bg-background/95 px-4 py-3 backdrop-blur sm:-mx-6 sm:px-6 sm:py-4 md:-mx-10 md:px-10">
       <div className="mx-auto grid w-full max-w-4xl gap-3">
+        {inlineSurfaces("header").map(renderTuiSurface)}
         {hasStreamingContent ? (
           <div className="grid gap-2 rounded-xl border bg-background p-4 text-sm">
             {streaming.thinking ? (
@@ -591,6 +782,7 @@ export function SessionRuntime({
             {streaming.text ? <Markdown>{streaming.text}</Markdown> : null}
           </div>
         ) : null}
+        {inlineSurfaces("aboveEditor").map(renderTuiSurface)}
         {widgets
           .filter(([, widget]) => widget.placement === "aboveEditor")
           .map(([key, widget]) => (
@@ -605,13 +797,23 @@ export function SessionRuntime({
           onSubmit={submit}
           className="rounded-2xl border bg-background p-2 shadow-sm"
         >
-          <Textarea
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            placeholder="向 Pi 发送消息"
-            aria-label="向 Pi 发送消息"
-            className="min-h-24 resize-none border-0 bg-transparent shadow-none focus-visible:ring-0 sm:min-h-20"
-          />
+          {editorSurface ? (
+            <PiTuiSurface
+              surface={editorSurface}
+              onAction={(action) =>
+                actOnTuiSurface(editorSurface.surfaceId, action)
+              }
+              onError={(failure) => setError(failure.message)}
+            />
+          ) : (
+            <Textarea
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              placeholder="向 Pi 发送消息"
+              aria-label="向 Pi 发送消息"
+              className="min-h-24 resize-none border-0 bg-transparent shadow-none focus-visible:ring-0 sm:min-h-20"
+            />
+          )}
           <div className="flex flex-wrap items-center gap-2 px-1 pb-1">
             <Badge variant={status === "crashed" ? "destructive" : "secondary"}>
               {STATUS_LABELS[status]}
@@ -660,18 +862,20 @@ export function SessionRuntime({
                   <SquareIcon />
                 </Button>
               ) : null}
-              <Button
-                type="submit"
-                size="icon"
-                disabled={!draft.trim() || submitting || status === "crashed"}
-                aria-label="发送"
-              >
-                {submitting ? (
-                  <LoaderCircleIcon className="animate-spin" />
-                ) : (
-                  <SendIcon />
-                )}
-              </Button>
+              {!editorSurface ? (
+                <Button
+                  type="submit"
+                  size="icon"
+                  disabled={!draft.trim() || submitting || status === "crashed"}
+                  aria-label="发送"
+                >
+                  {submitting ? (
+                    <LoaderCircleIcon className="animate-spin" />
+                  ) : (
+                    <SendIcon />
+                  )}
+                </Button>
+              ) : null}
             </div>
           </div>
           {snapshot ? (
@@ -752,6 +956,8 @@ export function SessionRuntime({
               {widget.lines.join("\n")}
             </pre>
           ))}
+        {inlineSurfaces("belowEditor").map(renderTuiSurface)}
+        {inlineSurfaces("footer").map(renderTuiSurface)}
         {status === "crashed" ? (
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3">
             <p className="text-sm text-destructive">
@@ -863,6 +1069,44 @@ export function SessionRuntime({
                 </Button>
               </DialogFooter>
             </div>
+          ) : null}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={modalSurface !== undefined}
+        onOpenChange={(open) => {
+          if (!open && modalSurface) {
+            void actOnTuiSurface(modalSurface.surfaceId, {
+              version: 1,
+              action: "close",
+            }).catch((failure: unknown) =>
+              setError(
+                failure instanceof Error ? failure.message : String(failure)
+              )
+            )
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-4xl">
+          {modalSurface ? (
+            <>
+              <DialogHeader>
+                <DialogTitle>
+                  {modalSurface.title ?? "Pi extension"}
+                </DialogTitle>
+                <DialogDescription className="sr-only">
+                  Interactive Pi terminal surface.
+                </DialogDescription>
+              </DialogHeader>
+              <PiTuiSurface
+                surface={modalSurface}
+                onAction={(action) =>
+                  actOnTuiSurface(modalSurface.surfaceId, action)
+                }
+                onError={(failure) => setError(failure.message)}
+              />
+            </>
           ) : null}
         </DialogContent>
       </Dialog>

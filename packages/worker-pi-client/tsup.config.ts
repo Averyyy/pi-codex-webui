@@ -9,5 +9,10 @@ export default defineConfig({
   sourcemap: false,
   splitting: false,
   outExtension: () => ({ js: ".mjs" }),
-  noExternal: ["@workspace/runtime-protocol", "@workspace/worker-common"],
+  noExternal: [
+    "@workspace/runtime-protocol",
+    "@workspace/worker-common",
+    "@xterm/headless",
+    "@xterm/addon-serialize",
+  ],
 })
