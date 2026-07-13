@@ -1,29 +1,42 @@
-import { Geist, Geist_Mono } from "next/font/google"
+import type { CSSProperties } from "react"
+import { connection } from "next/server"
 
 import "@workspace/ui/globals.css"
+import { Toaster } from "@workspace/ui/components/sonner"
+import { TooltipProvider } from "@workspace/ui/components/tooltip"
+
 import { ThemeProvider } from "@/components/theme-provider"
-import { cn } from "@workspace/ui/lib/utils";
+import { loadConfig } from "@/lib/config"
 
-const geist = Geist({subsets:['latin'],variable:'--font-sans'})
+export const metadata = {
+  title: "pi-web-codex",
+  description: "Local Web Host for Pi coding-agent workflows",
+}
 
-const fontMono = Geist_Mono({
-  subsets: ["latin"],
-  variable: "--font-mono",
-})
-
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode
 }>) {
+  await connection()
+  const config = await loadConfig()
+
   return (
     <html
-      lang="en"
+      lang="zh-CN"
       suppressHydrationWarning
-      className={cn("antialiased", fontMono.variable, "font-sans", geist.variable)}
+      style={
+        {
+          "--app-font-size": `${config.appearance.fontSize}px`,
+          "--app-sidebar-width": `${config.appearance.sidebarWidth}px`,
+        } as CSSProperties
+      }
     >
       <body>
-        <ThemeProvider>{children}</ThemeProvider>
+        <ThemeProvider defaultTheme={config.appearance.theme}>
+          <TooltipProvider>{children}</TooltipProvider>
+          <Toaster />
+        </ThemeProvider>
       </body>
     </html>
   )

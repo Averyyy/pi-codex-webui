@@ -1,5 +1,12 @@
 {
   "$schema": "https://turbo.build/schema.json",
+  "globalEnv": [
+    "APPDATA",
+    "HOSTNAME",
+    "PI_WEB_CODEX_CONFIG_DIR",
+    "PORT",
+    "XDG_CONFIG_HOME"
+  ],
   "ui": "tui",
   "tasks": {
     "build": {

@@ -1,0 +1,10 @@
+packages:
+  - apps/*
+  - packages/*
+
+allowBuilds:
+  esbuild: true
+  sharp: true
+
+minimumReleaseAgeExclude:
+  - tsx@4.23.1

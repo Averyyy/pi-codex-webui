@@ -1,21 +1,40 @@
-# shadcn/ui monorepo template
+# pi-web-codex
 
-This is a Next.js monorepo template with shadcn/ui.
+A local, single-port Web Host for Pi coding-agent workflows.
 
-## Adding components
+The current milestone provides the production host lifecycle, health and settings
+APIs, atomic local configuration, and functional General and Appearance pages.
+Unimplemented session and worker features are not exposed in the UI.
 
-To add components to your app, run the following command at the root of your `web` app:
+## Run the packaged app
 
 ```bash
-pnpm dlx shadcn@latest add button -c apps/web
+npm install --global pi-web-codex
+pi-web-codex
 ```
 
-This will place the ui components in the `packages/ui/src/components` directory.
+The CLI binds only to `127.0.0.1`, waits for `/api/v1/health`, and opens
+<http://127.0.0.1:1816> after the server is ready. Use `pi-web-codex --help` for
+host, port, browser, and config-directory options.
 
-## Using components
+## Development
 
-To use the components in your app, import them from the `ui` package.
-
-```tsx
-import { Button } from "@workspace/ui/components/button";
+```bash
+npx pnpm@11.12.0 install
+npx pnpm@11.12.0 dev
 ```
+
+Open <http://127.0.0.1:1816>.
+
+Build and verify the standalone package with:
+
+```bash
+npx pnpm@11.12.0 test
+npx pnpm@11.12.0 typecheck
+npx pnpm@11.12.0 lint
+npx pnpm@11.12.0 build
+```
+
+## Architecture
+
+See [docs/architecture.md](docs/architecture.md).

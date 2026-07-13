@@ -1,28 +1,39 @@
 {
-  "name": "pi-web-codex-scaffold",
-  "version": "0.0.1",
-  "private": true,
+  "name": "pi-web-codex",
+  "version": "0.1.0",
+  "description": "A local Web Host for Pi coding-agent workflows.",
+  "license": "MIT",
+  "bin": {
+    "pi-web-codex": "./bin/pi-web-codex.mjs"
+  },
+  "files": [
+    "bin",
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
-    "build": "turbo build",
-    "dev": "turbo dev",
+    "build": "turbo build && node scripts/assemble-dist.mjs",
+    "dev": "turbo dev --filter=web",
     "lint": "turbo lint",
-    "format": "turbo format",
+    "test": "tsx --test apps/web/lib/*.test.ts",
+    "format": "turbo format && prettier --write \"bin/**/*.mjs\" \"scripts/**/*.mjs\"",
     "typecheck": "turbo typecheck"
   },
   "devDependencies": {
-    "@workspace/eslint-config": "*",
-    "@workspace/typescript-config": "*",
-    "prettier": "^3.8.3",
+    "@workspace/eslint-config": "workspace:*",
+    "@workspace/typescript-config": "workspace:*",
+    "prettier": "^3.9.5",
     "prettier-plugin-tailwindcss": "^0.8.0",
-    "turbo": "^2.9.18",
-    "typescript": "^5"
+    "turbo": "^2.10.4",
+    "tsx": "^4.23.1",
+    "typescript": "^5.9.3"
   },
-  "packageManager": "npm@10.9.2",
+  "packageManager": "pnpm@11.12.0",
   "engines": {
     "node": ">=20"
   },
-  "workspaces": [
-    "apps/*",
-    "packages/*"
-  ]
+  "publishConfig": {
+    "access": "public"
+  }
 }
