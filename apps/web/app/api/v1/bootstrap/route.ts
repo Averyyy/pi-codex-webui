@@ -20,7 +20,8 @@ export async function GET() {
         .slice(0, 20),
       capabilities: {
         readOnlySessionBrowser: true,
-        runtimeMutations: false,
+        piRuntime: true,
+        runtimeMutations: true,
       },
     },
     { headers: { "Cache-Control": "no-store" } }

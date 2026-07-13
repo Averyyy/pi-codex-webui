@@ -233,6 +233,14 @@ async function main() {
       HOSTNAME: host,
       PORT: String(port),
       PI_WEB_CODEX_CONFIG_DIR: root,
+      PI_WEB_CODEX_PI_WORKER_PATH: path.join(
+        packageRoot,
+        "dist",
+        "workers",
+        "pi",
+        "dist",
+        "worker.mjs"
+      ),
     },
     stdio: "inherit",
   })

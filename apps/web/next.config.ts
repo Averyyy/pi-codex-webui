@@ -18,7 +18,7 @@ const nextConfig: NextConfig = {
   },
   poweredByHeader: false,
   reactStrictMode: true,
-  transpilePackages: ["@workspace/ui"],
+  transpilePackages: ["@workspace/runtime-protocol", "@workspace/ui"],
 }
 
 export default nextConfig

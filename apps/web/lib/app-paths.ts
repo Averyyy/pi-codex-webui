@@ -36,16 +36,26 @@ export function getAppPaths() {
     root,
     config: path.join(root, "config.json"),
     database: path.join(root, "state.db"),
+    sessionLocks: path.join(root, "locks", "sessions"),
   }
+}
+
+export function getPiAgentDir() {
+  return process.env.PI_CODING_AGENT_DIR
+    ? path.resolve(process.env.PI_CODING_AGENT_DIR)
+    : path.join(homedir(), ".pi", "agent")
 }
 
 export function getPiSessionsRoot() {
   if (process.env.PI_CODING_AGENT_SESSION_DIR) {
     return path.resolve(process.env.PI_CODING_AGENT_SESSION_DIR)
   }
+  return path.join(getPiAgentDir(), "sessions")
+}
 
-  const agentRoot = process.env.PI_CODING_AGENT_DIR
-    ? path.resolve(process.env.PI_CODING_AGENT_DIR)
-    : path.join(homedir(), ".pi", "agent")
-  return path.join(agentRoot, "sessions")
+export function getPiWorkerPath() {
+  if (process.env.PI_WEB_CODEX_PI_WORKER_PATH) {
+    return path.resolve(process.env.PI_WEB_CODEX_PI_WORKER_PATH)
+  }
+  return path.resolve(process.cwd(), "../../packages/worker-pi/dist/worker.mjs")
 }

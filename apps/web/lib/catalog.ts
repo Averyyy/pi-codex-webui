@@ -50,6 +50,15 @@ interface SearchRow {
   snippet: string
 }
 
+interface RuntimeTargetRow {
+  id: string
+  runtime_kind: "pi"
+  runtime_profile_id: string
+  native_session_id: string
+  native_session_file: string
+  project_path: string
+}
+
 function projectSummary(row: ProjectRow): ProjectSummary {
   return {
     id: row.id,
@@ -194,6 +203,30 @@ export async function getSessionSnapshot(sessionId: string) {
     },
     entries: toTranscriptEntries(parsed),
   } satisfies SessionSnapshot
+}
+
+export async function getSessionRuntimeTarget(sessionId: string) {
+  await syncPiSessionIndex()
+  const database = await getDatabase()
+  const row = database
+    .prepare(
+      `SELECT sessions.id, runtime_kind, runtime_profile_id,
+              native_session_id, native_session_file,
+              projects.canonical_path AS project_path
+       FROM sessions
+       JOIN projects ON projects.id = sessions.project_id
+       WHERE sessions.id = ?`
+    )
+    .get(sessionId) as unknown as RuntimeTargetRow | undefined
+  if (!row) return null
+  return {
+    webSessionId: row.id,
+    runtimeKind: row.runtime_kind,
+    runtimeProfileId: row.runtime_profile_id,
+    nativeSessionId: row.native_session_id,
+    nativeSessionFile: row.native_session_file,
+    cwd: row.project_path,
+  }
 }
 
 export async function searchSessions(query: string) {

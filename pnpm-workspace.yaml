@@ -2,8 +2,12 @@ packages:
   - apps/*
   - packages/*
 
+injectWorkspacePackages: true
+
 allowBuilds:
+  '@google/genai': true
   esbuild: true
+  protobufjs: true
   sharp: true
 
 minimumReleaseAgeExclude:

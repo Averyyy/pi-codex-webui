@@ -6,6 +6,7 @@
     "PI_CODING_AGENT_DIR",
     "PI_CODING_AGENT_SESSION_DIR",
     "PI_WEB_CODEX_CONFIG_DIR",
+    "PI_WEB_CODEX_PI_WORKER_PATH",
     "PORT",
     "XDG_CONFIG_HOME"
   ],
@@ -14,7 +15,7 @@
     "build": {
       "dependsOn": ["^build"],
       "inputs": ["$TURBO_DEFAULT$", ".env*"],
-      "outputs": [".next/**", "!.next/cache/**"]
+      "outputs": [".next/**", "!.next/cache/**", "dist/**"]
     },
     "lint": {
       "dependsOn": ["^lint"]

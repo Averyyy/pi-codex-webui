@@ -1,10 +1,12 @@
 import { notFound } from "next/navigation"
 
-import { Badge } from "@workspace/ui/components/badge"
 import { Separator } from "@workspace/ui/components/separator"
 
+import { SessionRuntime } from "@/components/session-runtime"
 import { SessionTranscript } from "@/components/transcript"
 import { getSessionSnapshot } from "@/lib/catalog"
+import { getMutationToken } from "@/lib/request-security"
+import { getRuntimeSupervisor } from "@/lib/runtime-supervisor"
 import { displaySessionTitle, formatTimestamp } from "@/lib/session-display"
 
 export default async function SessionPage({
@@ -13,11 +15,12 @@ export default async function SessionPage({
   const { projectId, sessionId } = await params
   const snapshot = await getSessionSnapshot(sessionId)
   if (!snapshot || snapshot.session.projectId !== projectId) notFound()
+  const runtime = getRuntimeSupervisor().state(sessionId)
 
   return (
     <main className="min-h-svh">
       <header className="sticky top-0 z-10 border-b bg-background/95 backdrop-blur">
-        <div className="mx-auto flex w-full max-w-4xl items-start justify-between gap-4 px-6 py-4 md:px-10">
+        <div className="mx-auto w-full max-w-4xl px-6 py-4 md:px-10">
           <div className="min-w-0">
             <h1 className="truncate text-base font-semibold">
               {displaySessionTitle(snapshot.session)}
@@ -27,9 +30,6 @@ export default async function SessionPage({
               {formatTimestamp(snapshot.session.updatedAt)}
             </p>
           </div>
-          <Badge variant="secondary" className="shrink-0">
-            只读 JSONL
-          </Badge>
         </div>
       </header>
 
@@ -45,6 +45,12 @@ export default async function SessionPage({
             {snapshot.session.nativeSessionFile}
           </code>
         </footer>
+        <SessionRuntime
+          sessionId={sessionId}
+          mutationToken={getMutationToken()}
+          initialStatus={runtime.status}
+          initialSnapshot={runtime.snapshot}
+        />
       </div>
     </main>
   )
