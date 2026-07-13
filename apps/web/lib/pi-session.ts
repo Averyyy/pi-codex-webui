@@ -1,0 +1,497 @@
+import "server-only"
+
+import { readFile, stat } from "node:fs/promises"
+import path from "node:path"
+import { z } from "zod"
+
+import type { TranscriptEntry, TranscriptPart } from "@/lib/session-types"
+
+const headerSchema = z
+  .object({
+    type: z.literal("session"),
+    version: z.number().int().positive().optional(),
+    id: z.string().min(1),
+    timestamp: z.iso.datetime(),
+    cwd: z.string(),
+    parentSession: z.string().optional(),
+  })
+  .passthrough()
+
+const entrySchema = z
+  .object({
+    type: z.string().min(1),
+    id: z.string().min(1),
+    parentId: z.string().nullable(),
+    timestamp: z.iso.datetime(),
+  })
+  .passthrough()
+
+export type PiSessionHeader = z.infer<typeof headerSchema>
+export type PiSessionEntry = z.infer<typeof entrySchema>
+
+export interface ParsedPiSession {
+  header: PiSessionHeader
+  entries: PiSessionEntry[]
+  activeBranch: PiSessionEntry[]
+  title?: string
+  firstMessage: string
+  messageCount: number
+  updatedAt: string
+}
+
+export interface PiSessionMetadata {
+  title?: string
+  firstMessage: string
+  messageCount: number
+  updatedAt: string
+}
+
+export class PiSessionFormatError extends Error {
+  constructor(file: string, line: number, detail: string) {
+    super(`${file}:${line}: ${detail}`)
+  }
+}
+
+export async function readStablePiSessionFile(file: string) {
+  const before = await stat(file, { bigint: true })
+  const content = await readFile(file)
+  const after = await stat(file, { bigint: true })
+  if (before.size !== after.size || before.mtimeNs !== after.mtimeNs) {
+    throw new Error(`Session changed while it was being read: ${file}`)
+  }
+  return { content, mtimeNs: after.mtimeNs.toString() }
+}
+
+function parseLine(file: string, line: string, lineNumber: number) {
+  if (line.length === 0) {
+    throw new PiSessionFormatError(file, lineNumber, "Unexpected blank line.")
+  }
+
+  try {
+    return JSON.parse(line) as unknown
+  } catch (error) {
+    throw new PiSessionFormatError(
+      file,
+      lineNumber,
+      error instanceof Error ? error.message : "Invalid JSON."
+    )
+  }
+}
+
+function parseLines(file: string, content: string) {
+  const lines = content.endsWith("\n")
+    ? content.slice(0, -1).split(/\r?\n/)
+    : content.split(/\r?\n/)
+  if (lines.length === 0 || (lines.length === 1 && lines[0] === "")) {
+    throw new PiSessionFormatError(file, 1, "Session file is empty.")
+  }
+
+  const headerResult = headerSchema.safeParse(parseLine(file, lines[0]!, 1))
+  if (!headerResult.success) {
+    throw new PiSessionFormatError(file, 1, z.prettifyError(headerResult.error))
+  }
+
+  const entries = lines.slice(1).map((line, index) => {
+    const lineNumber = index + 2
+    const result = entrySchema.safeParse(parseLine(file, line, lineNumber))
+    if (!result.success) {
+      throw new PiSessionFormatError(
+        file,
+        lineNumber,
+        z.prettifyError(result.error)
+      )
+    }
+    return result.data
+  })
+
+  return { header: headerResult.data, entries }
+}
+
+export function parsePiSessionEntries(
+  file: string,
+  content: string,
+  firstLineNumber: number
+) {
+  if (!content) return []
+  const lines = content.endsWith("\n")
+    ? content.slice(0, -1).split(/\r?\n/)
+    : content.split(/\r?\n/)
+  return lines.map((line, index) => {
+    const lineNumber = firstLineNumber + index
+    const result = entrySchema.safeParse(parseLine(file, line, lineNumber))
+    if (!result.success) {
+      throw new PiSessionFormatError(
+        file,
+        lineNumber,
+        z.prettifyError(result.error)
+      )
+    }
+    return result.data
+  })
+}
+
+function messageValue(entry: PiSessionEntry) {
+  if (entry.type !== "message") return null
+  const result = z
+    .object({ role: z.string().min(1), timestamp: z.number().optional() })
+    .passthrough()
+    .safeParse(entry.message)
+  if (!result.success) {
+    throw new Error(
+      `Session entry ${entry.id} has an invalid message: ${z.prettifyError(result.error)}`
+    )
+  }
+  return result.data
+}
+
+function textFromContent(content: unknown) {
+  if (typeof content === "string") return content
+  if (!Array.isArray(content)) return ""
+  return content
+    .filter(
+      (part): part is { type: "text"; text: string } =>
+        typeof part === "object" &&
+        part !== null &&
+        "type" in part &&
+        part.type === "text" &&
+        "text" in part &&
+        typeof part.text === "string"
+    )
+    .map((part) => part.text)
+    .join(" ")
+}
+
+function activeBranch(entries: PiSessionEntry[]) {
+  if (entries.length === 0) return []
+
+  const byId = new Map<string, PiSessionEntry>()
+  for (const entry of entries) {
+    if (byId.has(entry.id)) {
+      throw new Error(`Session contains duplicate entry id ${entry.id}.`)
+    }
+    byId.set(entry.id, entry)
+  }
+  const visited = new Set<string>()
+  const branch: PiSessionEntry[] = []
+  let current: PiSessionEntry | undefined = entries.at(-1)
+
+  while (current) {
+    if (visited.has(current.id)) {
+      throw new Error(`Session tree contains a cycle at entry ${current.id}.`)
+    }
+    visited.add(current.id)
+    branch.push(current)
+    if (current.parentId === null) break
+    current = byId.get(current.parentId)
+    if (!current) {
+      throw new Error(
+        `Session entry references missing parent ${branch.at(-1)!.parentId}.`
+      )
+    }
+  }
+
+  return branch.reverse()
+}
+
+export function summarizePiEntries(
+  entries: PiSessionEntry[],
+  baseline: PiSessionMetadata
+) {
+  let title = baseline.title
+  let firstMessage = baseline.firstMessage
+  let messageCount = baseline.messageCount
+  let lastActivity = Date.parse(baseline.updatedAt)
+
+  for (const entry of entries) {
+    if (entry.type === "session_info") {
+      title =
+        typeof entry.name === "string" && entry.name.trim()
+          ? entry.name.trim()
+          : undefined
+    }
+
+    const message = messageValue(entry)
+    if (!message) continue
+    messageCount += 1
+    if (message.role !== "user" && message.role !== "assistant") continue
+
+    if (typeof message.timestamp === "number") {
+      lastActivity = Math.max(lastActivity, message.timestamp)
+    }
+    if (!firstMessage && message.role === "user") {
+      firstMessage = textFromContent(message.content)
+    }
+  }
+
+  return {
+    title,
+    firstMessage,
+    messageCount,
+    updatedAt: new Date(lastActivity).toISOString(),
+  }
+}
+
+export function parsePiSession(file: string, content: string): ParsedPiSession {
+  const { header, entries } = parseLines(file, content)
+  const metadata = summarizePiEntries(entries, {
+    firstMessage: "",
+    messageCount: 0,
+    updatedAt: header.timestamp,
+  })
+
+  return {
+    header,
+    entries,
+    activeBranch: activeBranch(entries),
+    ...metadata,
+  }
+}
+
+function normalizeParts(content: unknown): TranscriptPart[] {
+  if (typeof content === "string") return [{ type: "text", text: content }]
+  if (!Array.isArray(content)) {
+    return [{ type: "unsupported", partType: typeof content, value: content }]
+  }
+
+  return content.map((part): TranscriptPart => {
+    if (typeof part !== "object" || part === null || !("type" in part)) {
+      return { type: "unsupported", partType: typeof part, value: part }
+    }
+    if (
+      part.type === "text" &&
+      "text" in part &&
+      typeof part.text === "string"
+    ) {
+      return { type: "text", text: part.text }
+    }
+    if (
+      part.type === "thinking" &&
+      "thinking" in part &&
+      typeof part.thinking === "string"
+    ) {
+      return {
+        type: "thinking",
+        text: part.thinking,
+        redacted: "redacted" in part && part.redacted === true,
+      }
+    }
+    if (
+      part.type === "image" &&
+      "data" in part &&
+      typeof part.data === "string" &&
+      "mimeType" in part &&
+      typeof part.mimeType === "string"
+    ) {
+      return { type: "image", data: part.data, mimeType: part.mimeType }
+    }
+    if (
+      part.type === "toolCall" &&
+      "id" in part &&
+      typeof part.id === "string" &&
+      "name" in part &&
+      typeof part.name === "string" &&
+      "arguments" in part &&
+      typeof part.arguments === "object" &&
+      part.arguments !== null &&
+      !Array.isArray(part.arguments)
+    ) {
+      return {
+        type: "toolCall",
+        id: part.id,
+        name: part.name,
+        arguments: part.arguments as Record<string, unknown>,
+      }
+    }
+    return { type: "unsupported", partType: String(part.type), value: part }
+  })
+}
+
+function requiredString(value: unknown, context: string) {
+  if (typeof value !== "string") {
+    throw new Error(`${context} must be a string.`)
+  }
+  return value
+}
+
+function messageEntry(entry: PiSessionEntry): TranscriptEntry | null {
+  const message = messageValue(entry)
+  if (!message) return null
+
+  if (message.role === "custom" && message.display === false) return null
+  if (message.role === "bashExecution") {
+    const command = requiredString(
+      message.command,
+      `Session entry ${entry.id} bash command`
+    )
+    const output = requiredString(
+      message.output,
+      `Session entry ${entry.id} bash output`
+    )
+    return {
+      kind: "message",
+      id: entry.id,
+      timestamp: entry.timestamp,
+      role: message.role,
+      parts: [
+        { type: "text", text: command },
+        { type: "text", text: output },
+      ],
+      isError: typeof message.exitCode === "number" && message.exitCode !== 0,
+      metadata: message,
+    }
+  }
+
+  return {
+    kind: "message",
+    id: entry.id,
+    timestamp: entry.timestamp,
+    role: message.role,
+    parts: normalizeParts(message.content),
+    isError: message.isError === true,
+    toolCallId:
+      typeof message.toolCallId === "string" ? message.toolCallId : undefined,
+    toolName:
+      typeof message.toolName === "string" ? message.toolName : undefined,
+    details: message.details,
+    metadata: message,
+  }
+}
+
+export function toTranscriptEntries(parsed: ParsedPiSession) {
+  return parsed.activeBranch.flatMap((entry): TranscriptEntry[] => {
+    const message = messageEntry(entry)
+    if (message) return [message]
+
+    if (entry.type === "model_change") {
+      const provider = requiredString(
+        entry.provider,
+        `Session entry ${entry.id} provider`
+      )
+      const modelId = requiredString(
+        entry.modelId,
+        `Session entry ${entry.id} modelId`
+      )
+      return [
+        {
+          kind: "event",
+          id: entry.id,
+          timestamp: entry.timestamp,
+          eventType: entry.type,
+          title: "模型",
+          text: `${provider} / ${modelId}`,
+        },
+      ]
+    }
+    if (entry.type === "thinking_level_change") {
+      const thinkingLevel = requiredString(
+        entry.thinkingLevel,
+        `Session entry ${entry.id} thinkingLevel`
+      )
+      return [
+        {
+          kind: "event",
+          id: entry.id,
+          timestamp: entry.timestamp,
+          eventType: entry.type,
+          title: "思考级别",
+          text: thinkingLevel,
+        },
+      ]
+    }
+    if (entry.type === "compaction" || entry.type === "branch_summary") {
+      const summary = requiredString(
+        entry.summary,
+        `Session entry ${entry.id} summary`
+      )
+      return [
+        {
+          kind: "event",
+          id: entry.id,
+          timestamp: entry.timestamp,
+          eventType: entry.type,
+          title: entry.type === "compaction" ? "上下文压缩" : "分支摘要",
+          text: summary,
+        },
+      ]
+    }
+    if (entry.type === "custom_message" && entry.display !== false) {
+      const customType = requiredString(
+        entry.customType,
+        `Session entry ${entry.id} customType`
+      )
+      return [
+        {
+          kind: "message",
+          id: entry.id,
+          timestamp: entry.timestamp,
+          role: `custom:${customType}`,
+          parts: normalizeParts(entry.content),
+          details: entry.details,
+        },
+      ]
+    }
+    if (["custom", "label", "session_info"].includes(entry.type)) return []
+
+    return [
+      {
+        kind: "event",
+        id: entry.id,
+        timestamp: entry.timestamp,
+        eventType: entry.type,
+        title: `未支持的 entry：${entry.type}`,
+        value: entry,
+      },
+    ]
+  })
+}
+
+export function searchableText(entry: PiSessionEntry) {
+  const message = messageValue(entry)
+  if (message) {
+    const values = [textFromContent(message.content)]
+    if (message.role === "bashExecution") {
+      values.push(
+        requiredString(
+          message.command,
+          `Session entry ${entry.id} bash command`
+        ),
+        requiredString(message.output, `Session entry ${entry.id} bash output`)
+      )
+    }
+    if (Array.isArray(message.content)) {
+      for (const part of message.content) {
+        if (
+          typeof part === "object" &&
+          part !== null &&
+          "type" in part &&
+          part.type === "toolCall"
+        ) {
+          values.push(JSON.stringify(part))
+        }
+        if (
+          typeof part === "object" &&
+          part !== null &&
+          "type" in part &&
+          part.type === "thinking" &&
+          "thinking" in part
+        ) {
+          values.push(String(part.thinking))
+        }
+      }
+    }
+    return values.filter(Boolean).join("\n")
+  }
+
+  if (entry.type === "compaction" || entry.type === "branch_summary") {
+    return requiredString(entry.summary, `Session entry ${entry.id} summary`)
+  }
+  if (entry.type === "custom_message") {
+    return textFromContent(entry.content)
+  }
+  return ""
+}
+
+export function projectName(cwd: string) {
+  if (!cwd) return "未知目录"
+  return path.basename(cwd) || cwd
+}

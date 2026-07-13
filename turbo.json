@@ -3,6 +3,8 @@
   "globalEnv": [
     "APPDATA",
     "HOSTNAME",
+    "PI_CODING_AGENT_DIR",
+    "PI_CODING_AGENT_SESSION_DIR",
     "PI_WEB_CODEX_CONFIG_DIR",
     "PORT",
     "XDG_CONFIG_HOME"

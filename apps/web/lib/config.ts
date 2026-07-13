@@ -2,8 +2,8 @@ import "server-only"
 
 import { randomUUID } from "node:crypto"
 import { mkdir, open, readFile, rename, rm } from "node:fs/promises"
-import { homedir } from "node:os"
-import path from "node:path"
+
+import { getAppPaths } from "@/lib/app-paths"
 
 import {
   configSchema,
@@ -13,43 +13,8 @@ import {
   type ConfigPatch,
 } from "@/lib/config-schema"
 
-function configRoot() {
-  if (process.env.PI_WEB_CODEX_CONFIG_DIR) {
-    return path.resolve(process.env.PI_WEB_CODEX_CONFIG_DIR)
-  }
-
-  if (process.platform === "darwin") {
-    return path.join(
-      homedir(),
-      "Library",
-      "Application Support",
-      "pi-web-codex"
-    )
-  }
-
-  if (process.platform === "win32") {
-    return path.join(
-      process.env.APPDATA ?? path.join(homedir(), "AppData", "Roaming"),
-      "pi-web-codex"
-    )
-  }
-
-  return path.join(
-    process.env.XDG_CONFIG_HOME ?? path.join(homedir(), ".config"),
-    "pi-web-codex"
-  )
-}
-
-function configPaths() {
-  const root = configRoot()
-  return {
-    root,
-    config: path.join(root, "config.json"),
-  }
-}
-
 export async function loadConfig(): Promise<AppConfig> {
-  const { config } = configPaths()
+  const { config } = getAppPaths()
 
   try {
     return configSchema.parse(JSON.parse(await readFile(config, "utf8")))
@@ -62,7 +27,7 @@ export async function loadConfig(): Promise<AppConfig> {
 }
 
 async function persistConfig(config: AppConfig) {
-  const paths = configPaths()
+  const paths = getAppPaths()
   await mkdir(paths.root, { recursive: true, mode: 0o700 })
 
   const temporaryPath = `${paths.config}.${randomUUID()}.tmp`

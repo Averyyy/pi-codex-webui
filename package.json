@@ -16,7 +16,7 @@
     "build": "turbo build && node scripts/assemble-dist.mjs",
     "dev": "turbo dev --filter=web",
     "lint": "turbo lint",
-    "test": "tsx --test apps/web/lib/*.test.ts",
+    "test": "node --conditions=react-server --import tsx --test apps/web/lib/*.test.ts",
     "format": "turbo format && prettier --write \"bin/**/*.mjs\" \"scripts/**/*.mjs\"",
     "typecheck": "turbo typecheck"
   },
@@ -31,7 +31,7 @@
   },
   "packageManager": "pnpm@11.12.0",
   "engines": {
-    "node": ">=20"
+    "node": ">=22.13"
   },
   "publishConfig": {
     "access": "public"

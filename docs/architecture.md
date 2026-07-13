@@ -2322,6 +2322,8 @@ legacy Tau code
 
 ## 25. 开发阶段
 
+UI 随功能阶段逐步开放。只有已经接通真实数据、真实状态或真实操作的能力才进入界面；后续阶段的按钮、状态、计数和设置入口不提前做占位 UI。
+
 ## Phase 1：Application shell
 
 - 新 repository/folder
@@ -2331,7 +2333,7 @@ legacy Tau code
 - single-instance lock
 - fixed port 1816
 - settings persistence
-- Developer runtime selector
+- functional General and Appearance settings
 
 ## Phase 2：Read-only session browser
 
@@ -2393,6 +2395,7 @@ legacy Tau code
 ## Phase 7：Pi Client Worker
 
 - independent dependency root
+- Developer runtime selector
 - server profiles
 - authentication
 - server session binding

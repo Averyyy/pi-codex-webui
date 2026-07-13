@@ -3,8 +3,10 @@
 A local, single-port Web Host for Pi coding-agent workflows.
 
 The current milestone provides the production host lifecycle, health and settings
-APIs, atomic local configuration, and functional General and Appearance pages.
-Unimplemented session and worker features are not exposed in the UI.
+APIs, atomic local configuration, functional General and Appearance pages, and a
+read-only browser for real Pi JSONL projects, sessions, messages, tool records,
+and full-text search. Unimplemented worker and mutation features are not exposed
+in the UI.
 
 ## Run the packaged app
 
