@@ -9,7 +9,8 @@ export async function GET(request: Request) {
     getEventHub().stream(
       url.searchParams.getAll("sessionId"),
       request.headers.get("last-event-id"),
-      request.signal
+      request.signal,
+      url.searchParams.get("inspect") === "1" ? "protocol.event" : undefined
     ),
     {
       headers: {

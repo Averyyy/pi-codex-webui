@@ -1,10 +1,11 @@
 "use client"
 
-import { useEffect, useState, type FormEvent } from "react"
+import { useEffect, useRef, useState, type FormEvent } from "react"
 import { useRouter } from "next/navigation"
 import {
   LoaderCircleIcon,
   Minimize2Icon,
+  RefreshCwIcon,
   SendIcon,
   SquareIcon,
 } from "lucide-react"
@@ -38,6 +39,7 @@ import type {
 import { extensionUIRequestSchema } from "@workspace/runtime-protocol"
 
 import { Markdown } from "@/components/markdown"
+import { notifyWhenHidden } from "@/lib/browser-notifications"
 
 interface RuntimeEvent {
   type: string
@@ -217,6 +219,7 @@ export function SessionRuntime({
       { lines: string[]; placement: "aboveEditor" | "belowEditor" }
     >
   >({})
+  const wasBusy = useRef(false)
 
   useEffect(() => {
     const events = new EventSource(`/api/v1/events?sessionId=${sessionId}`)
@@ -228,17 +231,32 @@ export function SessionRuntime({
       if (event.type === "runtime.ready") {
         setStatus("ready")
         setSnapshot(event.payload as RuntimeSnapshot)
+        setError(null)
       }
-      if (event.type === "runtime.busy") setStatus("busy")
-      if (event.type === "runtime.idle") setStatus("ready")
+      if (event.type === "runtime.busy") {
+        wasBusy.current = true
+        setStatus("busy")
+      }
+      if (event.type === "runtime.idle") {
+        setStatus("ready")
+        if (wasBusy.current) {
+          notifyWhenHidden("Pi 已完成", "当前 Agent 轮次已结束。")
+          wasBusy.current = false
+        }
+      }
       if (event.type === "runtime.stopping") setStatus("stopping")
       if (event.type === "runtime.stopped") {
         setStatus("stopped")
         setSnapshot(null)
       }
       if (event.type === "runtime.crashed") {
+        wasBusy.current = false
         setStatus("crashed")
         setError("Pi worker 意外退出；历史 JSONL 仍可读取。")
+        notifyWhenHidden(
+          "Pi Runtime 已崩溃",
+          "历史内容仍可读取，可回到 session 显式重启。"
+        )
       }
       if (
         event.type === "session.message.start" ||
@@ -309,6 +327,7 @@ export function SessionRuntime({
         if (request.method === "notify") {
           const notify = request.notifyType ?? "info"
           toast[notify](request.message)
+          notifyWhenHidden("Pi extension", request.message)
         } else if (request.method === "setStatus") {
           setExtensionStatuses((current) => {
             const next = { ...current }
@@ -429,6 +448,23 @@ export function SessionRuntime({
     }
   }
 
+  async function restartRuntime() {
+    setUpdating(true)
+    setError(null)
+    try {
+      const state = await mutate<{
+        status: RuntimeStatus
+        snapshot: RuntimeSnapshot | null
+      }>(`/api/v1/sessions/${sessionId}/activate`, "POST")
+      setStatus(state.status)
+      setSnapshot(state.snapshot)
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : String(failure))
+    } finally {
+      setUpdating(false)
+    }
+  }
+
   async function setModel(value: string) {
     const model = snapshot?.availableModels.find(
       (available) => modelValue(available) === value
@@ -538,7 +574,7 @@ export function SessionRuntime({
   const widgets = Object.entries(extensionWidgets)
 
   return (
-    <div className="sticky bottom-0 z-10 -mx-6 border-t bg-background/95 px-6 py-4 backdrop-blur md:-mx-10 md:px-10">
+    <div className="sticky bottom-0 z-10 -mx-4 border-t bg-background/95 px-4 py-3 backdrop-blur sm:-mx-6 sm:px-6 sm:py-4 md:-mx-10 md:px-10">
       <div className="mx-auto grid w-full max-w-4xl gap-3">
         {hasStreamingContent ? (
           <div className="grid gap-2 rounded-xl border bg-background p-4 text-sm">
@@ -574,9 +610,9 @@ export function SessionRuntime({
             onChange={(event) => setDraft(event.target.value)}
             placeholder="向 Pi 发送消息"
             aria-label="向 Pi 发送消息"
-            className="min-h-20 resize-none border-0 bg-transparent shadow-none focus-visible:ring-0"
+            className="min-h-24 resize-none border-0 bg-transparent shadow-none focus-visible:ring-0 sm:min-h-20"
           />
-          <div className="flex items-center gap-2 px-1 pb-1">
+          <div className="flex flex-wrap items-center gap-2 px-1 pb-1">
             <Badge variant={status === "crashed" ? "destructive" : "secondary"}>
               {STATUS_LABELS[status]}
             </Badge>
@@ -627,7 +663,7 @@ export function SessionRuntime({
               <Button
                 type="submit"
                 size="icon"
-                disabled={!draft.trim() || submitting}
+                disabled={!draft.trim() || submitting || status === "crashed"}
                 aria-label="发送"
               >
                 {submitting ? (
@@ -644,7 +680,9 @@ export function SessionRuntime({
                 <Select
                   value={modelValue(snapshot.model)}
                   onValueChange={setModel}
-                  disabled={isBusy || updating || compacting}
+                  disabled={
+                    isBusy || updating || compacting || status === "crashed"
+                  }
                 >
                   <SelectTrigger
                     size="sm"
@@ -669,7 +707,9 @@ export function SessionRuntime({
                 <Select
                   value={snapshot.thinkingLevel}
                   onValueChange={selectThinkingLevel}
-                  disabled={isBusy || updating || compacting}
+                  disabled={
+                    isBusy || updating || compacting || status === "crashed"
+                  }
                 >
                   <SelectTrigger size="sm" aria-label="Thinking level">
                     <SelectValue />
@@ -688,7 +728,9 @@ export function SessionRuntime({
                 variant="outline"
                 size="sm"
                 onClick={compact}
-                disabled={isBusy || updating || compacting}
+                disabled={
+                  isBusy || updating || compacting || status === "crashed"
+                }
               >
                 {compacting ? (
                   <LoaderCircleIcon className="animate-spin" />
@@ -710,7 +752,27 @@ export function SessionRuntime({
               {widget.lines.join("\n")}
             </pre>
           ))}
-        {error ? <p className="text-sm text-destructive">{error}</p> : null}
+        {status === "crashed" ? (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3">
+            <p className="text-sm text-destructive">
+              {error ?? "Pi worker 意外退出；历史 JSONL 仍可读取。"}
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => void restartRuntime()}
+              disabled={updating}
+            >
+              <RefreshCwIcon
+                className={updating ? "animate-spin" : undefined}
+              />
+              重新启动 Runtime
+            </Button>
+          </div>
+        ) : error ? (
+          <p className="text-sm text-destructive">{error}</p>
+        ) : null}
       </div>
 
       <Dialog

@@ -27,9 +27,9 @@ function matches(subscriber: Subscriber, event: WebEvent) {
   return !event.sessionId || subscriber.sessionIds.has(event.sessionId)
 }
 
-function serialize(event: WebEvent) {
+function serialize(event: WebEvent, eventName = event.type) {
   return encoder.encode(
-    `id: ${event.id}\nevent: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`
+    `id: ${event.id}\nevent: ${eventName}\ndata: ${JSON.stringify(event)}\n\n`
   )
 }
 
@@ -54,10 +54,18 @@ export class EventHub {
     return event
   }
 
+  recent(sessionId: string, limit = 100) {
+    const count = Math.min(Math.max(limit, 1), MAX_EVENTS)
+    return this.events
+      .filter((event) => !event.sessionId || event.sessionId === sessionId)
+      .slice(-count)
+  }
+
   stream(
     sessionIds: string[],
     lastEventId: string | null,
-    signal: AbortSignal
+    signal: AbortSignal,
+    eventName?: string
   ) {
     const subscriptions = new Set(sessionIds)
     let subscriber: Subscriber | undefined
@@ -82,7 +90,7 @@ export class EventHub {
         controller.enqueue(encoder.encode(": connected\n\n"))
         subscriber = {
           sessionIds: subscriptions,
-          send: (event) => controller.enqueue(serialize(event)),
+          send: (event) => controller.enqueue(serialize(event, eventName)),
         }
 
         const lastSequence = lastEventId?.match(/^event-(\d+)$/)?.[1]

@@ -17,6 +17,7 @@
     "dev": "turbo dev --filter=web --filter=@workspace/worker-pi --filter=@workspace/worker-pi-client",
     "lint": "turbo lint",
     "test": "node --conditions=react-server --import tsx --test apps/web/lib/*.test.ts",
+    "release:verify": "pnpm build && node scripts/verify-release.mjs",
     "format": "turbo format && prettier --write \"bin/**/*.mjs\" \"scripts/**/*.mjs\"",
     "typecheck": "turbo typecheck"
   },

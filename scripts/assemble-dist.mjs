@@ -1,5 +1,13 @@
 import { execFile } from "node:child_process"
-import { access, cp, mkdir, readdir, rm } from "node:fs/promises"
+import {
+  access,
+  cp,
+  lstat,
+  mkdir,
+  readdir,
+  realpath,
+  rm,
+} from "node:fs/promises"
 import path from "node:path"
 import { promisify } from "node:util"
 
@@ -29,6 +37,41 @@ async function sourceFiles(directory) {
   return nested.flat()
 }
 
+async function copyPortable(source, destination, ancestors = new Set()) {
+  const sourceStats = await lstat(source)
+  if (sourceStats.isSymbolicLink()) {
+    let resolved
+    try {
+      resolved = await realpath(source)
+    } catch (error) {
+      if (error.code === "ENOENT") return
+      throw error
+    }
+    return copyPortable(resolved, destination, ancestors)
+  }
+  if (!sourceStats.isDirectory()) {
+    await cp(source, destination)
+    return
+  }
+
+  const canonical = await realpath(source)
+  if (ancestors.has(canonical)) {
+    throw new Error(`Standalone dependency contains a cyclic link: ${source}`)
+  }
+  const descendants = new Set(ancestors).add(canonical)
+  await mkdir(destination, { recursive: true })
+  const entries = await readdir(source)
+  await Promise.all(
+    entries.map((entry) =>
+      copyPortable(
+        path.join(source, entry),
+        path.join(destination, entry),
+        descendants
+      )
+    )
+  )
+}
+
 async function removeTypeScript(directory) {
   const entries = await readdir(directory, { withFileTypes: true })
   await Promise.all(
@@ -44,7 +87,12 @@ async function removeTypeScript(directory) {
 
 await rm(path.join(root, "dist"), { recursive: true, force: true })
 await mkdir(outputRoot, { recursive: true })
-await cp(path.join(nextRoot, "standalone"), outputRoot, { recursive: true })
+const standaloneRoot = path.join(nextRoot, "standalone")
+await copyPortable(standaloneRoot, outputRoot)
+await copyPortable(
+  path.join(standaloneRoot, "node_modules", ".pnpm", "node_modules"),
+  path.join(outputRoot, "node_modules")
+)
 
 const appRoot = path.join(outputRoot, "apps", "web")
 await mkdir(path.join(appRoot, ".next"), { recursive: true })

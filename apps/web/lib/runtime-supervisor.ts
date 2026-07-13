@@ -46,6 +46,10 @@ import {
 } from "@/lib/catalog"
 import { getEventHub, type EventHub } from "@/lib/event-hub"
 import { getMcpService } from "@/lib/mcp-service"
+import type {
+  RuntimeCrash,
+  RuntimeDiagnostics,
+} from "@/lib/runtime-diagnostics"
 import { RuntimeRequestError } from "@/lib/runtime-error"
 import {
   resolveNewSessionRuntime,
@@ -72,11 +76,14 @@ interface ManagedRuntime {
   nativeSessionFile: string
   cwd: string
   child: ChildProcess
+  workerPath: string
   lockPath: string | null
   status: RuntimeStatus
   snapshot: RuntimeSnapshot | null
   pending: Map<string, PendingRequest>
   lastActivityAt: number
+  startedAt: number
+  failureMessage: string | null
   cleaned: boolean
   pendingResourceReload: boolean
   pendingMcpRestart: boolean
@@ -187,6 +194,7 @@ function requestId() {
 export class RuntimeSupervisor {
   private readonly runtimes = new Map<string, ManagedRuntime>()
   private readonly activations = new Map<string, Promise<ManagedRuntime>>()
+  private readonly failures = new Map<string, RuntimeCrash>()
   private readonly eventHub: EventHub
   private readonly idleTimer: NodeJS.Timeout
   private resourceQueue: Promise<void> = Promise.resolve()
@@ -206,9 +214,35 @@ export class RuntimeSupervisor {
 
   state(sessionId: string): RuntimeState {
     const runtime = this.runtimes.get(sessionId)
-    return runtime
-      ? { status: runtime.status, snapshot: runtime.snapshot }
-      : { status: "stopped", snapshot: null }
+    if (runtime) return { status: runtime.status, snapshot: runtime.snapshot }
+    return {
+      status: this.failures.has(sessionId) ? "crashed" : "stopped",
+      snapshot: null,
+    }
+  }
+
+  diagnostics(sessionId: string): RuntimeDiagnostics {
+    const runtime = this.runtimes.get(sessionId)
+    const crash = this.failures.get(sessionId) ?? null
+    return {
+      status: runtime?.status ?? (crash ? "crashed" : "stopped"),
+      active: Boolean(runtime && !runtime.cleaned),
+      pid: runtime?.child.pid ?? null,
+      runtimeKind: runtime?.runtimeKind ?? null,
+      runtimeProfileId: runtime?.runtimeProfileId ?? null,
+      cwd: runtime?.cwd ?? null,
+      workerPath: runtime?.workerPath ?? null,
+      startedAt: runtime ? new Date(runtime.startedAt).toISOString() : null,
+      lastActivityAt: runtime
+        ? new Date(runtime.lastActivityAt).toISOString()
+        : null,
+      pendingRequests: runtime?.pending.size ?? 0,
+      activeMcpCalls: runtime?.mcpCalls.size ?? 0,
+      mcpServers: runtime ? [...runtime.mcpServerIds].sort() : [],
+      activeTools: runtime?.snapshot?.activeTools ?? [],
+      crash,
+      events: this.eventHub.recent(sessionId),
+    }
   }
 
   async activate(sessionId: string) {
@@ -857,11 +891,14 @@ export class RuntimeSupervisor {
       nativeSessionFile: "",
       cwd: target.cwd,
       child,
+      workerPath,
       lockPath: null,
       status: "starting",
       snapshot: null,
       pending: new Map(),
       lastActivityAt: Date.now(),
+      startedAt: Date.now(),
+      failureMessage: null,
       cleaned: false,
       pendingResourceReload: false,
       pendingMcpRestart: false,
@@ -1017,11 +1054,14 @@ export class RuntimeSupervisor {
       nativeSessionFile,
       cwd: target.cwd,
       child,
+      workerPath,
       lockPath,
       status: "starting",
       snapshot: null,
       pending: new Map(),
       lastActivityAt: Date.now(),
+      startedAt: Date.now(),
+      failureMessage: null,
       cleaned: false,
       pendingResourceReload: false,
       pendingMcpRestart: false,
@@ -1085,10 +1125,19 @@ export class RuntimeSupervisor {
     runtime.child.once("exit", (code, signal) => {
       const expected = runtime.status === "stopping"
       if (!expected) {
+        const crash: RuntimeCrash = {
+          at: new Date().toISOString(),
+          code,
+          signal,
+          message:
+            runtime.failureMessage ??
+            `The Pi runtime exited (${signal ?? code ?? "unknown"}).`,
+        }
+        this.failures.set(runtime.webSessionId, crash)
         this.eventHub.publish({
           type: "runtime.crashed",
           sessionId: runtime.webSessionId,
-          payload: { code, signal },
+          payload: crash,
         })
       } else {
         this.eventHub.publish({
@@ -1147,6 +1196,7 @@ export class RuntimeSupervisor {
       return
     }
     if (message.type === "runtime.ready") {
+      this.failures.delete(runtime.webSessionId)
       runtime.snapshot = message.payload
       runtime.status = "ready"
       this.resolvePending(runtime, message.requestId, message.payload)
@@ -1546,6 +1596,7 @@ export class RuntimeSupervisor {
   private failRuntime(runtime: ManagedRuntime, error: Error) {
     if (runtime.cleaned) return
     runtime.status = "crashed"
+    runtime.failureMessage = error.message
     this.rejectPending(runtime, error)
     runtime.child.kill("SIGTERM")
   }

@@ -1,6 +1,6 @@
 import Link from "next/link"
 import { notFound } from "next/navigation"
-import { FolderGit2Icon, MessageSquareTextIcon } from "lucide-react"
+import { MessageSquareTextIcon } from "lucide-react"
 
 import { Badge } from "@workspace/ui/components/badge"
 import {
@@ -11,7 +11,9 @@ import {
 } from "@workspace/ui/components/card"
 
 import { NewSessionButton } from "@/components/new-session-button"
+import { ProjectHeader } from "@/components/project-header"
 import { getProject, listProjectSessions } from "@/lib/catalog"
+import { readProjectGitStatus } from "@/lib/project-git"
 import { getMutationToken } from "@/lib/request-security"
 import { displaySessionTitle, formatTimestamp } from "@/lib/session-display"
 
@@ -24,28 +26,19 @@ export default async function ProjectPage({
     listProjectSessions(projectId),
   ])
   if (!project) notFound()
+  const git = await readProjectGitStatus(project.path)
 
   return (
-    <main className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-6 py-10 md:px-10 md:py-14">
-      <header className="flex flex-wrap items-end justify-between gap-4">
-        <div className="flex flex-col gap-3">
-          <div className="grid size-10 place-items-center rounded-xl bg-muted">
-            <FolderGit2Icon className="size-5" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight">
-              {project.name}
-            </h1>
-            <p className="mt-1 font-mono text-xs break-all text-muted-foreground">
-              {project.path || "未知目录"}
-            </p>
-          </div>
-        </div>
+    <main className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-4 py-8 sm:px-6 md:px-10 md:py-14">
+      <ProjectHeader
+        project={project}
+        branch={git.available ? git.branch : null}
+      >
         <NewSessionButton
           projectId={projectId}
           mutationToken={getMutationToken()}
         />
-      </header>
+      </ProjectHeader>
 
       <section className="grid gap-3">
         {sessions.map((session) => (

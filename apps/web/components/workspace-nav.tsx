@@ -4,7 +4,9 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import {
   ChevronRightIcon,
+  FileTextIcon,
   FolderGit2Icon,
+  GitBranchIcon,
   SearchIcon,
   SettingsIcon,
 } from "lucide-react"
@@ -98,6 +100,26 @@ export function WorkspaceNav({ projects }: { projects: WorkspaceProject[] }) {
                           <SidebarMenuSubItem>
                             <SidebarMenuSubButton asChild>
                               <Link href={projectPath}>全部 session</Link>
+                            </SidebarMenuSubButton>
+                          </SidebarMenuSubItem>
+                          <SidebarMenuSubItem>
+                            <SidebarMenuSubButton
+                              asChild
+                              isActive={pathname === `${projectPath}/files`}
+                            >
+                              <Link href={`${projectPath}/files`}>
+                                <FileTextIcon /> 文件
+                              </Link>
+                            </SidebarMenuSubButton>
+                          </SidebarMenuSubItem>
+                          <SidebarMenuSubItem>
+                            <SidebarMenuSubButton
+                              asChild
+                              isActive={pathname === `${projectPath}/git`}
+                            >
+                              <Link href={`${projectPath}/git`}>
+                                <GitBranchIcon /> Git
+                              </Link>
                             </SidebarMenuSubButton>
                           </SidebarMenuSubItem>
                           {project.sessions.map((session) => {

@@ -62,3 +62,27 @@ test("requests an authoritative resync when replay history expired", async () =>
 
   await reader.cancel()
 })
+
+test("exposes recent events and mirrors every event to the protocol inspector", async () => {
+  const hub = new EventHub()
+  hub.publish({ type: "runtime.ready", sessionId: "session-a", payload: {} })
+  hub.publish({ type: "runtime.log", sessionId: "session-b", payload: {} })
+  assert.deepEqual(
+    hub.recent("session-a").map((event) => event.type),
+    ["runtime.ready"]
+  )
+
+  const reader = hub
+    .stream(["session-a"], null, new AbortController().signal, "protocol.event")
+    .getReader()
+  await reader.read()
+  hub.publish({
+    type: "tool.execution.start",
+    sessionId: "session-a",
+    payload: { toolName: "read" },
+  })
+  const event = decoder.decode((await reader.read()).value)
+  assert.match(event, /event: protocol\.event/)
+  assert.match(event, /"type":"tool\.execution\.start"/)
+  await reader.cancel()
+})

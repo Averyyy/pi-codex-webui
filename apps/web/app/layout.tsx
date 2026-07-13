@@ -6,6 +6,7 @@ import { Toaster } from "@workspace/ui/components/sonner"
 import { TooltipProvider } from "@workspace/ui/components/tooltip"
 
 import { ThemeProvider } from "@/components/theme-provider"
+import { PwaRegistration } from "@/components/pwa-registration"
 import { loadConfig } from "@/lib/config"
 
 export const metadata = {
@@ -36,6 +37,7 @@ export default async function RootLayout({
         <ThemeProvider defaultTheme={config.appearance.theme}>
           <TooltipProvider>{children}</TooltipProvider>
           <Toaster />
+          <PwaRegistration />
         </ThemeProvider>
       </body>
     </html>

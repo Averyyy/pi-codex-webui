@@ -22,8 +22,14 @@ original runtime binding; migration is an explicit duplicate that records its
 source. MCP settings manage real global/project stdio and Streamable HTTP
 servers, keep credentials in SecretStore, discover and namespace tools, expose
 connection status/logs, and restart affected idle runtimes so per-tool changes
-reach the actual AgentSession. Later-phase features are not shown until their
-backing operation exists.
+reach the actual AgentSession. Project pages also expose a host-confined,
+read-only file browser and real Git branch, commit, upstream, and worktree
+status. The installable PWA keeps dynamic session and API data out of its cache;
+optional browser notifications fire only for completed agents, runtime crashes,
+and extension notifications while the page is hidden. Runtime diagnostics show
+the managed worker, MCP/tool activity, and recent domain events, with explicit
+crash recovery that preserves readable JSONL history. No UI is shown without a
+backing operation.
 
 ## Run the packaged app
 
@@ -53,6 +59,16 @@ npx pnpm@11.12.0 typecheck
 npx pnpm@11.12.0 lint
 npx pnpm@11.12.0 build
 ```
+
+Run the complete packed-release check with:
+
+```bash
+npx pnpm@11.12.0 release:verify
+```
+
+This builds the portable standalone tree, verifies that the NPM tarball contains
+both compiled workers and no TypeScript business source, installs it into a
+temporary global prefix, and starts the installed CLI through its health check.
 
 ## Architecture
 
