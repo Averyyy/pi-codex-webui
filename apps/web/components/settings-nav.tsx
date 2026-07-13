@@ -2,7 +2,14 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { PaletteIcon, Settings2Icon, SettingsIcon } from "lucide-react"
+import {
+  BlocksIcon,
+  PackageIcon,
+  PaletteIcon,
+  Settings2Icon,
+  SettingsIcon,
+  SparklesIcon,
+} from "lucide-react"
 
 import {
   Sidebar,
@@ -21,6 +28,9 @@ import {
 const sections = [
   { href: "/settings/general", label: "常规", icon: Settings2Icon },
   { href: "/settings/appearance", label: "外观", icon: PaletteIcon },
+  { href: "/settings/packages", label: "Packages", icon: PackageIcon },
+  { href: "/settings/extensions", label: "Extensions", icon: BlocksIcon },
+  { href: "/settings/skills", label: "Skills", icon: SparklesIcon },
 ]
 
 export function SettingsNav() {

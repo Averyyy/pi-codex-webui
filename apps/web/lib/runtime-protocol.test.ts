@@ -6,6 +6,7 @@ import {
   extensionUIResponseSchema,
   hostToWorkerMessageSchema,
   promptAcceptedSchema,
+  resourceCatalogSchema,
   runtimeStatusSchema,
   workerToHostMessageSchema,
 } from "@workspace/runtime-protocol"
@@ -84,5 +85,71 @@ test("extension UI protocol distinguishes dialogs from notifications", () => {
       widgetLines: "not-an-array",
     }).success,
     false
+  )
+})
+
+test("resource protocol preserves scope, trust, and package operations", () => {
+  const catalog = resourceCatalogSchema.parse({
+    cwd: "/workspace",
+    projectTrusted: false,
+    trustRequired: true,
+    resources: [
+      {
+        id: "extension-a",
+        type: "extension",
+        name: "extension.ts",
+        scope: "global",
+        source: "explicit-path",
+        sourcePath: "/agent/extensions/extension.ts",
+        enabled: true,
+        inherited: false,
+        overridden: false,
+        missing: false,
+        reloadRequired: false,
+      },
+    ],
+    packages: [],
+  })
+  assert.equal(catalog.resources[0]?.scope, "global")
+  assert.equal(
+    hostToWorkerMessageSchema.parse({
+      type: "packages.remove",
+      requestId: "request-a",
+      payload: {
+        cwd: "/workspace",
+        agentDir: "/agent",
+        packageId: "package-a",
+      },
+    }).type,
+    "packages.remove"
+  )
+  assert.equal(
+    hostToWorkerMessageSchema.safeParse({
+      type: "resources.set-enabled",
+      requestId: "request-a",
+      payload: {
+        cwd: "/workspace",
+        agentDir: "/agent",
+        resourceId: "extension-a",
+        writeScope: "global",
+        enabled: false,
+      },
+    }).success,
+    false
+  )
+  assert.equal(
+    hostToWorkerMessageSchema.parse({
+      type: "resources.set-enabled",
+      requestId: "request-b",
+      payload: {
+        cwd: "/workspace",
+        agentDir: "/agent",
+        resourceId: "extension-a",
+        resourceType: "extension",
+        writeScope: "global",
+        enabled: false,
+      },
+    }).type,
+    "resources.set-enabled"
   )
 })

@@ -20,6 +20,13 @@ import {
   type WorkerToHostMessage,
 } from "@workspace/runtime-protocol"
 
+import {
+  handleResourceMessage,
+  isResourceMessage,
+  projectTrustedForWeb,
+} from "./resources.js"
+import { createSettingsManager } from "./settings.js"
+
 let runtime: AgentSessionRuntime | undefined
 let webSessionId: string | undefined
 let nativeSessionFile: string | undefined
@@ -303,9 +310,15 @@ async function initialize(
       previousSessionFile?: string
     }
   }) => {
+    const settingsManager = createSettingsManager(
+      options.cwd,
+      options.agentDir,
+      projectTrustedForWeb(options.cwd, options.agentDir)
+    )
     const services = await createAgentSessionServices({
       cwd: options.cwd,
       agentDir: options.agentDir,
+      settingsManager,
     })
     const created = await createAgentSessionFromServices({
       services,
@@ -428,6 +441,13 @@ async function prompt(
 }
 
 async function dispatch(message: HostToWorkerMessage) {
+  if (isResourceMessage(message)) {
+    respond(message.requestId, {
+      success: true,
+      data: await handleResourceMessage(message),
+    })
+    return
+  }
   if (message.type === "runtime.initialize") {
     await initialize(message)
     return
@@ -448,7 +468,16 @@ async function dispatch(message: HostToWorkerMessage) {
 
   assertSession(message)
   const session = currentRuntime().session
-  if (message.type === "session.prompt") {
+  if (message.type === "runtime.reload-resources") {
+    currentRuntime().services.settingsManager.setProjectTrusted(
+      projectTrustedForWeb(
+        currentRuntime().cwd,
+        currentRuntime().services.agentDir
+      )
+    )
+    await session.reload()
+    respond(message.requestId, { success: true, data: snapshot(session) })
+  } else if (message.type === "session.prompt") {
     await prompt(message)
   } else if (message.type === "session.abort") {
     await session.abort()

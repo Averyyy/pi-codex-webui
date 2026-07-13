@@ -11,7 +11,11 @@ thinking, queue, compaction, and retry state. Pi-backed session operations cover
 new, resume, rename, fork, clone, tree navigation, JSONL/HTML export, JSONL
 import, and statistics. Web-compatible extensions can use confirm, select,
 input, editor, notifications, status, widgets, and editor draft updates.
-Later-phase features are not shown until their backing operation exists.
+Packages, extensions, and skills have dedicated Global/Current Project settings
+pages backed by Pi's real SettingsManager and DefaultPackageManager. Resource
+changes respect Pi project trust, persist atomically, reload idle runtimes
+immediately, and defer busy runtime reloads until `agent_settled`. Later-phase
+features are not shown until their backing operation exists.
 
 ## Run the packaged app
 

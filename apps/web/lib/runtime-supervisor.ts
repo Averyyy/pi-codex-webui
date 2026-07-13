@@ -17,6 +17,7 @@ import path from "node:path"
 
 import {
   promptAcceptedSchema,
+  resourceCatalogSchema,
   sessionExportResultSchema,
   sessionNavigationResultSchema,
   sessionReplacementSchema,
@@ -26,6 +27,7 @@ import {
   workerToHostMessageSchema,
   type HostToWorkerMessage,
   type ExtensionUIResponse,
+  type ResourceCatalog,
   type RuntimeSnapshot,
   type RuntimeStatus,
   type WorkerToHostMessage,
@@ -63,6 +65,7 @@ interface ManagedRuntime {
   pending: Map<string, PendingRequest>
   lastActivityAt: number
   cleaned: boolean
+  pendingResourceReload: boolean
 }
 
 interface SessionLock {
@@ -76,6 +79,19 @@ type SessionReplacementMessage = Extract<
   HostToWorkerMessage,
   {
     type: "session.new" | "session.clone" | "session.fork" | "session.import"
+  }
+>
+
+type ResourceRequestMessage = Extract<
+  HostToWorkerMessage,
+  {
+    type:
+      | "resources.catalog"
+      | "resources.set-enabled"
+      | "packages.install"
+      | "packages.remove"
+      | "packages.update"
+      | "project.trust.set"
   }
 >
 
@@ -137,6 +153,7 @@ export class RuntimeSupervisor {
   private readonly activations = new Map<string, Promise<ManagedRuntime>>()
   private readonly eventHub: EventHub
   private readonly idleTimer: NodeJS.Timeout
+  private resourceQueue: Promise<void> = Promise.resolve()
 
   constructor(eventHub = getEventHub()) {
     this.eventHub = eventHub
@@ -481,6 +498,94 @@ export class RuntimeSupervisor {
     })
   }
 
+  async resourceCatalog(cwd: string) {
+    return this.annotateResourceReload(
+      cwd,
+      resourceCatalogSchema.parse(
+        await this.resourceRequest({
+          type: "resources.catalog",
+          requestId: requestId(),
+          payload: { cwd, agentDir: getPiAgentDir() },
+        })
+      )
+    )
+  }
+
+  async setResourceEnabled(
+    cwd: string,
+    resourceId: string,
+    resourceType: "extension" | "skill" | "prompt" | "theme",
+    writeScope: "global" | "project",
+    enabled: boolean
+  ) {
+    const catalog = resourceCatalogSchema.parse(
+      await this.resourceRequest({
+        type: "resources.set-enabled",
+        requestId: requestId(),
+        payload: {
+          cwd,
+          agentDir: getPiAgentDir(),
+          resourceId,
+          resourceType,
+          writeScope,
+          enabled,
+        },
+      })
+    )
+    await this.reloadResources(cwd, writeScope === "global")
+    return this.annotateResourceReload(cwd, catalog)
+  }
+
+  async installPackage(
+    cwd: string,
+    source: string,
+    scope: "global" | "project"
+  ) {
+    const catalog = resourceCatalogSchema.parse(
+      await this.resourceRequest(
+        {
+          type: "packages.install",
+          requestId: requestId(),
+          payload: { cwd, agentDir: getPiAgentDir(), source, scope },
+        },
+        COMPACTION_TIMEOUT_MS
+      )
+    )
+    await this.reloadResources(cwd, scope === "global")
+    return this.annotateResourceReload(cwd, catalog)
+  }
+
+  async mutatePackage(
+    cwd: string,
+    packageId: string,
+    operation: "remove" | "update"
+  ) {
+    const catalog = resourceCatalogSchema.parse(
+      await this.resourceRequest(
+        {
+          type: operation === "remove" ? "packages.remove" : "packages.update",
+          requestId: requestId(),
+          payload: { cwd, agentDir: getPiAgentDir(), packageId },
+        },
+        COMPACTION_TIMEOUT_MS
+      )
+    )
+    await this.reloadResources(cwd, true)
+    return this.annotateResourceReload(cwd, catalog)
+  }
+
+  async setProjectTrust(cwd: string, trusted: boolean) {
+    const catalog = resourceCatalogSchema.parse(
+      await this.resourceRequest({
+        type: "project.trust.set",
+        requestId: requestId(),
+        payload: { cwd, agentDir: getPiAgentDir(), trusted },
+      })
+    )
+    await this.reloadResources(cwd, false)
+    return this.annotateResourceReload(cwd, catalog)
+  }
+
   async stop(sessionId: string) {
     const runtime = this.runtimes.get(sessionId)
     if (!runtime || runtime.cleaned) return
@@ -668,6 +773,7 @@ export class RuntimeSupervisor {
       pending: new Map(),
       lastActivityAt: Date.now(),
       cleaned: false,
+      pendingResourceReload: false,
     }
     this.runtimes.set(sessionId, managed)
     this.bindChild(managed)
@@ -827,6 +933,11 @@ export class RuntimeSupervisor {
     }
     if (message.eventType === "agent_settled") {
       runtime.status = "ready"
+      if (runtime.pendingResourceReload) {
+        void this.reloadRuntimeResources(runtime).catch((error: Error) =>
+          this.failRuntime(runtime, error)
+        )
+      }
     }
     this.eventHub.publish({
       type: DOMAIN_EVENT_TYPES[message.eventType] ?? "session.event",
@@ -861,6 +972,166 @@ export class RuntimeSupervisor {
         if (error) this.rejectOne(runtime, message.requestId, error)
       })
     })
+  }
+
+  private resourceRequest(
+    message: ResourceRequestMessage,
+    timeoutMs = REQUEST_TIMEOUT_MS
+  ) {
+    const operation = this.resourceQueue.then(() =>
+      this.performResourceRequest(message, timeoutMs)
+    )
+    this.resourceQueue = operation.then(
+      () => undefined,
+      () => undefined
+    )
+    return operation
+  }
+
+  private async performResourceRequest(
+    message: ResourceRequestMessage,
+    timeoutMs: number
+  ) {
+    const workerPath = await realpath(getPiWorkerPath())
+    await access(workerPath)
+    const child = fork(workerPath, [], {
+      cwd: message.payload.cwd,
+      env: workerEnvironment(),
+      execArgv: [],
+      stdio: ["ignore", "ignore", "ignore", "ipc"],
+    })
+    return new Promise<unknown>((resolve, reject) => {
+      let settled = false
+      const finish = (complete: () => void) => {
+        if (settled) return
+        settled = true
+        clearTimeout(timeout)
+        child.removeAllListeners()
+        if (child.exitCode === null && child.signalCode === null) {
+          child.kill("SIGTERM")
+        }
+        complete()
+      }
+      const timeout = setTimeout(
+        () =>
+          finish(() =>
+            reject(
+              new RuntimeRequestError(
+                "ResourceRequestTimeout",
+                `The Pi resource worker did not answer within ${timeoutMs}ms.`
+              )
+            )
+          ),
+        timeoutMs
+      )
+      child.once("error", (error) => finish(() => reject(error)))
+      child.once("exit", (code, signal) =>
+        finish(() =>
+          reject(
+            new RuntimeRequestError(
+              "ResourceWorkerExited",
+              `The Pi resource worker exited (${signal ?? code ?? "unknown"}).`
+            )
+          )
+        )
+      )
+      child.on("message", (raw: unknown) => {
+        const parsed = workerToHostMessageSchema.safeParse(raw)
+        if (!parsed.success) {
+          finish(() =>
+            reject(
+              new RuntimeRequestError(
+                "InvalidWorkerMessage",
+                parsed.error.message
+              )
+            )
+          )
+          return
+        }
+        const response = parsed.data
+        if (
+          response.type !== "runtime.response" ||
+          response.requestId !== message.requestId
+        ) {
+          return
+        }
+        if (response.success) finish(() => resolve(response.data))
+        else {
+          finish(() =>
+            reject(
+              new RuntimeRequestError(
+                response.error?.code ?? "ResourceRequestFailed",
+                response.error?.message ?? "The Pi resource request failed."
+              )
+            )
+          )
+        }
+      })
+      child.send(message, (error) => {
+        if (error) finish(() => reject(error))
+      })
+    })
+  }
+
+  private async reloadResources(cwd: string, global: boolean) {
+    const reloads: Promise<RuntimeSnapshot>[] = []
+    for (const runtime of this.runtimes.values()) {
+      if (!global && path.resolve(runtime.cwd) !== path.resolve(cwd)) continue
+      if (runtime.status === "ready") {
+        reloads.push(this.reloadRuntimeResources(runtime))
+      } else if (runtime.status === "busy" || runtime.status === "starting") {
+        runtime.pendingResourceReload = true
+      }
+    }
+    await Promise.all(reloads)
+  }
+
+  private async reloadRuntimeResources(runtime: ManagedRuntime) {
+    runtime.pendingResourceReload = true
+    runtime.status = "starting"
+    this.eventHub.publish({
+      type: "runtime.starting",
+      sessionId: runtime.webSessionId,
+      payload: { reason: "resources-reload" },
+    })
+    const snapshot = runtimeSnapshotSchema.parse(
+      await this.request(
+        runtime,
+        {
+          type: "runtime.reload-resources",
+          requestId: requestId(),
+          sessionId: runtime.webSessionId,
+        },
+        COMPACTION_TIMEOUT_MS
+      )
+    )
+    runtime.snapshot = snapshot
+    runtime.status = "ready"
+    runtime.pendingResourceReload = false
+    this.eventHub.publish({
+      type: "runtime.ready",
+      sessionId: runtime.webSessionId,
+      payload: snapshot,
+    })
+    return snapshot
+  }
+
+  private annotateResourceReload(cwd: string, catalog: ResourceCatalog) {
+    const pending = [...this.runtimes.values()].some(
+      (runtime) =>
+        !runtime.cleaned &&
+        runtime.pendingResourceReload &&
+        path.resolve(runtime.cwd) === path.resolve(cwd)
+    )
+    return pending
+      ? {
+          ...catalog,
+          resources: catalog.resources.map((resource) => ({
+            ...resource,
+            reloadRequired: true,
+          })),
+        }
+      : catalog
   }
 
   private resolvePending(

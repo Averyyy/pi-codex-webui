@@ -3,7 +3,9 @@
   "version": "0.0.0",
   "type": "module",
   "private": true,
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",
@@ -12,10 +14,12 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@earendil-works/pi-coding-agent": "0.80.6"
+    "@earendil-works/pi-coding-agent": "0.80.6",
+    "proper-lockfile": "^4.1.2"
   },
   "devDependencies": {
     "@types/node": "^26.1.1",
+    "@types/proper-lockfile": "^4.1.4",
     "@workspace/eslint-config": "workspace:*",
     "@workspace/runtime-protocol": "workspace:*",
     "@workspace/typescript-config": "workspace:*",

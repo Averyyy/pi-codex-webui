@@ -24,6 +24,9 @@ export async function GET() {
         runtimeMutations: true,
         sessionOperations: true,
         extensionUI: true,
+        resourceManagement: true,
+        projectTrust: true,
+        safeResourceReload: true,
       },
     },
     { headers: { "Cache-Control": "no-store" } }

@@ -158,6 +158,45 @@ export const extensionUIRequestSchema = z.discriminatedUnion("method", [
   z.object({ method: z.literal("set_editor_text"), text: z.string() }),
 ])
 
+export const resourceKindSchema = z.enum([
+  "extension",
+  "skill",
+  "prompt",
+  "theme",
+])
+
+export const resourceViewSchema = z.object({
+  id: z.string().min(1),
+  type: resourceKindSchema,
+  name: z.string().min(1),
+  scope: z.enum(["global", "project"]),
+  source: z.enum(["package", "directory", "explicit-path"]),
+  sourcePath: z.string().min(1),
+  packageSource: z.string().min(1).optional(),
+  enabled: z.boolean(),
+  inherited: z.boolean(),
+  overridden: z.boolean(),
+  missing: z.boolean(),
+  reloadRequired: z.boolean(),
+})
+
+export const packageViewSchema = z.object({
+  id: z.string().min(1),
+  source: z.string().min(1),
+  scope: z.enum(["global", "project"]),
+  filtered: z.boolean(),
+  installedPath: z.string().min(1).optional(),
+  missing: z.boolean(),
+})
+
+export const resourceCatalogSchema = z.object({
+  cwd: z.string().min(1),
+  projectTrusted: z.boolean(),
+  trustRequired: z.boolean(),
+  resources: z.array(resourceViewSchema),
+  packages: z.array(packageViewSchema),
+})
+
 const initializeMessageSchema = z.object({
   type: z.literal("runtime.initialize"),
   requestId: z.string().min(1),
@@ -309,6 +348,63 @@ const shutdownMessageSchema = z.object({
   requestId: z.string().min(1),
 })
 
+const reloadResourcesMessageSchema = z.object({
+  type: z.literal("runtime.reload-resources"),
+  requestId: z.string().min(1),
+  sessionId: z.string().min(1),
+})
+
+const resourceRequestBaseSchema = z.object({
+  requestId: z.string().min(1),
+  payload: z.object({
+    cwd: z.string().min(1),
+    agentDir: z.string().min(1),
+  }),
+})
+
+const resourceCatalogMessageSchema = resourceRequestBaseSchema.extend({
+  type: z.literal("resources.catalog"),
+})
+
+const resourceToggleMessageSchema = resourceRequestBaseSchema.extend({
+  type: z.literal("resources.set-enabled"),
+  payload: resourceRequestBaseSchema.shape.payload.extend({
+    resourceId: z.string().min(1),
+    resourceType: resourceKindSchema,
+    writeScope: z.enum(["global", "project"]),
+    enabled: z.boolean(),
+  }),
+})
+
+const packageInstallMessageSchema = resourceRequestBaseSchema.extend({
+  type: z.literal("packages.install"),
+  payload: resourceRequestBaseSchema.shape.payload.extend({
+    source: z.string().trim().min(1),
+    scope: z.enum(["global", "project"]),
+  }),
+})
+
+const packageRemoveMessageSchema = resourceRequestBaseSchema.extend({
+  type: z.literal("packages.remove"),
+  payload: resourceRequestBaseSchema.shape.payload.extend({
+    packageId: z.string().min(1),
+  }),
+})
+
+const packageUpdateMessageSchema = resourceRequestBaseSchema.extend({
+  type: z.literal("packages.update"),
+  payload: resourceRequestBaseSchema.shape.payload.extend({
+    packageId: z.string().min(1),
+  }),
+})
+
+const projectTrustMessageSchema = resourceRequestBaseSchema.extend({
+  type: z.literal("project.trust.set"),
+  payload: resourceRequestBaseSchema.shape.payload.extend({
+    trusted: z.boolean(),
+  }),
+})
+
 export const hostToWorkerMessageSchema = z.discriminatedUnion("type", [
   initializeMessageSchema,
   promptMessageSchema,
@@ -326,6 +422,13 @@ export const hostToWorkerMessageSchema = z.discriminatedUnion("type", [
   importMessageSchema,
   rebindWebSessionMessageSchema,
   extensionUIResponseMessageSchema,
+  reloadResourcesMessageSchema,
+  resourceCatalogMessageSchema,
+  resourceToggleMessageSchema,
+  packageInstallMessageSchema,
+  packageRemoveMessageSchema,
+  packageUpdateMessageSchema,
+  projectTrustMessageSchema,
   shutdownMessageSchema,
 ])
 
@@ -399,6 +502,9 @@ export type SessionNavigationResult = z.infer<
 >
 export type ExtensionUIRequest = z.infer<typeof extensionUIRequestSchema>
 export type ExtensionUIResponse = z.infer<typeof extensionUIResponseSchema>
+export type ResourceView = z.infer<typeof resourceViewSchema>
+export type PackageView = z.infer<typeof packageViewSchema>
+export type ResourceCatalog = z.infer<typeof resourceCatalogSchema>
 export type HostToWorkerMessage = z.infer<typeof hostToWorkerMessageSchema>
 export type WorkerToHostMessage = z.infer<typeof workerToHostMessageSchema>
 export type RuntimeError = z.infer<typeof runtimeErrorSchema>

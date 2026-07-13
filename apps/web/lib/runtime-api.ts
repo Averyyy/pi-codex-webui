@@ -7,14 +7,16 @@ export function runtimeErrorResponse(error: unknown) {
   const status =
     error.code === "InvalidJson"
       ? 400
-      : error.code === "SessionNotFound"
-        ? 404
-        : error.code === "SessionWriteLeaseConflict" ||
-            error.code === "RuntimeNotActive" ||
-            error.code === "RuntimeBusy" ||
-            error.code === "SessionOperationCancelled"
-          ? 409
-          : 422
+      : error.code === "ProjectRequired"
+        ? 400
+        : error.code === "SessionNotFound" || error.code === "ProjectNotFound"
+          ? 404
+          : error.code === "SessionWriteLeaseConflict" ||
+              error.code === "RuntimeNotActive" ||
+              error.code === "RuntimeBusy" ||
+              error.code === "SessionOperationCancelled"
+            ? 409
+            : 422
   return Response.json({ error: error.message, code: error.code }, { status })
 }
 
