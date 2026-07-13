@@ -37,6 +37,7 @@ export function getAppPaths() {
     config: path.join(root, "config.json"),
     database: path.join(root, "state.db"),
     sessionLocks: path.join(root, "locks", "sessions"),
+    temporary: path.join(root, "tmp"),
   }
 }
 

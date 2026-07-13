@@ -11,21 +11,31 @@ import {
   realpath,
   rm,
   stat,
+  writeFile,
 } from "node:fs/promises"
 import path from "node:path"
 
 import {
   promptAcceptedSchema,
+  sessionExportResultSchema,
+  sessionNavigationResultSchema,
+  sessionReplacementSchema,
+  sessionStatsSchema,
+  sessionTreeSchema,
   runtimeSnapshotSchema,
   workerToHostMessageSchema,
   type HostToWorkerMessage,
+  type ExtensionUIResponse,
   type RuntimeSnapshot,
   type RuntimeStatus,
   type WorkerToHostMessage,
 } from "@workspace/runtime-protocol"
 
 import { getPiAgentDir, getPiWorkerPath, getAppPaths } from "@/lib/app-paths"
-import { getSessionRuntimeTarget } from "@/lib/catalog"
+import {
+  getSessionIdentityByNativeFile,
+  getSessionRuntimeTarget,
+} from "@/lib/catalog"
 import { getEventHub, type EventHub } from "@/lib/event-hub"
 import { RuntimeRequestError } from "@/lib/runtime-error"
 
@@ -61,6 +71,13 @@ interface SessionLock {
   runtimeProfileId: string
   createdAt: string
 }
+
+type SessionReplacementMessage = Extract<
+  HostToWorkerMessage,
+  {
+    type: "session.new" | "session.clone" | "session.fork" | "session.import"
+  }
+>
 
 const REQUEST_TIMEOUT_MS = 30_000
 const COMPACTION_TIMEOUT_MS = 10 * 60_000
@@ -304,6 +321,166 @@ export class RuntimeSupervisor {
     return { result, snapshot }
   }
 
+  async rename(sessionId: string, name: string) {
+    const runtime = await this.activateReadyRuntime(sessionId)
+    const snapshot = runtimeSnapshotSchema.parse(
+      await this.request(runtime, {
+        type: "session.rename",
+        requestId: requestId(),
+        sessionId,
+        payload: { name },
+      })
+    )
+    runtime.snapshot = snapshot
+    return snapshot
+  }
+
+  async stats(sessionId: string) {
+    const runtime = await this.activateReadyRuntime(sessionId)
+    return sessionStatsSchema.parse(
+      await this.request(runtime, {
+        type: "session.stats",
+        requestId: requestId(),
+        sessionId,
+      })
+    )
+  }
+
+  async tree(sessionId: string) {
+    const runtime = await this.activateReadyRuntime(sessionId)
+    return sessionTreeSchema.parse(
+      await this.request(runtime, {
+        type: "session.tree",
+        requestId: requestId(),
+        sessionId,
+      })
+    )
+  }
+
+  async navigateTree(sessionId: string, entryId: string, summarize: boolean) {
+    const runtime = await this.activateReadyRuntime(sessionId)
+    const result = sessionNavigationResultSchema.parse(
+      await this.request(
+        runtime,
+        {
+          type: "session.navigate-tree",
+          requestId: requestId(),
+          sessionId,
+          payload: { entryId, summarize },
+        },
+        summarize ? COMPACTION_TIMEOUT_MS : REQUEST_TIMEOUT_MS
+      )
+    )
+    runtime.snapshot = result.snapshot
+    this.eventHub.publish({
+      type: "session.leaf.changed",
+      sessionId,
+      payload: { leafId: result.leafId, editorText: result.editorText },
+    })
+    return result
+  }
+
+  newSession(sessionId: string) {
+    return this.replaceRuntimeSession(sessionId, (nextWebSessionId) => ({
+      type: "session.new",
+      requestId: requestId(),
+      sessionId,
+      payload: { nextWebSessionId },
+    }))
+  }
+
+  clone(sessionId: string) {
+    return this.replaceRuntimeSession(sessionId, (nextWebSessionId) => ({
+      type: "session.clone",
+      requestId: requestId(),
+      sessionId,
+      payload: { nextWebSessionId },
+    }))
+  }
+
+  fork(sessionId: string, entryId: string, position: "before" | "at") {
+    return this.replaceRuntimeSession(sessionId, (nextWebSessionId) => ({
+      type: "session.fork",
+      requestId: requestId(),
+      sessionId,
+      payload: { nextWebSessionId, entryId, position },
+    }))
+  }
+
+  async importSession(sessionId: string, content: Uint8Array) {
+    const temporary = getAppPaths().temporary
+    await mkdir(temporary, { recursive: true, mode: 0o700 })
+    const inputPath = path.join(temporary, `${randomUUID()}.jsonl`)
+    await writeFile(inputPath, content, { mode: 0o600 })
+    try {
+      return await this.replaceRuntimeSession(
+        sessionId,
+        (nextWebSessionId, runtime) => ({
+          type: "session.import",
+          requestId: requestId(),
+          sessionId,
+          payload: {
+            nextWebSessionId,
+            inputPath,
+            cwdOverride: runtime.cwd,
+          },
+        })
+      )
+    } finally {
+      await rm(inputPath, { force: true })
+    }
+  }
+
+  async exportSession(sessionId: string, format: "jsonl" | "html") {
+    const runtime = await this.activateReadyRuntime(sessionId)
+    const temporary = getAppPaths().temporary
+    await mkdir(temporary, { recursive: true, mode: 0o700 })
+    const outputPath = path.join(temporary, `${randomUUID()}.${format}`)
+    try {
+      const result = sessionExportResultSchema.parse(
+        await this.request(
+          runtime,
+          {
+            type: "session.export",
+            requestId: requestId(),
+            sessionId,
+            payload: { format, outputPath },
+          },
+          COMPACTION_TIMEOUT_MS
+        )
+      )
+      if (path.resolve(result.outputPath) !== outputPath) {
+        throw new RuntimeRequestError(
+          "InvalidExportPath",
+          "The Pi worker returned an unexpected export path."
+        )
+      }
+      return await readFile(outputPath)
+    } finally {
+      await rm(outputPath, { force: true })
+    }
+  }
+
+  async respondToExtensionUI(
+    sessionId: string,
+    extensionRequestId: string,
+    response: ExtensionUIResponse
+  ) {
+    const runtime = this.runtimes.get(sessionId)
+    if (!runtime || runtime.cleaned) {
+      throw new RuntimeRequestError(
+        "RuntimeNotActive",
+        "The Pi runtime is not active."
+      )
+    }
+    await this.request(runtime, {
+      type: "extension.ui.response",
+      requestId: requestId(),
+      sessionId,
+      payload: { extensionRequestId, response },
+    })
+  }
+
   async stop(sessionId: string) {
     const runtime = this.runtimes.get(sessionId)
     if (!runtime || runtime.cleaned) return
@@ -328,6 +505,112 @@ export class RuntimeSupervisor {
         runtime.child.kill("SIGTERM")
         await this.waitForExit(runtime.child, 5_000)
       }
+      throw error
+    }
+  }
+
+  private async activateReadyRuntime(sessionId: string) {
+    const runtime = await this.activate(sessionId)
+    if (runtime.status !== "ready") {
+      throw new RuntimeRequestError(
+        "RuntimeBusy",
+        "Wait for the Pi runtime to become ready before changing the session."
+      )
+    }
+    return runtime
+  }
+
+  private async replaceRuntimeSession(
+    sessionId: string,
+    createMessage: (
+      nextWebSessionId: string,
+      runtime: ManagedRuntime
+    ) => SessionReplacementMessage
+  ) {
+    const runtime = await this.activateReadyRuntime(sessionId)
+    const provisionalWebSessionId = randomUUID()
+    const result = sessionReplacementSchema.parse(
+      await this.request(
+        runtime,
+        createMessage(provisionalWebSessionId, runtime),
+        COMPACTION_TIMEOUT_MS
+      )
+    )
+    if (result.cancelled) {
+      throw new RuntimeRequestError(
+        "SessionOperationCancelled",
+        "A Pi extension cancelled the session operation."
+      )
+    }
+
+    let nextLockPath: string | null = null
+    try {
+      const identity = await getSessionIdentityByNativeFile(
+        result.snapshot.nativeSessionFile
+      )
+      if (!identity) {
+        throw new RuntimeRequestError(
+          "SessionIndexFailed",
+          "The new Pi session was not added to the session index."
+        )
+      }
+      if (identity.nativeSessionId !== result.snapshot.nativeSessionId) {
+        throw new RuntimeRequestError(
+          "SessionIdentityMismatch",
+          "The indexed Pi session does not match the replacement runtime."
+        )
+      }
+
+      let snapshot = result.snapshot
+      if (identity.id !== provisionalWebSessionId) {
+        snapshot = runtimeSnapshotSchema.parse(
+          await this.request(runtime, {
+            type: "runtime.rebind-web-session",
+            requestId: requestId(),
+            payload: { webSessionId: identity.id },
+          })
+        )
+      }
+
+      nextLockPath = await this.acquireSessionLock({
+        webSessionId: identity.id,
+        runtimeProfileId: runtime.runtimeProfileId,
+        nativeSessionId: identity.nativeSessionId,
+        nativeSessionFile: identity.nativeSessionFile,
+      })
+      const previousLockPath = runtime.lockPath
+      const previousWebSessionId = runtime.webSessionId
+      await rm(previousLockPath, { force: true })
+      this.runtimes.delete(previousWebSessionId)
+      runtime.webSessionId = identity.id
+      runtime.nativeSessionId = identity.nativeSessionId
+      runtime.nativeSessionFile = identity.nativeSessionFile
+      runtime.lockPath = nextLockPath
+      runtime.snapshot = snapshot
+      runtime.status = "ready"
+      runtime.lastActivityAt = Date.now()
+      this.runtimes.set(identity.id, runtime)
+
+      this.eventHub.publish({
+        type: "runtime.stopped",
+        sessionId: previousWebSessionId,
+        payload: {},
+      })
+      this.eventHub.publish({
+        type: "runtime.ready",
+        sessionId: identity.id,
+        payload: snapshot,
+      })
+      return {
+        projectId: identity.projectId,
+        sessionId: identity.id,
+        snapshot,
+      }
+    } catch (error) {
+      runtime.status = "stopping"
+      runtime.child.kill("SIGTERM")
+      await this.cleanup(runtime)
+      if (nextLockPath) await rm(nextLockPath, { force: true })
       throw error
     }
   }
@@ -485,6 +768,14 @@ export class RuntimeSupervisor {
     message: WorkerToHostMessage
   ) {
     runtime.lastActivityAt = Date.now()
+    if (message.type === "extension.ui.request") {
+      this.eventHub.publish({
+        type: "extension.ui.request",
+        sessionId: runtime.webSessionId,
+        payload: { requestId: message.requestId, ...message.payload },
+      })
+      return
+    }
     if (message.type === "runtime.ready") {
       runtime.snapshot = message.payload
       runtime.status = "ready"

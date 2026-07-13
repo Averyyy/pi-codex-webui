@@ -7,8 +7,11 @@ APIs, atomic local configuration, functional General and Appearance pages, a
 browser for real Pi JSONL projects, sessions, messages, tool records, and
 full-text search, plus an isolated Pi SDK worker. Session pages lazily activate
 their worker and expose real prompt streaming, tool events, abort, model,
-thinking, queue, compaction, and retry state. Later-phase features are not shown
-until their backing operation exists.
+thinking, queue, compaction, and retry state. Pi-backed session operations cover
+new, resume, rename, fork, clone, tree navigation, JSONL/HTML export, JSONL
+import, and statistics. Web-compatible extensions can use confirm, select,
+input, editor, notifications, status, widgets, and editor draft updates.
+Later-phase features are not shown until their backing operation exists.
 
 ## Run the packaged app
 

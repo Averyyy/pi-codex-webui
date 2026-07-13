@@ -2,6 +2,8 @@ import assert from "node:assert/strict"
 import test from "node:test"
 
 import {
+  extensionUIRequestSchema,
+  extensionUIResponseSchema,
   hostToWorkerMessageSchema,
   promptAcceptedSchema,
   runtimeStatusSchema,
@@ -61,4 +63,26 @@ test("runtime errors survive server bundle boundaries", async () => {
     error: "The Pi runtime is not active.",
     code: "RuntimeNotActive",
   })
+})
+
+test("extension UI protocol distinguishes dialogs from notifications", () => {
+  assert.deepEqual(
+    extensionUIRequestSchema.parse({
+      method: "select",
+      title: "Choose",
+      options: ["one", "two"],
+    }),
+    { method: "select", title: "Choose", options: ["one", "two"] }
+  )
+  assert.deepEqual(extensionUIResponseSchema.parse({ confirmed: false }), {
+    confirmed: false,
+  })
+  assert.equal(
+    extensionUIRequestSchema.safeParse({
+      method: "setWidget",
+      widgetKey: "status",
+      widgetLines: "not-an-array",
+    }).success,
+    false
+  )
 })

@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto"
+
 import {
   createAgentSessionFromServices,
   createAgentSessionRuntime,
@@ -6,9 +8,12 @@ import {
   type AgentSession,
   type AgentSessionEvent,
   type AgentSessionRuntime,
+  type ExtensionUIContext,
 } from "@earendil-works/pi-coding-agent"
 import {
   hostToWorkerMessageSchema,
+  type ExtensionUIRequest,
+  type ExtensionUIResponse,
   type HostToWorkerMessage,
   type RuntimeError,
   type RuntimeSnapshot,
@@ -20,6 +25,10 @@ let webSessionId: string | undefined
 let nativeSessionFile: string | undefined
 let unsubscribe: (() => void) | undefined
 let eventSequence = 0
+const pendingExtensionRequests = new Map<
+  string,
+  (response: ExtensionUIResponse) => void
+>()
 
 function send(message: WorkerToHostMessage) {
   if (!process.send) throw new Error("Pi worker requires a Node IPC channel.")
@@ -91,7 +100,173 @@ function snapshot(session: AgentSession): RuntimeSnapshot {
   }
 }
 
-function bindSession(session: AgentSession) {
+function emitExtensionUI(requestId: string, payload: ExtensionUIRequest) {
+  if (!webSessionId) throw new Error("Pi runtime identity is not initialized.")
+  send({
+    type: "extension.ui.request",
+    requestId,
+    sessionId: webSessionId,
+    payload,
+  })
+}
+
+function createDialogPromise<T>(
+  options: { signal?: AbortSignal; timeout?: number } | undefined,
+  defaultValue: T,
+  payload: ExtensionUIRequest,
+  parse: (response: ExtensionUIResponse) => T
+) {
+  if (options?.signal?.aborted) return Promise.resolve(defaultValue)
+  const requestId = randomUUID()
+  return new Promise<T>((resolve) => {
+    let timeout: NodeJS.Timeout | undefined
+    const cleanup = () => {
+      if (timeout) clearTimeout(timeout)
+      options?.signal?.removeEventListener("abort", abort)
+      pendingExtensionRequests.delete(requestId)
+    }
+    const finish = (value: T) => {
+      cleanup()
+      resolve(value)
+    }
+    const abort = () => finish(defaultValue)
+    options?.signal?.addEventListener("abort", abort, { once: true })
+    if (options?.timeout) {
+      timeout = setTimeout(() => finish(defaultValue), options.timeout)
+    }
+    pendingExtensionRequests.set(requestId, (response) =>
+      finish(parse(response))
+    )
+    emitExtensionUI(requestId, payload)
+  })
+}
+
+function createExtensionUIContext() {
+  const emit = (payload: ExtensionUIRequest) =>
+    emitExtensionUI(randomUUID(), payload)
+  return {
+    select: (
+      title: string,
+      options: string[],
+      dialogOptions?: Parameters<ExtensionUIContext["select"]>[2]
+    ) =>
+      createDialogPromise(
+        dialogOptions,
+        undefined,
+        { method: "select", title, options, timeout: dialogOptions?.timeout },
+        (response) => ("value" in response ? response.value : undefined)
+      ),
+    confirm: (
+      title: string,
+      message: string,
+      dialogOptions?: Parameters<ExtensionUIContext["confirm"]>[2]
+    ) =>
+      createDialogPromise(
+        dialogOptions,
+        false,
+        { method: "confirm", title, message, timeout: dialogOptions?.timeout },
+        (response) => ("confirmed" in response ? response.confirmed : false)
+      ),
+    input: (
+      title: string,
+      placeholder?: string,
+      dialogOptions?: Parameters<ExtensionUIContext["input"]>[2]
+    ) =>
+      createDialogPromise(
+        dialogOptions,
+        undefined,
+        {
+          method: "input",
+          title,
+          placeholder,
+          timeout: dialogOptions?.timeout,
+        },
+        (response) => ("value" in response ? response.value : undefined)
+      ),
+    editor: (title: string, prefill?: string) =>
+      createDialogPromise(
+        undefined,
+        undefined,
+        { method: "editor", title, prefill },
+        (response) => ("value" in response ? response.value : undefined)
+      ),
+    notify: (message: string, notifyType?: "info" | "warning" | "error") =>
+      emit({ method: "notify", message, notifyType }),
+    setStatus: (statusKey: string, statusText: string | undefined) =>
+      emit({ method: "setStatus", statusKey, statusText }),
+    setWidget: (
+      widgetKey: string,
+      content: unknown,
+      options?: { placement?: "aboveEditor" | "belowEditor" }
+    ) => {
+      if (content === undefined || Array.isArray(content)) {
+        emit({
+          method: "setWidget",
+          widgetKey,
+          widgetLines: content,
+          widgetPlacement: options?.placement,
+        })
+      }
+    },
+    setEditorText: (text: string) => emit({ method: "set_editor_text", text }),
+    pasteToEditor: (text: string) => emit({ method: "set_editor_text", text }),
+    getEditorText: () => "",
+    onTerminalInput: () => () => {},
+    setWorkingMessage: () => {},
+    setWorkingVisible: () => {},
+    setWorkingIndicator: () => {},
+    setHiddenThinkingLabel: () => {},
+    setFooter: () => {},
+    setHeader: () => {},
+    setTitle: () => {},
+    custom: async () => undefined,
+    addAutocompleteProvider: () => {},
+    setEditorComponent: () => {},
+    getEditorComponent: () => undefined,
+    getAllThemes: () => [],
+    getTheme: () => undefined,
+    setTheme: () => ({
+      success: false as const,
+      error: "Theme switching is not supported by the Web runtime.",
+    }),
+    getToolsExpanded: () => false,
+    setToolsExpanded: () => {},
+  } as unknown as ExtensionUIContext
+}
+
+async function bindSession(session: AgentSession) {
+  await session.bindExtensions({
+    uiContext: createExtensionUIContext(),
+    mode: "rpc",
+    commandContextActions: {
+      waitForIdle: () => session.waitForIdle(),
+      newSession: (options) => currentRuntime().newSession(options),
+      fork: async (entryId, options) => {
+        const result = await currentRuntime().fork(entryId, options)
+        return { cancelled: result.cancelled }
+      },
+      navigateTree: async (entryId, options) => {
+        const result = await session.navigateTree(entryId, options)
+        return { cancelled: result.cancelled }
+      },
+      switchSession: (sessionPath, options) =>
+        currentRuntime().switchSession(sessionPath, options),
+      reload: () => session.reload(),
+    },
+    shutdownHandler: () => {
+      void shutdown()
+    },
+    onError: (error) => {
+      send({
+        type: "runtime.log",
+        sessionId: webSessionId,
+        payload: {
+          level: "stderr",
+          message: `${error.extensionPath}: ${error.error}\n`,
+        },
+      })
+    },
+  })
   unsubscribe?.()
   unsubscribe = session.subscribe((event: AgentSessionEvent) => {
     if (!webSessionId) return
@@ -146,14 +321,74 @@ async function initialize(
     sessionManager: target,
     sessionStartEvent: { type: "session_start", reason: "resume" },
   })
-  runtime.setRebindSession(async (session) => bindSession(session))
-  bindSession(runtime.session)
+  runtime.setRebindSession(async (session) => {
+    nativeSessionFile = session.sessionFile
+    await bindSession(session)
+  })
+  await bindSession(runtime.session)
 
   send({
     type: "runtime.ready",
     requestId: message.requestId,
     payload: snapshot(runtime.session),
   })
+}
+
+async function shutdown() {
+  unsubscribe?.()
+  for (const resolve of pendingExtensionRequests.values()) {
+    resolve({ cancelled: true })
+  }
+  pendingExtensionRequests.clear()
+  await runtime?.dispose()
+  process.disconnect?.()
+  setImmediate(() => process.exit(0))
+}
+
+async function replaceSession(
+  message: Extract<
+    HostToWorkerMessage,
+    {
+      type: "session.new" | "session.clone" | "session.fork" | "session.import"
+    }
+  >
+) {
+  const previousWebSessionId = webSessionId
+  webSessionId = message.payload.nextWebSessionId
+  try {
+    let result: { cancelled: boolean }
+    if (message.type === "session.new") {
+      result = await currentRuntime().newSession()
+      const session = currentRuntime().session
+      if (!session.sessionFile) {
+        throw new Error("Pi did not assign a file to the new session.")
+      }
+      session.exportToJsonl(session.sessionFile)
+      session.sessionManager.setSessionFile(session.sessionFile)
+    } else if (message.type === "session.clone") {
+      const leafId = currentRuntime().session.sessionManager.getLeafId()
+      if (!leafId)
+        throw new Error("Cannot clone a session without an active entry.")
+      result = await currentRuntime().fork(leafId, { position: "at" })
+    } else if (message.type === "session.fork") {
+      result = await currentRuntime().fork(message.payload.entryId, {
+        position: message.payload.position,
+      })
+    } else {
+      result = await currentRuntime().importFromJsonl(
+        message.payload.inputPath,
+        message.payload.cwdOverride
+      )
+    }
+    if (result.cancelled) webSessionId = previousWebSessionId
+    return {
+      cancelled: result.cancelled,
+      snapshot: snapshot(currentRuntime().session),
+    }
+  } catch (error) {
+    webSessionId = previousWebSessionId
+    throw error
+  }
 }
 
 function assertSession(message: { sessionId: string }) {
@@ -198,11 +433,16 @@ async function dispatch(message: HostToWorkerMessage) {
     return
   }
   if (message.type === "runtime.shutdown") {
-    unsubscribe?.()
-    await runtime?.dispose()
     respond(message.requestId, { success: true })
-    process.disconnect?.()
-    setImmediate(() => process.exit(0))
+    await shutdown()
+    return
+  }
+  if (message.type === "runtime.rebind-web-session") {
+    webSessionId = message.payload.webSessionId
+    respond(message.requestId, {
+      success: true,
+      data: snapshot(currentRuntime().session),
+    })
     return
   }
 
@@ -233,6 +473,78 @@ async function dispatch(message: HostToWorkerMessage) {
   } else if (message.type === "session.compact") {
     const result = await session.compact(message.payload.instructions)
     respond(message.requestId, { success: true, data: result })
+  } else if (
+    message.type === "session.new" ||
+    message.type === "session.clone" ||
+    message.type === "session.fork" ||
+    message.type === "session.import"
+  ) {
+    respond(message.requestId, {
+      success: true,
+      data: await replaceSession(message),
+    })
+  } else if (message.type === "session.rename") {
+    session.setSessionName(message.payload.name)
+    respond(message.requestId, { success: true, data: snapshot(session) })
+  } else if (message.type === "session.navigate-tree") {
+    const result = await session.navigateTree(message.payload.entryId, {
+      summarize: message.payload.summarize,
+    })
+    respond(message.requestId, {
+      success: true,
+      data: {
+        ...result,
+        leafId: session.sessionManager.getLeafId(),
+        snapshot: snapshot(session),
+      },
+    })
+  } else if (message.type === "session.stats") {
+    respond(message.requestId, {
+      success: true,
+      data: session.getSessionStats(),
+    })
+  } else if (message.type === "session.tree") {
+    const manager = session.sessionManager
+    const userMessages = new Map(
+      session
+        .getUserMessagesForForking()
+        .map((entry) => [entry.entryId, entry.text])
+    )
+    respond(message.requestId, {
+      success: true,
+      data: {
+        entries: manager.getEntries().map((entry) => ({
+          id: entry.id,
+          parentId: entry.parentId,
+          type: entry.type,
+          timestamp: entry.timestamp,
+          label: manager.getLabel(entry.id),
+          role:
+            entry.type === "message" && "role" in entry.message
+              ? entry.message.role
+              : undefined,
+          text: userMessages.get(entry.id),
+        })),
+        leafId: manager.getLeafId(),
+      },
+    })
+  } else if (message.type === "session.export") {
+    const outputPath =
+      message.payload.format === "html"
+        ? await session.exportToHtml(message.payload.outputPath)
+        : session.exportToJsonl(message.payload.outputPath)
+    respond(message.requestId, { success: true, data: { outputPath } })
+  } else if (message.type === "extension.ui.response") {
+    const resolve = pendingExtensionRequests.get(
+      message.payload.extensionRequestId
+    )
+    if (!resolve) {
+      throw new Error(
+        `Unknown extension UI request ${message.payload.extensionRequestId}.`
+      )
+    }
+    resolve(message.payload.response)
+    respond(message.requestId, { success: true })
   }
 }
 

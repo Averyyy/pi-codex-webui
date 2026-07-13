@@ -51,6 +51,113 @@ export const promptAcceptedSchema = z.object({
   queued: z.boolean(),
 })
 
+export const sessionStatsSchema = z.object({
+  sessionFile: z.string().optional(),
+  sessionId: z.string().min(1),
+  userMessages: z.number().int().nonnegative(),
+  assistantMessages: z.number().int().nonnegative(),
+  toolCalls: z.number().int().nonnegative(),
+  toolResults: z.number().int().nonnegative(),
+  totalMessages: z.number().int().nonnegative(),
+  tokens: z.object({
+    input: z.number().nonnegative(),
+    output: z.number().nonnegative(),
+    cacheRead: z.number().nonnegative(),
+    cacheWrite: z.number().nonnegative(),
+    total: z.number().nonnegative(),
+  }),
+  cost: z.number().nonnegative(),
+  contextUsage: z
+    .object({
+      tokens: z.number().nonnegative(),
+      contextWindow: z.number().positive(),
+      percent: z.number().nonnegative(),
+    })
+    .optional(),
+})
+
+export const sessionReplacementSchema = z.object({
+  cancelled: z.boolean(),
+  snapshot: runtimeSnapshotSchema,
+})
+
+export const sessionTreeSchema = z.object({
+  entries: z.array(
+    z.object({
+      id: z.string().min(1),
+      parentId: z.string().nullable(),
+      type: z.string().min(1),
+      timestamp: z.iso.datetime(),
+      label: z.string().optional(),
+      role: z.string().optional(),
+      text: z.string().optional(),
+    })
+  ),
+  leafId: z.string().nullable(),
+})
+
+export const sessionExportResultSchema = z.object({
+  outputPath: z.string().min(1),
+})
+
+export const sessionNavigationResultSchema = z.object({
+  cancelled: z.boolean(),
+  aborted: z.boolean().optional(),
+  editorText: z.string().optional(),
+  leafId: z.string().nullable(),
+  summaryEntry: z.unknown().optional(),
+  snapshot: runtimeSnapshotSchema,
+})
+
+export const extensionUIResponseSchema = z.union([
+  z.object({ value: z.string() }),
+  z.object({ confirmed: z.boolean() }),
+  z.object({ cancelled: z.literal(true) }),
+])
+
+export const extensionUIRequestSchema = z.discriminatedUnion("method", [
+  z.object({
+    method: z.literal("select"),
+    title: z.string(),
+    options: z.array(z.string()),
+    timeout: z.number().int().positive().optional(),
+  }),
+  z.object({
+    method: z.literal("confirm"),
+    title: z.string(),
+    message: z.string(),
+    timeout: z.number().int().positive().optional(),
+  }),
+  z.object({
+    method: z.literal("input"),
+    title: z.string(),
+    placeholder: z.string().optional(),
+    timeout: z.number().int().positive().optional(),
+  }),
+  z.object({
+    method: z.literal("editor"),
+    title: z.string(),
+    prefill: z.string().optional(),
+  }),
+  z.object({
+    method: z.literal("notify"),
+    message: z.string(),
+    notifyType: z.enum(["info", "warning", "error"]).optional(),
+  }),
+  z.object({
+    method: z.literal("setStatus"),
+    statusKey: z.string().min(1),
+    statusText: z.string().optional(),
+  }),
+  z.object({
+    method: z.literal("setWidget"),
+    widgetKey: z.string().min(1),
+    widgetLines: z.array(z.string()).optional(),
+    widgetPlacement: z.enum(["aboveEditor", "belowEditor"]).optional(),
+  }),
+  z.object({ method: z.literal("set_editor_text"), text: z.string() }),
+])
+
 const initializeMessageSchema = z.object({
   type: z.literal("runtime.initialize"),
   requestId: z.string().min(1),
@@ -112,6 +219,91 @@ const compactMessageSchema = z.object({
   payload: z.object({ instructions: z.string().min(1).optional() }),
 })
 
+const newSessionMessageSchema = z.object({
+  type: z.literal("session.new"),
+  requestId: z.string().min(1),
+  sessionId: z.string().min(1),
+  payload: z.object({ nextWebSessionId: z.string().min(1) }),
+})
+
+const cloneSessionMessageSchema = z.object({
+  type: z.literal("session.clone"),
+  requestId: z.string().min(1),
+  sessionId: z.string().min(1),
+  payload: z.object({ nextWebSessionId: z.string().min(1) }),
+})
+
+const forkMessageSchema = z.object({
+  type: z.literal("session.fork"),
+  requestId: z.string().min(1),
+  sessionId: z.string().min(1),
+  payload: z.object({
+    nextWebSessionId: z.string().min(1),
+    entryId: z.string().min(1),
+    position: z.enum(["before", "at"]).default("at"),
+  }),
+})
+
+const navigateTreeMessageSchema = z.object({
+  type: z.literal("session.navigate-tree"),
+  requestId: z.string().min(1),
+  sessionId: z.string().min(1),
+  payload: z.object({
+    entryId: z.string().min(1),
+    summarize: z.boolean().default(false),
+  }),
+})
+
+const renameMessageSchema = z.object({
+  type: z.literal("session.rename"),
+  requestId: z.string().min(1),
+  sessionId: z.string().min(1),
+  payload: z.object({ name: z.string().trim().min(1).max(200) }),
+})
+
+const sessionOperationMessageSchema = z.object({
+  type: z.enum(["session.stats", "session.tree"]),
+  requestId: z.string().min(1),
+  sessionId: z.string().min(1),
+})
+
+const exportMessageSchema = z.object({
+  type: z.literal("session.export"),
+  requestId: z.string().min(1),
+  sessionId: z.string().min(1),
+  payload: z.object({
+    format: z.enum(["jsonl", "html"]),
+    outputPath: z.string().min(1),
+  }),
+})
+
+const importMessageSchema = z.object({
+  type: z.literal("session.import"),
+  requestId: z.string().min(1),
+  sessionId: z.string().min(1),
+  payload: z.object({
+    nextWebSessionId: z.string().min(1),
+    inputPath: z.string().min(1),
+    cwdOverride: z.string().min(1),
+  }),
+})
+
+const rebindWebSessionMessageSchema = z.object({
+  type: z.literal("runtime.rebind-web-session"),
+  requestId: z.string().min(1),
+  payload: z.object({ webSessionId: z.string().min(1) }),
+})
+
+const extensionUIResponseMessageSchema = z.object({
+  type: z.literal("extension.ui.response"),
+  requestId: z.string().min(1),
+  sessionId: z.string().min(1),
+  payload: z.object({
+    extensionRequestId: z.string().min(1),
+    response: extensionUIResponseSchema,
+  }),
+})
+
 const shutdownMessageSchema = z.object({
   type: z.literal("runtime.shutdown"),
   requestId: z.string().min(1),
@@ -124,6 +316,16 @@ export const hostToWorkerMessageSchema = z.discriminatedUnion("type", [
   setModelMessageSchema,
   setThinkingLevelMessageSchema,
   compactMessageSchema,
+  newSessionMessageSchema,
+  cloneSessionMessageSchema,
+  forkMessageSchema,
+  navigateTreeMessageSchema,
+  renameMessageSchema,
+  sessionOperationMessageSchema,
+  exportMessageSchema,
+  importMessageSchema,
+  rebindWebSessionMessageSchema,
+  extensionUIResponseMessageSchema,
   shutdownMessageSchema,
 ])
 
@@ -168,12 +370,20 @@ const runtimeFatalMessageSchema = z.object({
   error: runtimeErrorSchema,
 })
 
+const extensionUIRequestMessageSchema = z.object({
+  type: z.literal("extension.ui.request"),
+  requestId: z.string().min(1),
+  sessionId: z.string().min(1),
+  payload: extensionUIRequestSchema,
+})
+
 export const workerToHostMessageSchema = z.discriminatedUnion("type", [
   runtimeReadyMessageSchema,
   runtimeResponseMessageSchema,
   sessionEventMessageSchema,
   runtimeLogMessageSchema,
   runtimeFatalMessageSchema,
+  extensionUIRequestMessageSchema,
 ])
 
 export type ThinkingLevel = z.infer<typeof thinkingLevelSchema>
@@ -181,6 +391,14 @@ export type RuntimeStatus = z.infer<typeof runtimeStatusSchema>
 export type RuntimeModel = z.infer<typeof runtimeModelSchema>
 export type RuntimeSnapshot = z.infer<typeof runtimeSnapshotSchema>
 export type PromptAccepted = z.infer<typeof promptAcceptedSchema>
+export type SessionStats = z.infer<typeof sessionStatsSchema>
+export type SessionReplacement = z.infer<typeof sessionReplacementSchema>
+export type SessionTree = z.infer<typeof sessionTreeSchema>
+export type SessionNavigationResult = z.infer<
+  typeof sessionNavigationResultSchema
+>
+export type ExtensionUIRequest = z.infer<typeof extensionUIRequestSchema>
+export type ExtensionUIResponse = z.infer<typeof extensionUIResponseSchema>
 export type HostToWorkerMessage = z.infer<typeof hostToWorkerMessageSchema>
 export type WorkerToHostMessage = z.infer<typeof workerToHostMessageSchema>
 export type RuntimeError = z.infer<typeof runtimeErrorSchema>

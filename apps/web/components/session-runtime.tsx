@@ -8,9 +8,19 @@ import {
   SendIcon,
   SquareIcon,
 } from "lucide-react"
+import { toast } from "sonner"
 
 import { Badge } from "@workspace/ui/components/badge"
 import { Button } from "@workspace/ui/components/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@workspace/ui/components/dialog"
+import { Input } from "@workspace/ui/components/input"
 import {
   Select,
   SelectContent,
@@ -20,9 +30,12 @@ import {
 } from "@workspace/ui/components/select"
 import { Textarea } from "@workspace/ui/components/textarea"
 import type {
+  ExtensionUIRequest,
+  ExtensionUIResponse,
   RuntimeSnapshot,
   RuntimeStatus,
 } from "@workspace/runtime-protocol"
+import { extensionUIRequestSchema } from "@workspace/runtime-protocol"
 
 import { Markdown } from "@/components/markdown"
 
@@ -35,6 +48,11 @@ interface PiMessage {
   role: string
   content: unknown
 }
+
+type ActiveExtensionRequest = Extract<
+  ExtensionUIRequest,
+  { method: "select" | "confirm" | "input" | "editor" }
+> & { requestId: string }
 
 const STATUS_LABELS: Record<RuntimeStatus, string> = {
   stopped: "未激活",
@@ -57,6 +75,7 @@ const EVENT_TYPES = [
   "session.message.update",
   "session.message.end",
   "session.entry.appended",
+  "session.leaf.changed",
   "tool.execution.start",
   "tool.execution.update",
   "tool.execution.end",
@@ -65,6 +84,7 @@ const EVENT_TYPES = [
   "compaction.end",
   "retry.start",
   "retry.end",
+  "extension.ui.request",
   "resync.required",
 ]
 
@@ -185,6 +205,18 @@ export function SessionRuntime({
   const [activeTool, setActiveTool] = useState<string | null>(null)
   const [queuedMessages, setQueuedMessages] = useState(0)
   const [retrying, setRetrying] = useState<string | null>(null)
+  const [extensionRequest, setExtensionRequest] =
+    useState<ActiveExtensionRequest | null>(null)
+  const [extensionValue, setExtensionValue] = useState("")
+  const [extensionStatuses, setExtensionStatuses] = useState<
+    Record<string, string>
+  >({})
+  const [extensionWidgets, setExtensionWidgets] = useState<
+    Record<
+      string,
+      { lines: string[]; placement: "aboveEditor" | "belowEditor" }
+    >
+  >({})
 
   useEffect(() => {
     const events = new EventSource(`/api/v1/events?sessionId=${sessionId}`)
@@ -224,6 +256,27 @@ export function SessionRuntime({
         }
       }
       if (event.type === "session.entry.appended") router.refresh()
+      if (event.type === "session.leaf.changed") {
+        if (
+          typeof event.payload !== "object" ||
+          event.payload === null ||
+          !("leafId" in event.payload) ||
+          (event.payload.leafId !== null &&
+            typeof event.payload.leafId !== "string") ||
+          ("editorText" in event.payload &&
+            event.payload.editorText !== undefined &&
+            typeof event.payload.editorText !== "string")
+        ) {
+          throw new Error("Runtime emitted an invalid session leaf event.")
+        }
+        if (
+          "editorText" in event.payload &&
+          typeof event.payload.editorText === "string"
+        ) {
+          setDraft(event.payload.editorText)
+        }
+        router.refresh()
+      }
       if (
         event.type === "tool.execution.start" ||
         event.type === "tool.execution.update"
@@ -243,6 +296,56 @@ export function SessionRuntime({
         setRetrying(retryDescription(event.payload))
       }
       if (event.type === "retry.end") setRetrying(null)
+      if (event.type === "extension.ui.request") {
+        if (
+          typeof event.payload !== "object" ||
+          event.payload === null ||
+          !("requestId" in event.payload) ||
+          typeof event.payload.requestId !== "string"
+        ) {
+          throw new Error("Runtime emitted an invalid extension UI request.")
+        }
+        const request = extensionUIRequestSchema.parse(event.payload)
+        if (request.method === "notify") {
+          const notify = request.notifyType ?? "info"
+          toast[notify](request.message)
+        } else if (request.method === "setStatus") {
+          setExtensionStatuses((current) => {
+            const next = { ...current }
+            if (request.statusText !== undefined) {
+              next[request.statusKey] = request.statusText
+            } else delete next[request.statusKey]
+            return next
+          })
+        } else if (request.method === "setWidget") {
+          setExtensionWidgets((current) => {
+            const next = { ...current }
+            if (request.widgetLines) {
+              next[request.widgetKey] = {
+                lines: request.widgetLines,
+                placement: request.widgetPlacement ?? "aboveEditor",
+              }
+            } else {
+              delete next[request.widgetKey]
+            }
+            return next
+          })
+        } else if (request.method === "set_editor_text") {
+          setDraft(request.text)
+        } else {
+          setExtensionValue(
+            request.method === "editor"
+              ? (request.prefill ?? "")
+              : request.method === "select"
+                ? (request.options[0] ?? "")
+                : ""
+          )
+          setExtensionRequest({
+            ...request,
+            requestId: event.payload.requestId,
+          })
+        }
+      }
       if (event.type === "resync.required") router.refresh()
     }
 
@@ -253,6 +356,19 @@ export function SessionRuntime({
     events.onopen = () => setError(null)
     return () => events.close()
   }, [router, sessionId])
+
+  useEffect(() => {
+    if (!extensionRequest || !("timeout" in extensionRequest)) return
+    const timeout = extensionRequest.timeout
+    if (!timeout) return
+    const requestId = extensionRequest.requestId
+    const timer = window.setTimeout(() => {
+      setExtensionRequest((current) =>
+        current?.requestId === requestId ? null : current
+      )
+    }, timeout)
+    return () => window.clearTimeout(timer)
+  }, [extensionRequest])
 
   async function mutate<T>(
     path: string,
@@ -296,8 +412,7 @@ export function SessionRuntime({
         images: [],
         streamingBehavior,
       })
-      setDraft("")
-      setStatus("busy")
+      setDraft((current) => (current.trim() === message ? "" : current))
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure))
     } finally {
@@ -395,8 +510,32 @@ export function SessionRuntime({
     }
   }
 
+  async function respondToExtensionUI(response: ExtensionUIResponse) {
+    if (!extensionRequest) return
+    const requestId = extensionRequest.requestId
+    setError(null)
+    try {
+      const result = await fetch(`/api/v1/extension-ui/${requestId}/respond`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Pi-Web-Codex-Mutation-Token": mutationToken,
+        },
+        body: JSON.stringify({ sessionId, response }),
+      })
+      if (!result.ok) {
+        const body = (await result.json()) as { error?: string }
+        throw new Error(body.error ?? "Extension UI 响应失败。")
+      }
+      setExtensionRequest(null)
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : String(failure))
+    }
+  }
+
   const isBusy = status === "busy"
   const hasStreamingContent = streaming.text || streaming.thinking
+  const widgets = Object.entries(extensionWidgets)
 
   return (
     <div className="sticky bottom-0 z-10 -mx-6 border-t bg-background/95 px-6 py-4 backdrop-blur md:-mx-10 md:px-10">
@@ -416,6 +555,16 @@ export function SessionRuntime({
             {streaming.text ? <Markdown>{streaming.text}</Markdown> : null}
           </div>
         ) : null}
+        {widgets
+          .filter(([, widget]) => widget.placement === "aboveEditor")
+          .map(([key, widget]) => (
+            <pre
+              key={key}
+              className="overflow-x-auto rounded-lg border bg-muted/50 p-3 text-xs whitespace-pre-wrap"
+            >
+              {widget.lines.join("\n")}
+            </pre>
+          ))}
         <form
           onSubmit={submit}
           className="rounded-2xl border bg-background p-2 shadow-sm"
@@ -444,6 +593,11 @@ export function SessionRuntime({
             {retrying ? (
               <span className="text-xs text-muted-foreground">{retrying}</span>
             ) : null}
+            {Object.entries(extensionStatuses).map(([key, text]) => (
+              <span key={key} className="text-xs text-muted-foreground">
+                {text}
+              </span>
+            ))}
             <div className="ml-auto flex items-center gap-2">
               {isBusy ? (
                 <Select
@@ -546,8 +700,110 @@ export function SessionRuntime({
             </div>
           ) : null}
         </form>
+        {widgets
+          .filter(([, widget]) => widget.placement === "belowEditor")
+          .map(([key, widget]) => (
+            <pre
+              key={key}
+              className="overflow-x-auto rounded-lg border bg-muted/50 p-3 text-xs whitespace-pre-wrap"
+            >
+              {widget.lines.join("\n")}
+            </pre>
+          ))}
         {error ? <p className="text-sm text-destructive">{error}</p> : null}
       </div>
+
+      <Dialog
+        open={extensionRequest !== null}
+        onOpenChange={(open) => {
+          if (!open && extensionRequest) {
+            void respondToExtensionUI({ cancelled: true })
+          }
+        }}
+      >
+        <DialogContent showCloseButton={false}>
+          {extensionRequest ? (
+            <div className="grid gap-5">
+              <DialogHeader>
+                <DialogTitle>{extensionRequest.title}</DialogTitle>
+                {extensionRequest.method === "confirm" ? (
+                  <DialogDescription>
+                    {extensionRequest.message}
+                  </DialogDescription>
+                ) : null}
+              </DialogHeader>
+
+              {extensionRequest.method === "select" ? (
+                <Select
+                  value={extensionValue}
+                  onValueChange={setExtensionValue}
+                >
+                  <SelectTrigger
+                    className="w-full"
+                    aria-label={extensionRequest.title}
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {extensionRequest.options.map((option) => (
+                      <SelectItem key={option} value={option}>
+                        {option}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : null}
+
+              {extensionRequest.method === "input" ? (
+                <Input
+                  value={extensionValue}
+                  onChange={(event) => setExtensionValue(event.target.value)}
+                  placeholder={extensionRequest.placeholder}
+                  autoFocus
+                />
+              ) : null}
+
+              {extensionRequest.method === "editor" ? (
+                <Textarea
+                  value={extensionValue}
+                  onChange={(event) => setExtensionValue(event.target.value)}
+                  className="min-h-56"
+                  autoFocus
+                />
+              ) : null}
+
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={() =>
+                    void respondToExtensionUI(
+                      extensionRequest.method === "confirm"
+                        ? { confirmed: false }
+                        : { cancelled: true }
+                    )
+                  }
+                >
+                  取消
+                </Button>
+                <Button
+                  onClick={() =>
+                    void respondToExtensionUI(
+                      extensionRequest.method === "confirm"
+                        ? { confirmed: true }
+                        : { value: extensionValue }
+                    )
+                  }
+                  disabled={
+                    extensionRequest.method === "select" && !extensionValue
+                  }
+                >
+                  确定
+                </Button>
+              </DialogFooter>
+            </div>
+          ) : null}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

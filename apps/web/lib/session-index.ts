@@ -2,7 +2,7 @@ import "server-only"
 
 import { createHash, randomUUID } from "node:crypto"
 import type { Dirent } from "node:fs"
-import { readdir, stat } from "node:fs/promises"
+import { readdir, realpath, stat } from "node:fs/promises"
 import path from "node:path"
 import type { DatabaseSync } from "node:sqlite"
 
@@ -365,4 +365,21 @@ export function syncPiSessionIndex() {
   )
   globalThis.piWebCodexIndexSync = operation
   return operation
+}
+
+export async function syncPiSessionFile(file: string) {
+  await syncPiSessionIndex()
+  const root = path.resolve(getPiSessionsRoot())
+  const target = path.resolve(file)
+  const [realRoot, realTarget] = await Promise.all([
+    realpath(root),
+    realpath(target),
+  ])
+  const relative = path.relative(realRoot, realTarget)
+  if (relative.startsWith("..") || path.isAbsolute(relative)) {
+    throw new Error(`Pi session file is outside the session root: ${target}`)
+  }
+  const indexedFile = path.join(root, relative)
+  await indexSessionFile(await getDatabase(), indexedFile)
+  return indexedFile
 }

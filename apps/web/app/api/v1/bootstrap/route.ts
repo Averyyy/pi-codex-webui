@@ -22,6 +22,8 @@ export async function GET() {
         readOnlySessionBrowser: true,
         piRuntime: true,
         runtimeMutations: true,
+        sessionOperations: true,
+        extensionUI: true,
       },
     },
     { headers: { "Cache-Control": "no-store" } }

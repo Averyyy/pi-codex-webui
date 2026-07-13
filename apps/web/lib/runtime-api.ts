@@ -10,7 +10,9 @@ export function runtimeErrorResponse(error: unknown) {
       : error.code === "SessionNotFound"
         ? 404
         : error.code === "SessionWriteLeaseConflict" ||
-            error.code === "RuntimeNotActive"
+            error.code === "RuntimeNotActive" ||
+            error.code === "RuntimeBusy" ||
+            error.code === "SessionOperationCancelled"
           ? 409
           : 422
   return Response.json({ error: error.message, code: error.code }, { status })

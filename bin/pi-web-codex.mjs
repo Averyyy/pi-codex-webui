@@ -245,8 +245,17 @@ async function main() {
     stdio: "inherit",
   })
 
+  let shutdownSignal
+  let forceShutdown
+  const stopChild = (signal) => {
+    shutdownSignal = signal
+    if (child.exitCode !== null || child.signalCode !== null) return
+    child.kill(signal)
+    forceShutdown ??= setTimeout(() => child.kill("SIGKILL"), 2_000)
+    forceShutdown.unref()
+  }
   for (const signal of ["SIGINT", "SIGTERM"]) {
-    process.once(signal, () => child.kill(signal))
+    process.once(signal, () => stopChild(signal))
   }
 
   const spawnError = new Promise((_, reject) => child.once("error", reject))
@@ -259,8 +268,13 @@ async function main() {
       child.once("error", reject)
       child.once("exit", (exitCode) => resolve(exitCode ?? 1))
     })
-    process.exitCode = code
+    process.exitCode = shutdownSignal
+      ? shutdownSignal === "SIGINT"
+        ? 130
+        : 143
+      : code
   } finally {
+    if (forceShutdown) clearTimeout(forceShutdown)
     if (child.exitCode === null) child.kill("SIGTERM")
     await rm(lockPath, { force: true })
   }

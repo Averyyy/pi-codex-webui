@@ -6,7 +6,7 @@ import {
   readStablePiSessionFile,
   toTranscriptEntries,
 } from "@/lib/pi-session"
-import { syncPiSessionIndex } from "@/lib/session-index"
+import { syncPiSessionFile, syncPiSessionIndex } from "@/lib/session-index"
 import type {
   ProjectSummary,
   SessionSearchResult,
@@ -57,6 +57,13 @@ interface RuntimeTargetRow {
   native_session_id: string
   native_session_file: string
   project_path: string
+}
+
+interface SessionIdentityRow {
+  id: string
+  project_id: string
+  native_session_id: string
+  native_session_file: string
 }
 
 function projectSummary(row: ProjectRow): ProjectSummary {
@@ -227,6 +234,28 @@ export async function getSessionRuntimeTarget(sessionId: string) {
     nativeSessionFile: row.native_session_file,
     cwd: row.project_path,
   }
+}
+
+export async function getSessionIdentityByNativeFile(
+  nativeSessionFile: string
+) {
+  const indexedFile = await syncPiSessionFile(nativeSessionFile)
+  const database = await getDatabase()
+  const row = database
+    .prepare(
+      `SELECT id, project_id, native_session_id, native_session_file
+       FROM sessions
+       WHERE native_session_file = ?`
+    )
+    .get(indexedFile) as unknown as SessionIdentityRow | undefined
+  return row
+    ? {
+        id: row.id,
+        projectId: row.project_id,
+        nativeSessionId: row.native_session_id,
+        nativeSessionFile: row.native_session_file,
+      }
+    : null
 }
 
 export async function searchSessions(query: string) {

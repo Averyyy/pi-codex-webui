@@ -3,6 +3,7 @@ import { notFound } from "next/navigation"
 import { Separator } from "@workspace/ui/components/separator"
 
 import { SessionRuntime } from "@/components/session-runtime"
+import { SessionOperations } from "@/components/session-operations"
 import { SessionTranscript } from "@/components/transcript"
 import { getSessionSnapshot } from "@/lib/catalog"
 import { getMutationToken } from "@/lib/request-security"
@@ -21,14 +22,22 @@ export default async function SessionPage({
     <main className="min-h-svh">
       <header className="sticky top-0 z-10 border-b bg-background/95 backdrop-blur">
         <div className="mx-auto w-full max-w-4xl px-6 py-4 md:px-10">
-          <div className="min-w-0">
-            <h1 className="truncate text-base font-semibold">
-              {displaySessionTitle(snapshot.session)}
-            </h1>
-            <p className="mt-1 truncate text-xs text-muted-foreground">
-              {snapshot.session.projectName} ·{" "}
-              {formatTimestamp(snapshot.session.updatedAt)}
-            </p>
+          <div className="flex items-start gap-3">
+            <div className="min-w-0 flex-1">
+              <h1 className="truncate text-base font-semibold">
+                {displaySessionTitle(snapshot.session)}
+              </h1>
+              <p className="mt-1 truncate text-xs text-muted-foreground">
+                {snapshot.session.projectName} ·{" "}
+                {formatTimestamp(snapshot.session.updatedAt)}
+              </p>
+            </div>
+            <SessionOperations
+              sessionId={sessionId}
+              projectId={projectId}
+              title={displaySessionTitle(snapshot.session)}
+              mutationToken={getMutationToken()}
+            />
           </div>
         </div>
       </header>
