@@ -19,7 +19,11 @@ settings can enable the separately packaged Pi Client distribution, store its
 Pi Server token outside `config.json`, run an authenticated connection test,
 and choose the default runtime for new sessions. Existing sessions keep their
 original runtime binding; migration is an explicit duplicate that records its
-source. Later-phase features are not shown until their backing operation exists.
+source. MCP settings manage real global/project stdio and Streamable HTTP
+servers, keep credentials in SecretStore, discover and namespace tools, expose
+connection status/logs, and restart affected idle runtimes so per-tool changes
+reach the actual AgentSession. Later-phase features are not shown until their
+backing operation exists.
 
 ## Run the packaged app
 

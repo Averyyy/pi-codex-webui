@@ -45,6 +45,7 @@ test("runtime initialization declares resume, new, or duplicate explicitly", () 
       runtimeProfileId: "pi-client-default",
       cwd: "/tmp/project",
       agentDir: "/tmp/agent",
+      mcpTools: [],
     },
   }
   assert.equal(

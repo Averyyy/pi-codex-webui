@@ -1,0 +1,335 @@
+"use client"
+
+import { useState } from "react"
+
+import { Button } from "@workspace/ui/components/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@workspace/ui/components/dialog"
+import { Input } from "@workspace/ui/components/input"
+import { Label } from "@workspace/ui/components/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@workspace/ui/components/select"
+import { Switch } from "@workspace/ui/components/switch"
+import { Textarea } from "@workspace/ui/components/textarea"
+import type {
+  McpConfiguredValueView,
+  McpServerView,
+} from "@workspace/runtime-protocol"
+
+import { McpValueEditor } from "@/components/mcp-value-editor"
+
+export interface McpServerFormValue {
+  id: string
+  name: string
+  scope: "global" | "project"
+  projectId: string | null
+  enabled: boolean
+  transport:
+    | { type: "stdio"; command: string; args: string[]; cwd: string | null }
+    | {
+        type: "http"
+        url: string
+        headers: McpConfiguredValueView[]
+      }
+  env: McpConfiguredValueView[]
+  timeoutMs: number
+}
+
+interface FormState {
+  id: string
+  name: string
+  scope: "global" | "project"
+  enabled: boolean
+  transportType: "stdio" | "http"
+  command: string
+  argsJson: string
+  cwd: string
+  url: string
+  headers: McpConfiguredValueView[]
+  env: McpConfiguredValueView[]
+  timeoutMs: string
+}
+
+function initialState(server: McpServerView | null): FormState {
+  return {
+    id: server?.id ?? "",
+    name: server?.name ?? "",
+    scope: server?.scope ?? "global",
+    enabled: server?.enabled ?? true,
+    transportType: server?.transport.type ?? "stdio",
+    command: server?.transport.type === "stdio" ? server.transport.command : "",
+    argsJson:
+      server?.transport.type === "stdio"
+        ? JSON.stringify(server.transport.args, null, 2)
+        : "[]",
+    cwd: server?.transport.type === "stdio" ? (server.transport.cwd ?? "") : "",
+    url: server?.transport.type === "http" ? server.transport.url : "",
+    headers:
+      server?.transport.type === "http"
+        ? server.transport.headers.map((value) => ({ ...value }))
+        : [],
+    env: server?.env.map((value) => ({ ...value })) ?? [],
+    timeoutMs: String(server?.timeoutMs ?? 30_000),
+  }
+}
+
+export function McpServerForm({
+  open,
+  server,
+  selectedProjectId,
+  selectedProjectName,
+  working,
+  onOpenChange,
+  onSave,
+}: {
+  open: boolean
+  server: McpServerView | null
+  selectedProjectId: string | null
+  selectedProjectName: string | null
+  working: boolean
+  onOpenChange: (open: boolean) => void
+  onSave: (server: McpServerFormValue) => Promise<void>
+}) {
+  const [form, setForm] = useState(() => initialState(server))
+  const [error, setError] = useState<string | null>(null)
+
+  function field<Key extends keyof FormState>(key: Key, value: FormState[Key]) {
+    setForm((current) => ({ ...current, [key]: value }))
+  }
+
+  async function submit(event: React.FormEvent) {
+    event.preventDefault()
+    setError(null)
+    let args: unknown
+    try {
+      args = JSON.parse(form.argsJson)
+    } catch {
+      setError("Arguments 必须是合法的 JSON 字符串数组。")
+      return
+    }
+    if (
+      !Array.isArray(args) ||
+      args.some((value) => typeof value !== "string")
+    ) {
+      setError("Arguments 必须是 JSON 字符串数组。")
+      return
+    }
+    const timeoutMs = Number(form.timeoutMs)
+    if (!Number.isInteger(timeoutMs)) {
+      setError("Timeout 必须是整数毫秒。")
+      return
+    }
+
+    await onSave({
+      id: form.id,
+      name: form.name,
+      scope: form.scope,
+      projectId: form.scope === "project" ? selectedProjectId : null,
+      enabled: form.enabled,
+      transport:
+        form.transportType === "stdio"
+          ? {
+              type: "stdio",
+              command: form.command,
+              args,
+              cwd: form.cwd.trim() || null,
+            }
+          : { type: "http", url: form.url, headers: form.headers },
+      env: form.transportType === "stdio" ? form.env : [],
+      timeoutMs,
+    })
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={working ? undefined : onOpenChange}>
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>
+            {server ? "编辑 MCP server" : "添加 MCP server"}
+          </DialogTitle>
+          <DialogDescription>
+            Secret 字段只写入 SecretStore；保存后 API 不会返回明文。
+          </DialogDescription>
+        </DialogHeader>
+        <form className="grid gap-5" onSubmit={submit}>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid gap-2">
+              <Label htmlFor="mcp-name">名称</Label>
+              <Input
+                id="mcp-name"
+                required
+                value={form.name}
+                onChange={(event) => field("name", event.target.value)}
+                placeholder="GitHub"
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="mcp-id">Namespace</Label>
+              <Input
+                id="mcp-id"
+                required
+                disabled={server !== null}
+                value={form.id}
+                onChange={(event) => field("id", event.target.value)}
+                placeholder="github"
+                pattern="[a-z0-9]+(?:-[a-z0-9]+)*"
+              />
+              <p className="text-xs text-muted-foreground">
+                工具前缀：mcp__{form.id.replaceAll("-", "_") || "namespace"}__
+              </p>
+            </div>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid gap-2">
+              <Label>Scope</Label>
+              <Select
+                value={form.scope}
+                onValueChange={(value) =>
+                  field("scope", value as "global" | "project")
+                }
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="global">Global</SelectItem>
+                  <SelectItem value="project" disabled={!selectedProjectId}>
+                    Current Project
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+              {form.scope === "project" ? (
+                <p className="text-xs text-muted-foreground">
+                  {selectedProjectName ?? "未选择项目"}
+                </p>
+              ) : null}
+            </div>
+            <div className="grid gap-2">
+              <Label>Transport</Label>
+              <Select
+                value={form.transportType}
+                onValueChange={(value) =>
+                  field("transportType", value as "stdio" | "http")
+                }
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="stdio">stdio</SelectItem>
+                  <SelectItem value="http">Streamable HTTP</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          {form.transportType === "stdio" ? (
+            <div className="grid gap-4">
+              <div className="grid gap-2">
+                <Label htmlFor="mcp-command">Command</Label>
+                <Input
+                  id="mcp-command"
+                  required
+                  value={form.command}
+                  onChange={(event) => field("command", event.target.value)}
+                  placeholder="npx"
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="mcp-args">Arguments (JSON string array)</Label>
+                <Textarea
+                  id="mcp-args"
+                  className="min-h-24 font-mono text-xs"
+                  value={form.argsJson}
+                  onChange={(event) => field("argsJson", event.target.value)}
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="mcp-cwd">Working directory（可选）</Label>
+                <Input
+                  id="mcp-cwd"
+                  value={form.cwd}
+                  onChange={(event) => field("cwd", event.target.value)}
+                  placeholder="项目级 server 默认使用当前项目目录"
+                />
+              </div>
+              <McpValueEditor
+                label="Environment"
+                values={form.env}
+                onChange={(values) => field("env", values)}
+              />
+            </div>
+          ) : (
+            <div className="grid gap-4">
+              <div className="grid gap-2">
+                <Label htmlFor="mcp-url">URL</Label>
+                <Input
+                  id="mcp-url"
+                  type="url"
+                  required
+                  value={form.url}
+                  onChange={(event) => field("url", event.target.value)}
+                  placeholder="https://mcp.example.com/mcp"
+                />
+              </div>
+              <McpValueEditor
+                label="HTTP headers"
+                values={form.headers}
+                onChange={(values) => field("headers", values)}
+              />
+            </div>
+          )}
+
+          <div className="grid gap-4 sm:grid-cols-2 sm:items-end">
+            <div className="grid gap-2">
+              <Label htmlFor="mcp-timeout">Timeout (ms)</Label>
+              <Input
+                id="mcp-timeout"
+                type="number"
+                min={1000}
+                max={600000}
+                required
+                value={form.timeoutMs}
+                onChange={(event) => field("timeoutMs", event.target.value)}
+              />
+            </div>
+            <label className="flex h-8 items-center gap-2 text-sm">
+              <Switch
+                checked={form.enabled}
+                onCheckedChange={(enabled) => field("enabled", enabled)}
+              />
+              保存后启用
+            </label>
+          </div>
+
+          {error ? <p className="text-sm text-destructive">{error}</p> : null}
+          <DialogFooter className="mx-0 mb-0">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={working}
+              onClick={() => onOpenChange(false)}
+            >
+              取消
+            </Button>
+            <Button type="submit" disabled={working}>
+              {working ? "保存中…" : "保存并连接"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}

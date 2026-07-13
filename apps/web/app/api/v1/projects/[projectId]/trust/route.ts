@@ -29,6 +29,7 @@ export async function PATCH(
     const project = await requireProject(projectId)
     return Response.json(
       await getRuntimeSupervisor().setProjectTrust(
+        projectId,
         project.path,
         parsed.data.trusted
       )

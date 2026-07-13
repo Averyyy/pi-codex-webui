@@ -46,6 +46,86 @@ export const runtimeSnapshotSchema = z.object({
   isCompacting: z.boolean(),
 })
 
+export const mcpToolDefinitionSchema = z.object({
+  serverId: z.string().min(1),
+  serverName: z.string().min(1),
+  toolName: z.string().min(1),
+  name: z.string().min(1),
+  title: z.string().optional(),
+  description: z.string().optional(),
+  inputSchema: z.record(z.string(), z.unknown()),
+})
+
+export const mcpCallResultSchema = z.object({
+  content: z.array(z.unknown()),
+  structuredContent: z.record(z.string(), z.unknown()).optional(),
+  isError: z.boolean().optional(),
+})
+
+export const mcpConnectionStatusSchema = z.enum([
+  "disabled",
+  "disconnected",
+  "connecting",
+  "connected",
+  "error",
+])
+
+export const mcpConfiguredValueViewSchema = z.object({
+  key: z.string().min(1),
+  value: z.string(),
+  secret: z.boolean(),
+  configured: z.boolean(),
+})
+
+export const mcpServerViewSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  scope: z.enum(["global", "project"]),
+  projectId: z.string().nullable(),
+  enabled: z.boolean(),
+  transport: z.discriminatedUnion("type", [
+    z.object({
+      type: z.literal("stdio"),
+      command: z.string(),
+      args: z.array(z.string()),
+      cwd: z.string().nullable(),
+    }),
+    z.object({
+      type: z.literal("http"),
+      url: z.string(),
+      headers: z.array(mcpConfiguredValueViewSchema),
+    }),
+  ]),
+  env: z.array(mcpConfiguredValueViewSchema),
+  timeoutMs: z.number().int().positive(),
+  status: mcpConnectionStatusSchema,
+  tools: z.array(
+    z.object({
+      name: z.string().min(1),
+      namespacedName: z.string().min(1),
+      title: z.string().optional(),
+      description: z.string().optional(),
+      enabled: z.boolean(),
+    })
+  ),
+  lastConnectedAt: z.string().nullable(),
+  lastError: z.string().nullable(),
+  logs: z.array(
+    z.object({
+      timestamp: z.string(),
+      level: z.enum(["info", "stderr", "error"]),
+      message: z.string(),
+    })
+  ),
+})
+
+export const mcpCatalogSchema = z.object({
+  revision: z.number().int().nonnegative(),
+  projectId: z.string().nullable(),
+  projectTrusted: z.boolean(),
+  servers: z.array(mcpServerViewSchema),
+})
+
 export const promptAcceptedSchema = z.object({
   accepted: z.literal(true),
   queued: z.boolean(),
@@ -205,6 +285,7 @@ const initializeMessageSchema = z.object({
     runtimeProfileId: z.string().min(1),
     cwd: z.string().min(1),
     agentDir: z.string().min(1),
+    mcpTools: z.array(mcpToolDefinitionSchema),
     target: z.discriminatedUnion("mode", [
       z.object({
         mode: z.literal("resume"),
@@ -358,6 +439,19 @@ const shutdownMessageSchema = z.object({
   requestId: z.string().min(1),
 })
 
+const mcpCallResponseMessageSchema = z.object({
+  type: z.literal("mcp.call.response"),
+  requestId: z.string().min(1),
+  success: z.boolean(),
+  result: mcpCallResultSchema.optional(),
+  error: z
+    .object({
+      code: z.string().min(1),
+      message: z.string().min(1),
+    })
+    .optional(),
+})
+
 const reloadResourcesMessageSchema = z.object({
   type: z.literal("runtime.reload-resources"),
   requestId: z.string().min(1),
@@ -439,6 +533,7 @@ export const hostToWorkerMessageSchema = z.discriminatedUnion("type", [
   packageRemoveMessageSchema,
   packageUpdateMessageSchema,
   projectTrustMessageSchema,
+  mcpCallResponseMessageSchema,
   shutdownMessageSchema,
 ])
 
@@ -490,6 +585,23 @@ const extensionUIRequestMessageSchema = z.object({
   payload: extensionUIRequestSchema,
 })
 
+const mcpCallRequestMessageSchema = z.object({
+  type: z.literal("mcp.call.request"),
+  requestId: z.string().min(1),
+  sessionId: z.string().min(1),
+  payload: z.object({
+    serverId: z.string().min(1),
+    toolName: z.string().min(1),
+    arguments: z.record(z.string(), z.unknown()),
+  }),
+})
+
+const mcpCallCancelMessageSchema = z.object({
+  type: z.literal("mcp.call.cancel"),
+  requestId: z.string().min(1),
+  sessionId: z.string().min(1),
+})
+
 export const workerToHostMessageSchema = z.discriminatedUnion("type", [
   runtimeReadyMessageSchema,
   runtimeResponseMessageSchema,
@@ -497,12 +609,22 @@ export const workerToHostMessageSchema = z.discriminatedUnion("type", [
   runtimeLogMessageSchema,
   runtimeFatalMessageSchema,
   extensionUIRequestMessageSchema,
+  mcpCallRequestMessageSchema,
+  mcpCallCancelMessageSchema,
 ])
 
 export type ThinkingLevel = z.infer<typeof thinkingLevelSchema>
 export type RuntimeStatus = z.infer<typeof runtimeStatusSchema>
 export type RuntimeModel = z.infer<typeof runtimeModelSchema>
 export type RuntimeSnapshot = z.infer<typeof runtimeSnapshotSchema>
+export type McpToolDefinition = z.infer<typeof mcpToolDefinitionSchema>
+export type McpCallResult = z.infer<typeof mcpCallResultSchema>
+export type McpConnectionStatus = z.infer<typeof mcpConnectionStatusSchema>
+export type McpConfiguredValueView = z.infer<
+  typeof mcpConfiguredValueViewSchema
+>
+export type McpServerView = z.infer<typeof mcpServerViewSchema>
+export type McpCatalog = z.infer<typeof mcpCatalogSchema>
 export type PromptAccepted = z.infer<typeof promptAcceptedSchema>
 export type SessionStats = z.infer<typeof sessionStatsSchema>
 export type SessionReplacement = z.infer<typeof sessionReplacementSchema>

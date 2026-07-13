@@ -1519,17 +1519,17 @@ SDK Worker 可以把 MCP tools 注入为 custom tools。
 ```text
 MCP config
     ↓
-McpService
+Host McpService keeps one client per server
     ↓
-Worker initializes MCP clients
+Tool discovery and enabled-tool filtering
     ↓
-MCP tools converted to Pi ToolDefinition
+Definitions sent to the selected Worker at initialization
     ↓
-AgentSession registers tools
+Worker registers proxy Pi ToolDefinitions in AgentSession
     ↓
-getAllTools exposes schema/source
+Tool execute request returns to the shared Host client over IPC
     ↓
-Frontend displays and toggles tools
+MCP call result returns to Pi and the frontend event stream
 ```
 
 MCP tool 名称应 namespace 化：
@@ -1549,7 +1549,7 @@ MCP token、API key 等不得明文存入 `config.json`。
 ```json
 {
   "GITHUB_TOKEN": {
-    "$secret": "pi-web-codex://mcp/github/token"
+    "$secret": "2f02c04d-dcf1-4cb0-a5c8-901801d649f1"
   }
 }
 ```
@@ -1608,7 +1608,7 @@ pi-web-codex/
 
 ```json
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "revision": 12,
 
   "server": {

@@ -3,15 +3,14 @@ import "server-only"
 import { randomUUID } from "node:crypto"
 import { mkdir, open, readFile, rename, rm } from "node:fs/promises"
 
-import { getAppPaths } from "@/lib/app-paths"
-
 import {
   DEFAULT_CONFIG,
   mergeConfig,
   parseConfig,
   type AppConfig,
   type ConfigPatch,
-} from "@/lib/config-schema"
+} from "./config-schema"
+import { getAppPaths } from "./app-paths"
 
 export async function loadConfig(): Promise<AppConfig> {
   const { config } = getAppPaths()

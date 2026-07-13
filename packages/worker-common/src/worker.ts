@@ -12,6 +12,7 @@ import {
   type ExtensionUIRequest,
   type ExtensionUIResponse,
   type HostToWorkerMessage,
+  type McpCallResult,
   type RuntimeError,
   type RuntimeSnapshot,
   type WorkerToHostMessage,
@@ -24,6 +25,7 @@ import {
 } from "./resources.js"
 import { createSettingsManager } from "./settings.js"
 import type { CodingAgentModule } from "./coding-agent.js"
+import { createMcpToolDefinitions } from "./mcp.js"
 
 let codingAgent: CodingAgentModule
 let runtime: AgentSessionRuntime | undefined
@@ -34,6 +36,14 @@ let eventSequence = 0
 const pendingExtensionRequests = new Map<
   string,
   (response: ExtensionUIResponse) => void
+>()
+const pendingMcpCalls = new Map<
+  string,
+  {
+    resolve: (result: McpCallResult) => void
+    reject: (error: Error) => void
+    removeAbortListener: () => void
+  }
 >()
 
 function send(message: WorkerToHostMessage) {
@@ -73,6 +83,63 @@ function currentRuntime() {
     throw new Error("Pi runtime has not been initialized.")
   }
   return runtime
+}
+
+function abortError(signal: AbortSignal) {
+  return signal.reason instanceof Error
+    ? signal.reason
+    : new Error("MCP tool call was aborted.")
+}
+
+function invokeMcpTool(
+  serverId: string,
+  toolName: string,
+  arguments_: Record<string, unknown>,
+  signal: AbortSignal | undefined
+) {
+  if (!webSessionId) throw new Error("Pi runtime identity is not initialized.")
+  if (signal?.aborted) return Promise.reject(abortError(signal))
+
+  const requestId = randomUUID()
+  return new Promise<McpCallResult>((resolve, reject) => {
+    const abort = () => {
+      if (!pendingMcpCalls.delete(requestId)) return
+      signal?.removeEventListener("abort", abort)
+      send({
+        type: "mcp.call.cancel",
+        requestId,
+        sessionId: webSessionId!,
+      })
+      reject(signal ? abortError(signal) : new Error("MCP call aborted."))
+    }
+    signal?.addEventListener("abort", abort, { once: true })
+    pendingMcpCalls.set(requestId, {
+      resolve,
+      reject,
+      removeAbortListener: () => signal?.removeEventListener("abort", abort),
+    })
+    send({
+      type: "mcp.call.request",
+      requestId,
+      sessionId: webSessionId!,
+      payload: { serverId, toolName, arguments: arguments_ },
+    })
+  })
+}
+
+function handleMcpCallResponse(
+  message: Extract<HostToWorkerMessage, { type: "mcp.call.response" }>
+) {
+  const pending = pendingMcpCalls.get(message.requestId)
+  if (!pending) return
+  pendingMcpCalls.delete(message.requestId)
+  pending.removeAbortListener()
+  if (message.success && message.result) pending.resolve(message.result)
+  else {
+    pending.reject(
+      new Error(message.error?.message ?? "The MCP tool call failed.")
+    )
+  }
 }
 
 function snapshot(session: AgentSession): RuntimeSnapshot {
@@ -313,6 +380,10 @@ async function initialize(
   }
 
   webSessionId = message.payload.webSessionId
+  const mcpTools = createMcpToolDefinitions(
+    message.payload.mcpTools,
+    invokeMcpTool
+  )
   const createRuntime = async (options: {
     cwd: string
     agentDir: string
@@ -338,6 +409,7 @@ async function initialize(
       services,
       sessionManager: options.sessionManager,
       sessionStartEvent: options.sessionStartEvent,
+      customTools: mcpTools,
     })
     return { ...created, services, diagnostics: services.diagnostics }
   }
@@ -386,6 +458,11 @@ async function shutdown() {
     resolve({ cancelled: true })
   }
   pendingExtensionRequests.clear()
+  for (const pending of pendingMcpCalls.values()) {
+    pending.removeAbortListener()
+    pending.reject(new Error("Pi runtime is shutting down."))
+  }
+  pendingMcpCalls.clear()
   await runtime?.dispose()
   process.disconnect?.()
   setImmediate(() => process.exit(0))
@@ -474,6 +551,10 @@ async function prompt(
 }
 
 async function dispatch(message: HostToWorkerMessage) {
+  if (message.type === "mcp.call.response") {
+    handleMcpCallResponse(message)
+    return
+  }
   if (isResourceMessage(message)) {
     respond(message.requestId, {
       success: true,

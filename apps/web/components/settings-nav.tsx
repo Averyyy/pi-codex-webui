@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation"
 import {
   BlocksIcon,
   Code2Icon,
+  CableIcon,
   PackageIcon,
   PaletteIcon,
   Settings2Icon,
@@ -32,6 +33,7 @@ const sections = [
   { href: "/settings/packages", label: "Packages", icon: PackageIcon },
   { href: "/settings/extensions", label: "Extensions", icon: BlocksIcon },
   { href: "/settings/skills", label: "Skills", icon: SparklesIcon },
+  { href: "/settings/mcp", label: "MCP", icon: CableIcon },
   { href: "/settings/developer", label: "Developer", icon: Code2Icon },
 ]
 
