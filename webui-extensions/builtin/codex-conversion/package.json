@@ -1,0 +1,58 @@
+{
+  "name": "pi-codex-conversion-webui",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "lint": "eslint",
+    "format": "prettier --write \"src/**/*.ts\" \"tsup.config.ts\"",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@pi-web-codex/extension-sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "@workspace/eslint-config": "workspace:*",
+    "@workspace/typescript-config": "workspace:*",
+    "eslint": "^9",
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3"
+  },
+  "piWebCodex": {
+    "apiVersion": 1,
+    "host": {
+      "version": ">=0.1.0 <1.0.0",
+      "protocolVersion": 1
+    },
+    "extensions": [
+      {
+        "id": "codex-conversion",
+        "name": "Codex Conversion Web UI",
+        "target": {
+          "packageName": "@howaboua/pi-codex-conversion",
+          "extensionPath": "**/dist/index.js",
+          "version": ">=2.1.7 <3.0.0",
+          "testedVersions": ["2.1.7"],
+          "compatibility": {
+            "mode": "probe",
+            "onUntestedVersion": "allow-if-probe-passes"
+          }
+        },
+        "runtimes": ["pi", "pi-client"],
+        "worker": "./dist/worker.mjs",
+        "client": "./dist/client.mjs",
+        "contributes": {
+          "commandAdapters": [
+            {
+              "command": "codex",
+              "handler": "codex.quick-settings"
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

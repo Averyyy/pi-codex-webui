@@ -5,6 +5,7 @@ import { pathToFileURL } from "node:url"
 
 import type {
   CommandAdapterRegistration,
+  CommandAdapterResult,
   ExtensionInvocation,
   ExtensionOwner,
   RendererAdapterRegistration,
@@ -120,12 +121,15 @@ function matchesTarget(
   if (target.packageName && target.packageName !== owner.packageName) {
     return false
   }
-  return target.extensionPath
-    ? matchesGlob(
-        owner.resolvedPath.replaceAll("\\", "/"),
-        target.extensionPath.replaceAll("\\", "/")
-      )
-    : true
+  if (!target.extensionPath) return true
+  const pattern = target.extensionPath.replaceAll("\\", "/")
+  const paths = [owner.resolvedPath]
+  if (owner.sourceInfo.baseDir) {
+    paths.push(path.relative(owner.sourceInfo.baseDir, owner.resolvedPath))
+  }
+  return paths.some((candidate) =>
+    matchesGlob(candidate.replaceAll("\\", "/"), pattern)
+  )
 }
 
 function targetCapabilities(extension: Extension, owner: ExtensionOwner) {
@@ -554,8 +558,8 @@ export class WebUiAdapterHost {
     invocation: ExtensionInvocation,
     args: string,
     commandContext: ExtensionCommandContext
-  ) {
-    if (invocation.operation.type !== "command") return false
+  ): Promise<CommandAdapterResult> {
+    if (invocation.operation.type !== "command") return { handled: false }
     const selected = this.commands.get(
       operationKey(
         invocation.owner.resolvedPath,
@@ -563,7 +567,7 @@ export class WebUiAdapterHost {
         invocation.operation.name
       )
     )
-    if (!selected) return false
+    if (!selected) return { handled: false }
     const context = this.context(selected.adapter)
     const request = { invocation, args }
     try {
@@ -575,7 +579,7 @@ export class WebUiAdapterHost {
           selected.adapter.descriptor.key,
           validation.reason
         )
-        return false
+        return { handled: false }
       }
       const existingViews = new Set(this.views.keys())
       const result = await selected.registration.handle(request, {
@@ -593,10 +597,10 @@ export class WebUiAdapterHost {
           if (!existingViews.has(instanceId)) this.finishView(instanceId)
         }
       }
-      return result.handled
+      return result
     } catch (error) {
       this.failAdapter(selected.adapter, error)
-      return false
+      return { handled: false }
     }
   }
 

@@ -1,0 +1,5 @@
+{
+  "extends": "@workspace/typescript-config/base.json",
+  "compilerOptions": { "lib": ["ES2022", "DOM", "DOM.Iterable"] },
+  "include": ["src/**/*.ts", "tsup.config.ts"]
+}

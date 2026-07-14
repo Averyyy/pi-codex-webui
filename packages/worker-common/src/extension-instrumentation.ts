@@ -52,8 +52,9 @@ function instrumentExtension(
       const host = getHost()
       const current = invocation(host, extension, { type: "command", name })
       return extensionInvocation.run(current, async () => {
-        if (await host.tryHandleCommand(current, args, context)) return
-        return original(args, context)
+        const adapted = await host.tryHandleCommand(current, args, context)
+        if (adapted.handled) return
+        return original(adapted.args ?? args, context)
       })
     }
   }

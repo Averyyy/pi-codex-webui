@@ -20,7 +20,7 @@ import { WebUiAdapterHost } from "./webui-adapter-host.js"
 
 async function fixture(workerSource: string) {
   const root = await mkdtemp(path.join(tmpdir(), "pi-webui-worker-"))
-  const targetRoot = path.join(root, "node_modules", "pi-target")
+  const targetRoot = path.join(root, ".pi", "node_modules", "pi-target")
   await mkdir(targetRoot, { recursive: true })
   const targetPath = path.join(targetRoot, "index.js")
   const workerPath = path.join(root, "adapter.mjs")
@@ -77,7 +77,10 @@ function descriptor(
   }
 }
 
-function extension(targetPath: string, original: () => void): Extension {
+function extension(
+  targetPath: string,
+  original: (args: string) => void
+): Extension {
   return {
     path: targetPath,
     resolvedPath: targetPath,
@@ -85,6 +88,7 @@ function extension(targetPath: string, original: () => void): Extension {
       source: "pi-target",
       scope: "user",
       origin: "package",
+      baseDir: path.dirname(targetPath),
     },
     handlers: new Map(),
     commands: new Map([
@@ -92,7 +96,7 @@ function extension(targetPath: string, original: () => void): Extension {
         "target",
         {
           description: "Target command",
-          handler: async () => original(),
+          handler: async (args: string) => original(args),
         },
       ],
     ]),
@@ -142,6 +146,66 @@ test("command adapter errors execute the original Pi command", async () => {
     assert.equal(statuses[0]?.state, "compatible-by-probe")
     assert.equal(statuses.at(-1)?.state, "error")
     assert.match(statuses.at(-1)?.reason ?? "", /adapter failed/)
+  } finally {
+    host.dispose()
+    await rm(files.root, { recursive: true, force: true })
+  }
+})
+
+test("command adapters can rewrite arguments for the original command", async () => {
+  const files = await fixture(`
+    export default (web) => web.registerCommandAdapter({
+      id: "target.open",
+      handle: () => ({ handled: false, args: "fast" })
+    })
+  `)
+  let originalArgs: string | undefined
+  const target = extension(files.targetPath, (args) => (originalArgs = args))
+  const host = new WebUiAdapterHost({
+    descriptors: [descriptor(files.workerPath)],
+    session: () => ({
+      cwd: "/tmp/project",
+      listSessions: async () => [],
+      switchSession: async () => ({ cancelled: false }),
+    }),
+    emitView: () => {},
+    emitStatus: () => {},
+  })
+  try {
+    createExtensionInstrumentor(() => host)({
+      extensions: [target],
+    } as LoadExtensionsResult)
+    await host.initialize([target])
+    await target.commands.get("target")?.handler("", commandContext())
+    assert.equal(originalArgs, "fast")
+  } finally {
+    host.dispose()
+    await rm(files.root, { recursive: true, force: true })
+  }
+})
+
+test("a built-in adapter worker is not imported when its target is absent", async () => {
+  const files = await fixture(`throw new Error("worker must not load")`)
+  const statuses: WebUiExtensionStatus[] = []
+  const host = new WebUiAdapterHost({
+    descriptors: [
+      descriptor(files.workerPath, {
+        key: "builtin:pi-target-webui#target",
+        source: "builtin",
+      }),
+    ],
+    session: () => ({
+      cwd: "/tmp/project",
+      listSessions: async () => [],
+      switchSession: async () => ({ cancelled: false }),
+    }),
+    emitView: () => {},
+    emitStatus: (status) => statuses.push(status),
+  })
+  try {
+    await host.initialize([])
+    assert.equal(statuses.at(-1)?.state, "incompatible")
+    assert.equal(statuses.at(-1)?.reason, "Target Pi extension is not loaded.")
   } finally {
     host.dispose()
     await rm(files.root, { recursive: true, force: true })

@@ -138,10 +138,11 @@ export interface CommandAdapterRegistration {
   handle(
     request: WorkerCommandRequest,
     context: WorkerAdapterContext
-  ):
-    | Promise<{ handled: boolean; value?: unknown }>
-    | { handled: boolean; value?: unknown }
+  ): Promise<CommandAdapterResult> | CommandAdapterResult
 }
+
+export type CommandAdapterResult =
+  { handled: true; value?: unknown } | { handled: false; args?: string }
 
 export interface WorkerActionRequest {
   instanceId: string
