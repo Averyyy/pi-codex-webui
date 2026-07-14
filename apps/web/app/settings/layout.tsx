@@ -6,6 +6,7 @@ import {
   SidebarTrigger,
 } from "@workspace/ui/components/sidebar"
 
+import { SettingsBackButton } from "@/components/settings-back-button"
 import { SettingsNav } from "@/components/settings-nav"
 export default function SettingsLayout({
   children,
@@ -22,9 +23,10 @@ export default function SettingsLayout({
     >
       <SettingsNav />
       <SidebarInset>
-        <header className="flex h-12 items-center border-b px-3 md:hidden">
-          <SidebarTrigger />
-          <span className="ml-2 font-medium">设置</span>
+        <header className="flex h-12 shrink-0 items-center gap-2 border-b px-3">
+          <SettingsBackButton />
+          <SidebarTrigger className="md:hidden" />
+          <span className="font-medium">设置</span>
         </header>
         {children}
       </SidebarInset>
