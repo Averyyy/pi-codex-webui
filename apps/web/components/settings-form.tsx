@@ -6,6 +6,7 @@ import { useTheme } from "next-themes"
 import { toast } from "sonner"
 
 import { Button } from "@workspace/ui/components/button"
+import { useSidebar } from "@workspace/ui/components/sidebar"
 import {
   Card,
   CardContent,
@@ -175,6 +176,7 @@ export function AppearanceSettingsForm({
   const [theme, setThemeValue] = useState(initial.appearance.theme)
   const [pending, startTransition] = useTransition()
   const { setTheme } = useTheme()
+  const { setSidebarWidth } = useSidebar()
   const router = useRouter()
 
   function submit(formData: FormData) {
@@ -197,6 +199,7 @@ export function AppearanceSettingsForm({
           "--app-sidebar-width",
           `${saved.appearance.sidebarWidth}px`
         )
+        setSidebarWidth(saved.appearance.sidebarWidth)
         router.refresh()
         toast.success("外观设置已保存。")
       } catch (error) {
