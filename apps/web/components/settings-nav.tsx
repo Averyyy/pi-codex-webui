@@ -66,7 +66,7 @@ export function SettingsNav() {
                     isActive={pathname === href}
                     tooltip={label}
                   >
-                    <Link href={href}>
+                    <Link href={href} replace>
                       <Icon />
                       <span>{label}</span>
                     </Link>
@@ -81,7 +81,7 @@ export function SettingsNav() {
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton asChild isActive tooltip="设置">
-              <Link href="/settings/general">
+              <Link href="/settings/general" replace>
                 <SettingsIcon />
                 <span>设置</span>
               </Link>
