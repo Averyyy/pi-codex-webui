@@ -10,6 +10,15 @@ export const thinkingLevelSchema = z.enum([
   "max",
 ])
 
+export const modelProviderApiSchema = z.enum([
+  "openai-completions",
+  "openai-responses",
+  "anthropic-messages",
+  "google-generative-ai",
+])
+
+const modelInputSchema = z.enum(["text", "image"])
+
 export const runtimeStatusSchema = z.enum([
   "stopped",
   "starting",
@@ -24,7 +33,7 @@ export const runtimeModelSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
   reasoning: z.boolean(),
-  input: z.array(z.enum(["text", "image"])),
+  input: z.array(modelInputSchema),
   contextWindow: z.number().int().positive(),
   maxTokens: z.number().int().positive(),
 })
@@ -500,11 +509,40 @@ export const modelSettingsModelSchema = runtimeModelSchema.extend({
   enabled: z.boolean(),
 })
 
+export const modelSettingsCustomModelSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  reasoning: z.boolean(),
+  input: z.array(modelInputSchema).min(1),
+  contextWindow: z.number().int().positive(),
+  maxTokens: z.number().int().positive(),
+})
+
+export const modelSettingsProviderInputSchema = z.object({
+  provider: z
+    .string()
+    .trim()
+    .min(1)
+    .max(100)
+    .regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/),
+  name: z.string().trim().min(1).max(100).optional(),
+  api: modelProviderApiSchema,
+  baseUrl: z.string().trim().min(1),
+  apiKey: z.string().optional(),
+  models: z.array(modelSettingsCustomModelSchema).min(1),
+})
+
 export const modelSettingsProviderSchema = z.object({
   provider: z.string().min(1),
   auth: z.enum(["api-key", "oauth", "environment"]),
   removable: z.boolean(),
   modelCount: z.number().int().nonnegative(),
+  custom: z.boolean(),
+  name: z.string().min(1).optional(),
+  api: modelProviderApiSchema.optional(),
+  baseUrl: z.string().min(1).optional(),
+  apiKeyConfigured: z.boolean(),
+  customModels: z.array(modelSettingsCustomModelSchema),
 })
 
 export const modelSettingsSchema = z.object({
@@ -816,6 +854,13 @@ const providerRemoveMessageSchema = resourceRequestBaseSchema.extend({
   }),
 })
 
+const providerSaveMessageSchema = resourceRequestBaseSchema.extend({
+  type: z.literal("providers.save"),
+  payload: resourceRequestBaseSchema.shape.payload.extend(
+    modelSettingsProviderInputSchema.shape
+  ),
+})
+
 export const hostToWorkerMessageSchema = z.discriminatedUnion("type", [
   initializeMessageSchema,
   promptMessageSchema,
@@ -849,6 +894,7 @@ export const hostToWorkerMessageSchema = z.discriminatedUnion("type", [
   modelSettingsCatalogMessageSchema,
   modelScopeSetMessageSchema,
   providerRemoveMessageSchema,
+  providerSaveMessageSchema,
   mcpCallResponseMessageSchema,
   shutdownMessageSchema,
 ])
@@ -987,6 +1033,13 @@ export type ResourceView = z.infer<typeof resourceViewSchema>
 export type PackageView = z.infer<typeof packageViewSchema>
 export type ResourceCatalog = z.infer<typeof resourceCatalogSchema>
 export type ModelSettingsModel = z.infer<typeof modelSettingsModelSchema>
+export type ModelSettingsCustomModel = z.infer<
+  typeof modelSettingsCustomModelSchema
+>
+export type ModelSettingsProviderInput = z.infer<
+  typeof modelSettingsProviderInputSchema
+>
+export type ModelProviderApi = z.infer<typeof modelProviderApiSchema>
 export type ModelSettingsProvider = z.infer<typeof modelSettingsProviderSchema>
 export type ModelSettings = z.infer<typeof modelSettingsSchema>
 export type HostToWorkerMessage = z.infer<typeof hostToWorkerMessageSchema>

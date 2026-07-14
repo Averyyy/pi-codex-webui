@@ -14,7 +14,8 @@
   "dependencies": {
     "@pi-web-codex/extension-sdk": "workspace:*",
     "proper-lockfile": "^4.1.2",
-    "semver": "^7.8.5"
+    "semver": "^7.8.5",
+    "strip-json-comments": "^3.1.1"
   },
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "0.80.6",

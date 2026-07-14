@@ -33,6 +33,7 @@ type ResourceMessage = Extract<
       | "models.catalog"
       | "models.set-scope"
       | "providers.remove"
+      | "providers.save"
   }
 >
 
@@ -480,7 +481,8 @@ export async function handleResourceMessage(
   if (
     message.type === "models.catalog" ||
     message.type === "models.set-scope" ||
-    message.type === "providers.remove"
+    message.type === "providers.remove" ||
+    message.type === "providers.save"
   ) {
     return handleModelSettingsMessage(codingAgent, message)
   }
@@ -513,6 +515,7 @@ export function isResourceMessage(
     message.type === "project.trust.set" ||
     message.type === "models.catalog" ||
     message.type === "models.set-scope" ||
-    message.type === "providers.remove"
+    message.type === "providers.remove" ||
+    message.type === "providers.save"
   )
 }

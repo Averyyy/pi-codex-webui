@@ -33,6 +33,7 @@ import {
   type ResourceCatalog,
   type RuntimeSnapshot,
   type RuntimeStatus,
+  type ModelSettingsProviderInput,
   type WebUiExtensionStatus,
   type WorkerToHostMessage,
 } from "@workspace/runtime-protocol"
@@ -136,6 +137,7 @@ type ResourceRequestMessage = Extract<
       | "models.catalog"
       | "models.set-scope"
       | "providers.remove"
+      | "providers.save"
   }
 >
 
@@ -766,6 +768,18 @@ export class RuntimeSupervisor {
         type: "providers.remove",
         requestId: requestId(),
         payload: { cwd, agentDir: getPiAgentDir(), provider },
+      })
+    )
+    await this.reloadModelSettings()
+    return settings
+  }
+
+  async saveCustomProvider(cwd: string, input: ModelSettingsProviderInput) {
+    const settings = modelSettingsSchema.parse(
+      await this.resourceRequest({
+        type: "providers.save",
+        requestId: requestId(),
+        payload: { cwd, agentDir: getPiAgentDir(), ...input },
       })
     )
     await this.reloadModelSettings()
