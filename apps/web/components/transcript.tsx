@@ -14,6 +14,7 @@ import {
 } from "@workspace/ui/components/collapsible"
 
 import { Markdown } from "@/components/markdown"
+import { stripAnsi } from "@/lib/ansi"
 import { formatTimestamp } from "@/lib/session-display"
 import type {
   SessionSnapshot,
@@ -69,7 +70,7 @@ function TextParts({
           key={index}
           className="max-h-96 overflow-auto font-mono text-xs leading-5 whitespace-pre-wrap"
         >
-          {part.text}
+          {stripAnsi(part.text)}
         </pre>
       ) : (
         <Markdown key={index}>{part.text}</Markdown>
@@ -191,9 +192,9 @@ function Message({
           ) : null}
         </div>
         <pre className="overflow-x-auto bg-muted/50 p-3 text-xs leading-5">
-          $ {command?.type === "text" ? command.text : ""}
+          $ {command?.type === "text" ? stripAnsi(command.text) : ""}
           {"\n"}
-          {output?.type === "text" ? output.text : ""}
+          {output?.type === "text" ? stripAnsi(output.text) : ""}
         </pre>
       </div>
     )
@@ -281,7 +282,7 @@ function Event({
       className="flex items-center justify-center gap-2 text-xs text-muted-foreground"
     >
       <span>{entry.title}</span>
-      {entry.text ? <code>{entry.text}</code> : null}
+      {entry.text ? <code>{stripAnsi(entry.text)}</code> : null}
     </div>
   )
 }
@@ -314,7 +315,7 @@ function SettingChanges({ entries }: { entries: SettingEvent[] }) {
           >
             <span className="shrink-0">{entry.title}</span>
             {entry.text ? (
-              <code className="min-w-0 truncate">{entry.text}</code>
+              <code className="min-w-0 truncate">{stripAnsi(entry.text)}</code>
             ) : null}
           </div>
         ))}

@@ -56,6 +56,7 @@ import {
 import { Markdown } from "@/components/markdown"
 import { PiTuiSurface } from "@/components/pi-tui-surface"
 import { ExtensionSlot } from "@/components/extension-slot"
+import { stripAnsi } from "@/lib/ansi"
 import { notifyWhenHidden } from "@/lib/browser-notifications"
 
 interface RuntimeEvent {
@@ -837,7 +838,7 @@ export function SessionRuntime({
             ) : null}
             {Object.entries(extensionStatuses).map(([key, text]) => (
               <span key={key} className="text-xs text-muted-foreground">
-                {text}
+                {stripAnsi(text)}
               </span>
             ))}
             <ExtensionSlot name="composer.actions" />
@@ -901,6 +902,8 @@ export function SessionRuntime({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent
+                    position="popper"
+                    side="top"
                     footer={
                       <Button
                         asChild

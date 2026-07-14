@@ -2,6 +2,8 @@ import type { ComponentProps } from "react"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 
+import { stripAnsi } from "@/lib/ansi"
+
 export function Markdown({ children }: { children: string }) {
   return (
     <ReactMarkdown
@@ -79,7 +81,7 @@ export function Markdown({ children }: { children: string }) {
         ),
       }}
     >
-      {children}
+      {stripAnsi(children)}
     </ReactMarkdown>
   )
 }
