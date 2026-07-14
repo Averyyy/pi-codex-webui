@@ -17,6 +17,7 @@ import path from "node:path"
 
 import {
   promptAcceptedSchema,
+  modelSettingsSchema,
   resourceCatalogSchema,
   sessionExportResultSchema,
   sessionNavigationResultSchema,
@@ -92,6 +93,7 @@ interface ManagedRuntime {
   failureMessage: string | null
   cleaned: boolean
   pendingResourceReload: boolean
+  pendingModelReload: boolean
   pendingMcpRestart: boolean
   pendingWebUiRestart: boolean
   webUiRestartPromise: Promise<void> | null
@@ -131,6 +133,9 @@ type ResourceRequestMessage = Extract<
       | "packages.remove"
       | "packages.update"
       | "project.trust.set"
+      | "models.catalog"
+      | "models.set-scope"
+      | "providers.remove"
   }
 >
 
@@ -729,6 +734,44 @@ export class RuntimeSupervisor {
     )
   }
 
+  async modelSettings(cwd: string) {
+    return modelSettingsSchema.parse(
+      await this.resourceRequest({
+        type: "models.catalog",
+        requestId: requestId(),
+        payload: { cwd, agentDir: getPiAgentDir() },
+      })
+    )
+  }
+
+  async setModelScope(cwd: string, enabledModelIds: string[] | null) {
+    const settings = modelSettingsSchema.parse(
+      await this.resourceRequest({
+        type: "models.set-scope",
+        requestId: requestId(),
+        payload: {
+          cwd,
+          agentDir: getPiAgentDir(),
+          enabledModelIds,
+        },
+      })
+    )
+    await this.reloadModelSettings()
+    return settings
+  }
+
+  async removeProvider(cwd: string, provider: string) {
+    const settings = modelSettingsSchema.parse(
+      await this.resourceRequest({
+        type: "providers.remove",
+        requestId: requestId(),
+        payload: { cwd, agentDir: getPiAgentDir(), provider },
+      })
+    )
+    await this.reloadModelSettings()
+    return settings
+  }
+
   async setResourceEnabled(
     cwd: string,
     resourceId: string,
@@ -1057,6 +1100,7 @@ export class RuntimeSupervisor {
       failureMessage: null,
       cleaned: false,
       pendingResourceReload: false,
+      pendingModelReload: false,
       pendingMcpRestart: false,
       pendingWebUiRestart: false,
       webUiRestartPromise: null,
@@ -1245,6 +1289,7 @@ export class RuntimeSupervisor {
       failureMessage: null,
       cleaned: false,
       pendingResourceReload: false,
+      pendingModelReload: false,
       pendingMcpRestart: false,
       pendingWebUiRestart: false,
       webUiRestartPromise: null,
@@ -1419,6 +1464,8 @@ export class RuntimeSupervisor {
         setImmediate(() => this.scheduleWebUiRestart(runtime))
       } else if (runtime.pendingMcpRestart) {
         setImmediate(() => this.scheduleMcpRestart(runtime))
+      } else if (runtime.pendingModelReload) {
+        setImmediate(() => this.scheduleModelSettingsReload(runtime))
       }
       return
     }
@@ -1464,10 +1511,14 @@ export class RuntimeSupervisor {
       runtime.status = "ready"
       if (runtime.pendingWebUiRestart) {
         runtime.pendingResourceReload = false
+        runtime.pendingModelReload = false
         this.scheduleWebUiRestart(runtime)
       } else if (runtime.pendingMcpRestart) {
         runtime.pendingResourceReload = false
+        runtime.pendingModelReload = false
         this.scheduleMcpRestart(runtime)
+      } else if (runtime.pendingModelReload) {
+        this.scheduleModelSettingsReload(runtime)
       } else if (runtime.pendingResourceReload) {
         void this.reloadRuntimeResources(runtime).catch((error: Error) =>
           this.failRuntime(runtime, error)
@@ -1738,6 +1789,7 @@ export class RuntimeSupervisor {
     runtime.pendingWebUiRestart = false
     runtime.pendingMcpRestart = false
     runtime.pendingResourceReload = false
+    runtime.pendingModelReload = false
     this.eventHub.publish({
       type: "webui.reload.started",
       sessionId,
@@ -1753,6 +1805,7 @@ export class RuntimeSupervisor {
     const sessionId = runtime.webSessionId
     runtime.pendingMcpRestart = false
     runtime.pendingResourceReload = false
+    runtime.pendingModelReload = false
     this.eventHub.publish({
       type: "mcp.reload.started",
       sessionId,
@@ -1774,6 +1827,70 @@ export class RuntimeSupervisor {
       }
     }
     await Promise.all(reloads)
+  }
+
+  private async reloadModelSettings() {
+    const reloads: Promise<RuntimeSnapshot>[] = []
+    for (const runtime of this.runtimes.values()) {
+      if (runtime.cleaned) continue
+      if (
+        runtime.status === "ready" &&
+        !runtime.pendingWebUiRestart &&
+        !runtime.pendingMcpRestart
+      ) {
+        reloads.push(this.reloadRuntimeModelSettings(runtime))
+      } else if (
+        runtime.status === "busy" ||
+        runtime.status === "starting" ||
+        runtime.pendingWebUiRestart ||
+        runtime.pendingMcpRestart
+      ) {
+        runtime.pendingModelReload = true
+      }
+    }
+    await Promise.all(reloads)
+  }
+
+  private scheduleModelSettingsReload(runtime: ManagedRuntime) {
+    void this.reloadRuntimeModelSettings(runtime).catch((error: Error) =>
+      this.failRuntime(runtime, error)
+    )
+  }
+
+  private async reloadRuntimeModelSettings(runtime: ManagedRuntime) {
+    if (runtime.cleaned) {
+      throw new RuntimeRequestError(
+        "RuntimeNotActive",
+        "The Pi runtime is not active."
+      )
+    }
+    runtime.status = "starting"
+    this.eventHub.publish({
+      type: "runtime.starting",
+      sessionId: runtime.webSessionId,
+      payload: { reason: "model-settings-reload" },
+    })
+    const snapshot = runtimeSnapshotSchema.parse(
+      await this.request(runtime, {
+        type: "runtime.reload-model-settings",
+        requestId: requestId(),
+        sessionId: runtime.webSessionId,
+      })
+    )
+    runtime.snapshot = snapshot
+    runtime.status = "ready"
+    runtime.pendingModelReload = false
+    this.eventHub.publish({
+      type: "runtime.ready",
+      sessionId: runtime.webSessionId,
+      payload: snapshot,
+    })
+    if (runtime.pendingResourceReload) {
+      void this.reloadRuntimeResources(runtime).catch((error: Error) =>
+        this.failRuntime(runtime, error)
+      )
+    }
+    return snapshot
   }
 
   private async reloadRuntimeResources(runtime: ManagedRuntime) {

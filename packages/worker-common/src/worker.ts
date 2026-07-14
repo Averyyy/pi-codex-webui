@@ -28,6 +28,7 @@ import {
 import { createSettingsManager } from "./settings.js"
 import type { CodingAgentModule, TuiModule } from "./coding-agent.js"
 import { createMcpToolDefinitions } from "./mcp.js"
+import { resolveConfiguredScopedModels } from "./model-settings.js"
 import { createFooterData, TuiSurfaceManager } from "./tui-surfaces.js"
 import { createExtensionInstrumentor } from "./extension-instrumentation.js"
 import { WebUiAdapterHost } from "./webui-adapter-host.js"
@@ -159,6 +160,18 @@ function snapshot(session: AgentSession): RuntimeSnapshot {
     throw new Error("Pi runtime identity is not initialized.")
   }
   const model = session.model
+  const availableModels = session.modelRegistry.getAvailable()
+  const availableModelIds = new Set(
+    availableModels.map((available) => `${available.provider}/${available.id}`)
+  )
+  const models =
+    session.scopedModels.length > 0
+      ? session.scopedModels
+          .filter(({ model: scopedModel }) =>
+            availableModelIds.has(`${scopedModel.provider}/${scopedModel.id}`)
+          )
+          .map(({ model: scopedModel }) => scopedModel)
+      : availableModels
   return {
     webSessionId,
     nativeSessionId: session.sessionId,
@@ -168,7 +181,7 @@ function snapshot(session: AgentSession): RuntimeSnapshot {
     model: model
       ? { provider: model.provider, id: model.id, name: model.name }
       : null,
-    availableModels: session.modelRegistry.getAvailable().map((available) => ({
+    availableModels: models.map((available) => ({
       provider: available.provider,
       id: available.id,
       name: available.name,
@@ -577,6 +590,28 @@ async function initialize(
         ),
       },
     })
+    const scopedModels = await resolveConfiguredScopedModels(
+      codingAgent,
+      settingsManager,
+      services.modelRegistry
+    )
+    const hasExistingSession =
+      options.sessionManager.buildSessionContext().messages.length > 0
+    const savedProvider = settingsManager.getDefaultProvider()
+    const savedModelId = settingsManager.getDefaultModel()
+    const savedModel =
+      savedProvider && savedModelId
+        ? services.modelRegistry.find(savedProvider, savedModelId)
+        : undefined
+    const initialScopedModel =
+      !hasExistingSession && scopedModels.length > 0
+        ? (scopedModels.find(
+            ({ model }) =>
+              savedModel !== undefined &&
+              model.provider === savedModel.provider &&
+              model.id === savedModel.id
+          ) ?? scopedModels[0])
+        : undefined
     await adapterHost.initialize(
       services.resourceLoader.getExtensions().extensions
     )
@@ -585,6 +620,13 @@ async function initialize(
       sessionManager: options.sessionManager,
       sessionStartEvent: options.sessionStartEvent,
       customTools: mcpTools,
+      scopedModels,
+      ...(initialScopedModel
+        ? {
+            model: initialScopedModel.model,
+            thinkingLevel: initialScopedModel.thinkingLevel,
+          }
+        : {}),
     })
     return { ...created, services, diagnostics: services.diagnostics }
   }
@@ -729,6 +771,20 @@ async function prompt(
   }
 }
 
+async function reloadModelSettings(session: AgentSession) {
+  const services = currentRuntime().services
+  await services.settingsManager.reload()
+  services.authStorage.reload()
+  services.modelRegistry.refresh()
+  session.setScopedModels(
+    await resolveConfiguredScopedModels(
+      codingAgent,
+      services.settingsManager,
+      services.modelRegistry
+    )
+  )
+}
+
 async function dispatch(message: HostToWorkerMessage) {
   if (message.type === "mcp.call.response") {
     handleMcpCallResponse(message)
@@ -761,7 +817,10 @@ async function dispatch(message: HostToWorkerMessage) {
 
   assertSession(message)
   const session = currentRuntime().session
-  if (message.type === "runtime.reload-resources") {
+  if (message.type === "runtime.reload-model-settings") {
+    await reloadModelSettings(session)
+    respond(message.requestId, { success: true, data: snapshot(session) })
+  } else if (message.type === "runtime.reload-resources") {
     currentRuntime().services.settingsManager.setProjectTrusted(
       projectTrustedForWeb(
         codingAgent,

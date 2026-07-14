@@ -10,6 +10,7 @@ import {
   PaletteIcon,
   Settings2Icon,
   SettingsIcon,
+  SlidersHorizontalIcon,
   SparklesIcon,
 } from "lucide-react"
 
@@ -30,6 +31,7 @@ import {
 const sections = [
   { href: "/settings/general", label: "常规", icon: Settings2Icon },
   { href: "/settings/appearance", label: "外观", icon: PaletteIcon },
+  { href: "/settings/models", label: "模型", icon: SlidersHorizontalIcon },
   { href: "/settings/packages", label: "Packages", icon: PackageIcon },
   { href: "/settings/extensions", label: "Extensions", icon: BlocksIcon },
   {

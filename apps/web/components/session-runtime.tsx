@@ -7,11 +7,13 @@ import {
   useState,
   type FormEvent,
 } from "react"
+import Link from "next/link"
 import { useRouter } from "next/navigation"
 import {
   LoaderCircleIcon,
   Minimize2Icon,
   RefreshCwIcon,
+  Settings2Icon,
   SendIcon,
   SquareIcon,
 } from "lucide-react"
@@ -898,7 +900,23 @@ export function SessionRuntime({
                   >
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent
+                    footer={
+                      <Button
+                        asChild
+                        className="w-full justify-start"
+                        size="sm"
+                        variant="ghost"
+                      >
+                        <Link
+                          href={`/settings/models?sessionId=${encodeURIComponent(sessionId)}`}
+                        >
+                          <Settings2Icon />
+                          管理 Provider / Model scope
+                        </Link>
+                      </Button>
+                    }
+                  >
                     {snapshot.availableModels.map((model) => (
                       <SelectItem
                         key={modelValue(model)}

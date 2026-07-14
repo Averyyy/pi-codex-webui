@@ -496,6 +496,23 @@ export const resourceCatalogSchema = z.object({
   packages: z.array(packageViewSchema),
 })
 
+export const modelSettingsModelSchema = runtimeModelSchema.extend({
+  enabled: z.boolean(),
+})
+
+export const modelSettingsProviderSchema = z.object({
+  provider: z.string().min(1),
+  auth: z.enum(["api-key", "oauth", "environment"]),
+  removable: z.boolean(),
+  modelCount: z.number().int().nonnegative(),
+})
+
+export const modelSettingsSchema = z.object({
+  models: z.array(modelSettingsModelSchema),
+  providers: z.array(modelSettingsProviderSchema),
+  enabledModels: z.array(z.string().min(1)).nullable(),
+})
+
 const initializeMessageSchema = z.object({
   type: z.literal("runtime.initialize"),
   requestId: z.string().min(1),
@@ -724,6 +741,12 @@ const reloadResourcesMessageSchema = z.object({
   sessionId: z.string().min(1),
 })
 
+const reloadModelSettingsMessageSchema = z.object({
+  type: z.literal("runtime.reload-model-settings"),
+  requestId: z.string().min(1),
+  sessionId: z.string().min(1),
+})
+
 const resourceRequestBaseSchema = z.object({
   requestId: z.string().min(1),
   payload: z.object({
@@ -775,6 +798,24 @@ const projectTrustMessageSchema = resourceRequestBaseSchema.extend({
   }),
 })
 
+const modelSettingsCatalogMessageSchema = resourceRequestBaseSchema.extend({
+  type: z.literal("models.catalog"),
+})
+
+const modelScopeSetMessageSchema = resourceRequestBaseSchema.extend({
+  type: z.literal("models.set-scope"),
+  payload: resourceRequestBaseSchema.shape.payload.extend({
+    enabledModelIds: z.array(z.string().min(1)).nullable(),
+  }),
+})
+
+const providerRemoveMessageSchema = resourceRequestBaseSchema.extend({
+  type: z.literal("providers.remove"),
+  payload: resourceRequestBaseSchema.shape.payload.extend({
+    provider: z.string().min(1),
+  }),
+})
+
 export const hostToWorkerMessageSchema = z.discriminatedUnion("type", [
   initializeMessageSchema,
   promptMessageSchema,
@@ -798,12 +839,16 @@ export const hostToWorkerMessageSchema = z.discriminatedUnion("type", [
   webUiActionMessageSchema,
   webUiClientStatusMessageSchema,
   reloadResourcesMessageSchema,
+  reloadModelSettingsMessageSchema,
   resourceCatalogMessageSchema,
   resourceToggleMessageSchema,
   packageInstallMessageSchema,
   packageRemoveMessageSchema,
   packageUpdateMessageSchema,
   projectTrustMessageSchema,
+  modelSettingsCatalogMessageSchema,
+  modelScopeSetMessageSchema,
+  providerRemoveMessageSchema,
   mcpCallResponseMessageSchema,
   shutdownMessageSchema,
 ])
@@ -941,6 +986,9 @@ export type WebUiExtensionStatus = z.infer<typeof webUiExtensionStatusSchema>
 export type ResourceView = z.infer<typeof resourceViewSchema>
 export type PackageView = z.infer<typeof packageViewSchema>
 export type ResourceCatalog = z.infer<typeof resourceCatalogSchema>
+export type ModelSettingsModel = z.infer<typeof modelSettingsModelSchema>
+export type ModelSettingsProvider = z.infer<typeof modelSettingsProviderSchema>
+export type ModelSettings = z.infer<typeof modelSettingsSchema>
 export type HostToWorkerMessage = z.infer<typeof hostToWorkerMessageSchema>
 export type WorkerToHostMessage = z.infer<typeof workerToHostMessageSchema>
 export type RuntimeError = z.infer<typeof runtimeErrorSchema>
