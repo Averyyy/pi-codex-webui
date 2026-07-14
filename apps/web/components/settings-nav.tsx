@@ -3,6 +3,7 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import {
+  ArchiveIcon,
   BlocksIcon,
   Code2Icon,
   CableIcon,
@@ -31,6 +32,7 @@ import {
 const sections = [
   { href: "/settings/general", label: "常规", icon: Settings2Icon },
   { href: "/settings/appearance", label: "外观", icon: PaletteIcon },
+  { href: "/settings/archive", label: "归档", icon: ArchiveIcon },
   { href: "/settings/models", label: "模型", icon: SlidersHorizontalIcon },
   { href: "/settings/packages", label: "Packages", icon: PackageIcon },
   { href: "/settings/extensions", label: "Extensions", icon: BlocksIcon },

@@ -45,3 +45,21 @@ export async function PATCH(
     return runtimeErrorResponse(error)
   }
 }
+
+export async function DELETE(
+  request: Request,
+  context: RouteContext<"/api/v1/sessions/[sessionId]">
+) {
+  const securityError = validateLocalMutation(request)
+  if (securityError) {
+    return Response.json({ error: securityError }, { status: 403 })
+  }
+  try {
+    const { sessionId } = await context.params
+    return Response.json(
+      await getRuntimeSupervisor().deleteArchivedSession(sessionId)
+    )
+  } catch (error) {
+    return runtimeErrorResponse(error)
+  }
+}

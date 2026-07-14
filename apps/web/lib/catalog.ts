@@ -1,6 +1,6 @@
 import "server-only"
 
-import { stat } from "node:fs/promises"
+import { rm, stat } from "node:fs/promises"
 
 import { getDatabase, inTransaction } from "@/lib/database"
 import {
@@ -11,6 +11,7 @@ import {
 import { syncPiSessionFile, syncPiSessionIndex } from "@/lib/session-index"
 import type {
   ProjectSummary,
+  ArchivedSession,
   SessionSearchResult,
   SessionSnapshot,
   SessionSummary,
@@ -37,6 +38,7 @@ interface SessionRow {
   updated_at: string
   message_count: number
   first_message: string
+  archived_at: string | null
   runtime_kind: "pi" | "pi-client"
   runtime_profile_id: string
   migrated_from_session_id: string | null
@@ -44,6 +46,10 @@ interface SessionRow {
 
 interface SnapshotRow extends SessionRow {
   project_path: string | null
+  project_name: string | null
+}
+
+interface ArchivedSessionRow extends SessionRow {
   project_name: string | null
 }
 
@@ -104,10 +110,34 @@ function sessionSummary(row: SessionRow): SessionSummary {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     messageCount: row.message_count,
+    archivedAt: row.archived_at,
     runtimeKind: row.runtime_kind,
     runtimeProfileId: row.runtime_profile_id,
     migratedFromSessionId: row.migrated_from_session_id,
   }
+}
+
+function refreshProject(
+  database: Awaited<ReturnType<typeof getDatabase>>,
+  projectId: string
+) {
+  database
+    .prepare(
+      `DELETE FROM projects
+       WHERE id = ?
+         AND NOT EXISTS (
+           SELECT 1 FROM sessions WHERE project_id = projects.id
+         )`
+    )
+    .run(projectId)
+  database
+    .prepare(
+      `UPDATE projects SET
+         created_at = (SELECT min(created_at) FROM sessions WHERE project_id = ?),
+         updated_at = (SELECT max(updated_at) FROM sessions WHERE project_id = ?)
+       WHERE id = ?`
+    )
+    .run(projectId, projectId, projectId)
 }
 
 export async function isProjectDirectoryAvailable(canonicalPath: string) {
@@ -128,7 +158,9 @@ export async function listWorkspaceProjects(): Promise<WorkspaceProject[]> {
               count(sessions.id) AS session_count,
               projects.updated_at
        FROM projects
-       JOIN sessions ON sessions.project_id = projects.id
+       JOIN sessions
+         ON sessions.project_id = projects.id
+        AND sessions.archived_at IS NULL
        GROUP BY projects.id
        ORDER BY projects.updated_at DESC, display_name COLLATE NOCASE`
     )
@@ -137,9 +169,10 @@ export async function listWorkspaceProjects(): Promise<WorkspaceProject[]> {
     .prepare(
       `SELECT id, project_id, cwd, native_session_id, native_session_file,
               parent_session_file, title, created_at, updated_at,
-              message_count, first_message, runtime_kind,
+              message_count, first_message, archived_at, runtime_kind,
               runtime_profile_id, migrated_from_session_id
        FROM sessions
+       WHERE archived_at IS NULL
        ORDER BY updated_at DESC`
     )
     .all() as unknown as SessionRow[]
@@ -175,7 +208,9 @@ export async function getProject(projectId: string) {
               count(sessions.id) AS session_count,
               projects.updated_at
        FROM projects
-       JOIN sessions ON sessions.project_id = projects.id
+       JOIN sessions
+         ON sessions.project_id = projects.id
+        AND sessions.archived_at IS NULL
        WHERE projects.id = ?
        GROUP BY projects.id`
     )
@@ -191,10 +226,10 @@ export async function listProjectSessions(projectId: string) {
       .prepare(
         `SELECT id, project_id, cwd, native_session_id, native_session_file,
                 parent_session_file, title, created_at, updated_at,
-                message_count, first_message, runtime_kind,
+                message_count, first_message, archived_at, runtime_kind,
                 runtime_profile_id, migrated_from_session_id
          FROM sessions
-         WHERE project_id = ?
+         WHERE project_id = ? AND archived_at IS NULL
          ORDER BY updated_at DESC`
       )
       .all(projectId) as unknown as SessionRow[]
@@ -209,14 +244,82 @@ export async function listWorkspaceTasks(): Promise<SessionSummary[]> {
       .prepare(
         `SELECT id, project_id, cwd, native_session_id, native_session_file,
                 parent_session_file, title, created_at, updated_at,
-                message_count, first_message, runtime_kind,
+                message_count, first_message, archived_at, runtime_kind,
                 runtime_profile_id, migrated_from_session_id
          FROM sessions
-         WHERE project_id IS NULL
+         WHERE project_id IS NULL AND archived_at IS NULL
          ORDER BY updated_at DESC`
       )
       .all() as unknown as SessionRow[]
   ).map(sessionSummary)
+}
+
+export async function listArchivedSessions(): Promise<ArchivedSession[]> {
+  await syncPiSessionIndex()
+  const database = await getDatabase()
+  const rows = database
+    .prepare(
+      `SELECT sessions.id, sessions.project_id, sessions.cwd,
+              sessions.native_session_id, sessions.native_session_file,
+              sessions.parent_session_file, sessions.title,
+              sessions.created_at, sessions.updated_at,
+              sessions.message_count, sessions.first_message,
+              sessions.archived_at, sessions.runtime_kind,
+              sessions.runtime_profile_id, sessions.migrated_from_session_id,
+              projects.display_name AS project_name
+       FROM sessions
+       LEFT JOIN projects ON projects.id = sessions.project_id
+       WHERE sessions.archived_at IS NOT NULL
+       ORDER BY sessions.archived_at DESC, sessions.updated_at DESC`
+    )
+    .all() as unknown as ArchivedSessionRow[]
+  return rows.map((row) => ({
+    ...sessionSummary(row),
+    projectName: row.project_name,
+  }))
+}
+
+export async function archiveSession(sessionId: string) {
+  const database = await getDatabase()
+  return inTransaction(database, () => {
+    const row = database
+      .prepare("SELECT archived_at FROM sessions WHERE id = ?")
+      .get(sessionId) as { archived_at: string | null } | undefined
+    if (!row) return null
+    if (row.archived_at) return row.archived_at
+
+    const archivedAt = new Date().toISOString()
+    database
+      .prepare("UPDATE sessions SET archived_at = ? WHERE id = ?")
+      .run(archivedAt, sessionId)
+    return archivedAt
+  })
+}
+
+export async function deleteArchivedSession(sessionId: string) {
+  await syncPiSessionIndex()
+  const database = await getDatabase()
+  const row = database
+    .prepare(
+      `SELECT project_id, native_session_file
+       FROM sessions
+       WHERE id = ? AND archived_at IS NOT NULL`
+    )
+    .get(sessionId) as
+    { project_id: string | null; native_session_file: string } | undefined
+  if (!row) return false
+
+  await rm(row.native_session_file, { force: true })
+  inTransaction(database, () => {
+    database
+      .prepare("DELETE FROM session_search WHERE session_id = ?")
+      .run(sessionId)
+    database
+      .prepare("DELETE FROM sessions WHERE id = ? AND archived_at IS NOT NULL")
+      .run(sessionId)
+    if (row.project_id) refreshProject(database, row.project_id)
+  })
+  return true
 }
 
 export async function getSessionSnapshot(sessionId: string) {
@@ -227,13 +330,13 @@ export async function getSessionSnapshot(sessionId: string) {
       `SELECT sessions.id, project_id, sessions.cwd, native_session_id,
               native_session_file, parent_session_file, title,
               sessions.created_at, sessions.updated_at, message_count,
-              first_message, runtime_kind, runtime_profile_id,
+              first_message, archived_at, runtime_kind, runtime_profile_id,
               migrated_from_session_id,
               projects.canonical_path AS project_path,
               projects.display_name AS project_name
        FROM sessions
        LEFT JOIN projects ON projects.id = sessions.project_id
-       WHERE sessions.id = ?`
+       WHERE sessions.id = ? AND sessions.archived_at IS NULL`
     )
     .get(sessionId) as unknown as SnapshotRow | undefined
   if (!row) return null
@@ -276,7 +379,7 @@ export async function getSessionRuntimeTarget(sessionId: string) {
               runtime_profile_id, native_session_id, native_session_file
        FROM sessions
        LEFT JOIN projects ON projects.id = sessions.project_id
-       WHERE sessions.id = ?`
+       WHERE sessions.id = ? AND sessions.archived_at IS NULL`
     )
     .get(sessionId) as unknown as RuntimeTargetRow | undefined
   if (!row) return null
@@ -361,24 +464,9 @@ export async function markSessionStandalone(
         sessionId
       )
 
-    if (session.project_id === null) return
-    database
-      .prepare(
-        `DELETE FROM projects
-         WHERE id = ?
-           AND NOT EXISTS (
-             SELECT 1 FROM sessions WHERE project_id = projects.id
-           )`
-      )
-      .run(session.project_id)
-    database
-      .prepare(
-        `UPDATE projects SET
-           created_at = (SELECT min(created_at) FROM sessions WHERE project_id = ?),
-           updated_at = (SELECT max(updated_at) FROM sessions WHERE project_id = ?)
-         WHERE id = ?`
-      )
-      .run(session.project_id, session.project_id, session.project_id)
+    if (session.project_id !== null) {
+      refreshProject(database, session.project_id)
+    }
   })
 }
 
@@ -422,7 +510,8 @@ export async function searchSessions(query: string) {
        FROM session_search
        JOIN sessions ON sessions.id = session_search.session_id
        LEFT JOIN projects ON projects.id = sessions.project_id
-       WHERE session_search MATCH ?
+       WHERE sessions.archived_at IS NULL
+         AND session_search MATCH ?
        ORDER BY rank, session_search.timestamp DESC
        LIMIT 100`
     )

@@ -3,6 +3,7 @@
 import { useState, type FormEvent } from "react"
 import { useRouter } from "next/navigation"
 import {
+  ArchiveIcon,
   BarChart3Icon,
   CopyIcon,
   DownloadIcon,
@@ -200,16 +201,20 @@ export function SessionOperations({
     })
   }
 
-  async function createSession() {
+  async function archive() {
     await run(async () => {
-      navigateTo(
-        await mutate<ReplacementResult>(
-          projectId === null
-            ? "/api/v1/tasks"
-            : `/api/v1/projects/${projectId}/sessions`
-        )
-      )
+      await mutate(`/api/v1/sessions/${sessionId}/archive`)
+      router.push("/")
+      router.refresh()
     })
+  }
+
+  function startNewConversation() {
+    router.push(
+      projectId === null
+        ? "/new"
+        : `/new?projectId=${encodeURIComponent(projectId)}`
+    )
   }
 
   async function clone() {
@@ -311,8 +316,8 @@ export function SessionOperations({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-48">
-          <DropdownMenuItem onSelect={createSession}>
-            <PlusIcon /> 新建 session
+          <DropdownMenuItem onSelect={startNewConversation}>
+            <PlusIcon /> 新对话
           </DropdownMenuItem>
           <DropdownMenuItem onSelect={() => setDialog("rename")}>
             <PencilIcon /> 重命名
@@ -343,6 +348,10 @@ export function SessionOperations({
           </DropdownMenuItem>
           <DropdownMenuItem onSelect={openStats}>
             <BarChart3Icon /> 统计
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onSelect={() => void archive()}>
+            <ArchiveIcon /> 归档
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>

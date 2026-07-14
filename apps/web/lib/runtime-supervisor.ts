@@ -45,7 +45,9 @@ import {
   getPiWorkerPath,
 } from "@/lib/app-paths"
 import {
+  archiveSession as archiveStoredSession,
   bindSessionRuntime,
+  deleteArchivedSession as deleteStoredArchivedSession,
   getSessionIdentityByNativeFile,
   getSessionRuntimeTarget,
   markSessionStandalone,
@@ -906,6 +908,26 @@ export class RuntimeSupervisor {
       }
       throw error
     }
+  }
+
+  async archiveSession(sessionId: string) {
+    await this.stop(sessionId)
+    const archivedAt = await archiveStoredSession(sessionId)
+    if (!archivedAt) {
+      throw new RuntimeRequestError("SessionNotFound", "Session not found.")
+    }
+    return { sessionId, archivedAt }
+  }
+
+  async deleteArchivedSession(sessionId: string) {
+    await this.stop(sessionId)
+    if (!(await deleteStoredArchivedSession(sessionId))) {
+      throw new RuntimeRequestError(
+        "SessionNotFound",
+        "Archived session not found."
+      )
+    }
+    return { sessionId }
   }
 
   private async activateReadyRuntime(sessionId: string) {

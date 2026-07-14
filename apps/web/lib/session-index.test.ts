@@ -1,14 +1,17 @@
 import assert from "node:assert/strict"
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import test from "node:test"
 
 import {
+  archiveSession,
+  deleteArchivedSession,
   getProject,
   getSessionRuntimeTarget,
   getSessionSnapshot,
   isProjectDirectoryAvailable,
+  listArchivedSessions,
   listWorkspaceProjects,
   listWorkspaceTasks,
   markSessionStandalone,
@@ -183,6 +186,17 @@ test("standalone sessions survive reindexing and remain outside projects", async
     assert.equal(repaired?.id, task.id)
     assert.equal(repaired?.projectId, null)
     assert.equal(repaired?.runtimeProfileId, "task-runtime")
+
+    const archivedAt = await archiveSession(task.id)
+    assert.ok(archivedAt)
+    assert.deepEqual(await listWorkspaceTasks(), [])
+    assert.equal((await listArchivedSessions())[0]?.id, task.id)
+    assert.equal(await archiveSession(task.id), archivedAt)
+    await syncPiSessionIndex()
+    assert.equal((await listArchivedSessions())[0]?.id, task.id)
+    assert.equal(await deleteArchivedSession(task.id), true)
+    assert.deepEqual(await listArchivedSessions(), [])
+    await assert.rejects(stat(taskFile))
 
     await rm(projectCwd, { recursive: true })
     assert.deepEqual(await listWorkspaceProjects(), [])

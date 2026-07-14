@@ -9,7 +9,7 @@ declare global {
   var piWebCodexDatabase: Promise<DatabaseSync> | undefined
 }
 
-const SCHEMA_VERSION = 3
+const SCHEMA_VERSION = 4
 
 async function openDatabase() {
   const paths = getAppPaths()
@@ -55,6 +55,7 @@ async function openDatabase() {
         ends_with_newline INTEGER NOT NULL CHECK (ends_with_newline IN (0, 1)),
         content_hash TEXT NOT NULL,
         last_entry_id TEXT,
+        archived_at TEXT,
         migrated_from_session_id TEXT REFERENCES sessions(id)
       ) STRICT;
 
@@ -168,6 +169,7 @@ async function openDatabase() {
         ends_with_newline INTEGER NOT NULL CHECK (ends_with_newline IN (0, 1)),
         content_hash TEXT NOT NULL,
         last_entry_id TEXT,
+        archived_at TEXT,
         migrated_from_session_id TEXT REFERENCES sessions_v3(id)
       ) STRICT;
 
@@ -176,7 +178,7 @@ async function openDatabase() {
         native_session_id, native_session_file, parent_session_file,
         title, created_at, updated_at, message_count, first_message,
         file_mtime_ns, indexed_size, indexed_lines, ends_with_newline,
-        content_hash, last_entry_id, migrated_from_session_id
+        content_hash, last_entry_id, archived_at, migrated_from_session_id
       )
       SELECT sessions.id, sessions.project_id, projects.canonical_path,
         sessions.runtime_kind, sessions.runtime_profile_id,
@@ -185,7 +187,7 @@ async function openDatabase() {
         sessions.updated_at, sessions.message_count, sessions.first_message,
         sessions.file_mtime_ns, sessions.indexed_size,
         sessions.indexed_lines, sessions.ends_with_newline,
-        sessions.content_hash, sessions.last_entry_id,
+        sessions.content_hash, sessions.last_entry_id, NULL,
         sessions.migrated_from_session_id
       FROM sessions
       LEFT JOIN projects ON projects.id = sessions.project_id;
@@ -195,6 +197,16 @@ async function openDatabase() {
       CREATE INDEX sessions_project_updated
         ON sessions(project_id, updated_at DESC);
 
+      PRAGMA user_version = ${SCHEMA_VERSION};
+      COMMIT;
+    `)
+    version = SCHEMA_VERSION
+  }
+
+  if (version === 3) {
+    database.exec(`
+      BEGIN IMMEDIATE;
+      ALTER TABLE sessions ADD COLUMN archived_at TEXT;
       PRAGMA user_version = ${SCHEMA_VERSION};
       COMMIT;
     `)

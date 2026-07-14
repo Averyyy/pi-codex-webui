@@ -1,19 +1,16 @@
 "use client"
 
-import { useState } from "react"
 import Link from "next/link"
-import { usePathname, useRouter } from "next/navigation"
+import { usePathname } from "next/navigation"
 import {
   ChevronRightIcon,
   FolderGit2Icon,
   HomeIcon,
   ListTodoIcon,
-  LoaderCircleIcon,
   PlusIcon,
   SearchIcon,
   SettingsIcon,
 } from "lucide-react"
-import { toast } from "sonner"
 
 import {
   Collapsible,
@@ -46,39 +43,11 @@ const VISIBLE_PROJECT_SESSIONS = 5
 export function WorkspaceNav({
   projects,
   tasks,
-  mutationToken,
 }: {
   projects: WorkspaceProject[]
   tasks: SessionSummary[]
-  mutationToken: string
 }) {
   const pathname = usePathname()
-  const router = useRouter()
-  const [creatingTask, setCreatingTask] = useState(false)
-
-  async function createTask() {
-    if (creatingTask) return
-    setCreatingTask(true)
-    try {
-      const response = await fetch("/api/v1/tasks", {
-        method: "POST",
-        headers: { "X-Pi-Web-Codex-Mutation-Token": mutationToken },
-      })
-      const result = (await response.json()) as {
-        error?: string
-        sessionId?: string
-      }
-      if (!response.ok || !result.sessionId) {
-        throw new Error(result.error ?? "创建任务失败。")
-      }
-      router.push(`/tasks/${result.sessionId}`)
-      router.refresh()
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : String(error))
-    } finally {
-      setCreatingTask(false)
-    }
-  }
 
   return (
     <Sidebar collapsible="offcanvas">
@@ -112,17 +81,11 @@ export function WorkspaceNav({
           <SidebarGroupContent>
             <SidebarMenu>
               <SidebarMenuItem>
-                <SidebarMenuButton
-                  onClick={() => void createTask()}
-                  disabled={creatingTask}
-                  className="font-medium"
-                >
-                  {creatingTask ? (
-                    <LoaderCircleIcon className="animate-spin" />
-                  ) : (
+                <SidebarMenuButton asChild className="font-medium">
+                  <Link href="/new">
                     <PlusIcon />
-                  )}
-                  <span>新建任务</span>
+                    <span>新对话</span>
+                  </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>

@@ -87,7 +87,7 @@ test("database v1 migration preserves sessions and adds runtime bindings", async
   legacy.close()
 
   const migrated = await getDatabase()
-  assert.equal(migrated.prepare("PRAGMA user_version").get()?.user_version, 3)
+  assert.equal(migrated.prepare("PRAGMA user_version").get()?.user_version, 4)
   assert.deepEqual(
     {
       ...migrated
@@ -220,7 +220,7 @@ test("database v2 migration backfills cwd and permits standalone sessions", asyn
   legacy.close()
 
   const migrated = await getDatabase()
-  assert.equal(migrated.prepare("PRAGMA user_version").get()?.user_version, 3)
+  assert.equal(migrated.prepare("PRAGMA user_version").get()?.user_version, 4)
   assert.deepEqual(
     {
       ...migrated
@@ -263,7 +263,7 @@ test("database v2 migration backfills cwd and permits standalone sessions", asyn
          'task-1', NULL, '/work/task', 'pi', 'pi', 'native-task',
          '/tmp/task.jsonl', NULL, NULL,
          '2026-02-02T00:00:00.000Z', '2026-02-02T00:00:00.000Z',
-         0, '', '0', 1, 1, 1, 'task-hash', NULL, NULL
+         0, '', '0', 1, 1, 1, 'task-hash', NULL, NULL, NULL
        )`
     )
     .run()

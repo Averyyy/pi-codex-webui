@@ -14,7 +14,6 @@ import { NewSessionButton } from "@/components/new-session-button"
 import { ProjectHeader } from "@/components/project-header"
 import { getProject, listProjectSessions } from "@/lib/catalog"
 import { readProjectGitStatus } from "@/lib/project-git"
-import { getMutationToken } from "@/lib/request-security"
 import { displaySessionTitle, formatTimestamp } from "@/lib/session-display"
 
 export default async function ProjectPage({
@@ -34,10 +33,7 @@ export default async function ProjectPage({
         project={project}
         branch={git.available ? git.branch : null}
       >
-        <NewSessionButton
-          projectId={projectId}
-          mutationToken={getMutationToken()}
-        />
+        <NewSessionButton projectId={projectId} />
       </ProjectHeader>
 
       <section className="grid gap-3">

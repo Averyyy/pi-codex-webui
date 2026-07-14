@@ -19,10 +19,9 @@ export default async function HomePage() {
           <MessageSquarePlusIcon className="size-5 text-muted-foreground" />
         </div>
         <div className="space-y-2">
-          <h1 className="text-xl font-semibold">开始一个任务</h1>
+          <h1 className="text-xl font-semibold">开始一个新对话</h1>
           <p className="leading-6 text-muted-foreground">
-            点击左侧“新建任务”可直接与 Pi 对话，无需选择项目，也不会加载 Files
-            或 Git。
+            点击左侧“新对话”进入前端，选择项目后发送第一条消息才会创建对话。
             {sessionCount + tasks.length > 0
               ? ` 当前有 ${tasks.length} 个独立任务、${projects.length} 个项目。`
               : ""}
