@@ -60,6 +60,11 @@ test("project file browser reads real files and blocks paths outside its root", 
       error instanceof ProjectFileError && error.code === "OutsideProject"
   )
   await rm(directory, { recursive: true, force: true })
+  await assert.rejects(
+    readProjectEntry(project),
+    (error: unknown) =>
+      error instanceof ProjectFileError && error.code === "Unavailable"
+  )
 })
 
 test("project Git integration reports the real branch and working tree", async () => {

@@ -13,7 +13,14 @@ function fileErrorResponse(error: unknown) {
   if (error instanceof ProjectFileError) {
     return Response.json(
       { error: error.message, code: error.code },
-      { status: error.code === "OutsideProject" ? 403 : 400 }
+      {
+        status:
+          error.code === "OutsideProject"
+            ? 403
+            : error.code === "Unavailable"
+              ? 410
+              : 400,
+      }
     )
   }
   if ((error as NodeJS.ErrnoException).code === "ENOENT") {

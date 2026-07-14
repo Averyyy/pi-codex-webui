@@ -39,6 +39,7 @@ export function getAppPaths() {
     secrets: path.join(root, "secrets"),
     sessionLocks: path.join(root, "locks", "sessions"),
     temporary: path.join(root, "tmp"),
+    taskWorkspace: path.join(root, "tasks"),
   }
 }
 

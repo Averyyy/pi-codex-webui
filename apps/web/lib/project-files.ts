@@ -32,10 +32,26 @@ export type ProjectFile = {
 export class ProjectFileError extends Error {
   constructor(
     message: string,
-    readonly code: "InvalidPath" | "OutsideProject" | "UnsupportedEntry"
+    readonly code:
+      "InvalidPath" | "OutsideProject" | "Unavailable" | "UnsupportedEntry"
   ) {
     super(message)
     this.name = "ProjectFileError"
+  }
+}
+
+async function existingPath(
+  target: string,
+  unavailableMessage: string,
+  code: "InvalidPath" | "Unavailable"
+) {
+  try {
+    return await realpath(target)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      throw new ProjectFileError(unavailableMessage, code)
+    }
+    throw error
   }
 }
 
@@ -59,7 +75,11 @@ async function resolveEntry(projectPath: string, requestedPath: string) {
     )
   }
 
-  const root = await realpath(projectPath)
+  const root = await existingPath(
+    projectPath,
+    "The project directory no longer exists.",
+    "Unavailable"
+  )
   const candidate = path.resolve(root, requestedPath || ".")
   if (!isInside(root, candidate)) {
     throw new ProjectFileError(
@@ -67,7 +87,11 @@ async function resolveEntry(projectPath: string, requestedPath: string) {
       "OutsideProject"
     )
   }
-  const target = await realpath(candidate)
+  const target = await existingPath(
+    candidate,
+    "The requested project path does not exist.",
+    "InvalidPath"
+  )
   if (!isInside(root, target)) {
     throw new ProjectFileError(
       "The requested symbolic link resolves outside the project.",

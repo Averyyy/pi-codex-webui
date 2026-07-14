@@ -3,6 +3,7 @@
   "globalEnv": [
     "APPDATA",
     "HOSTNAME",
+    "NODE_ENV",
     "PI_CODING_AGENT_DIR",
     "PI_CODING_AGENT_SESSION_DIR",
     "PI_SERVER_AUTH_TOKEN",

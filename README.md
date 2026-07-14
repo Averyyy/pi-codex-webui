@@ -4,8 +4,11 @@ A local, single-port Web Host for Pi coding-agent workflows.
 
 The current milestone provides the production host lifecycle, health and settings
 APIs, atomic local configuration, functional General and Appearance pages, a
-browser for real Pi JSONL projects, sessions, messages, tool records, and
-full-text search, plus an isolated Pi SDK worker. Session pages lazily activate
+browser for real Pi JSONL projects, standalone tasks, messages, tool records,
+and full-text search, plus an isolated Pi SDK worker. Standalone tasks run
+without project Files, Git, or project-scoped resources; project sessions keep
+their workspace context in a collapsible navigator and environment inspector.
+Session pages lazily activate
 their worker and expose real prompt streaming, tool events, abort, model,
 thinking, queue, compaction, and retry state. Pi-backed session operations cover
 new, resume, rename, fork, clone, tree navigation, JSONL/HTML export, JSONL
@@ -30,7 +33,9 @@ servers, keep credentials in SecretStore, discover and namespace tools, expose
 connection status/logs, and restart affected idle runtimes so per-tool changes
 reach the actual AgentSession. Project pages also expose a host-confined,
 read-only file browser and real Git branch, commit, upstream, and worktree
-status. The installable PWA keeps dynamic session and API data out of its cache;
+status. Missing historical workspaces remain readable without starting a
+runtime or resolving deleted paths. The installable PWA keeps dynamic session
+and API data out of its cache;
 optional browser notifications fire only for completed agents, runtime crashes,
 and extension notifications while the page is hidden. Runtime diagnostics show
 the managed worker, MCP/tool activity, and recent domain events, with explicit

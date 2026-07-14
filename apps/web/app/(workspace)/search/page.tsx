@@ -20,7 +20,7 @@ export default async function SearchPage({
   const results = query ? await searchSessions(query) : []
 
   return (
-    <main className="mx-auto flex w-full max-w-4xl flex-col gap-8 px-6 py-10 md:px-10 md:py-14">
+    <main className="mx-auto flex w-full max-w-4xl min-w-0 flex-col gap-8 px-6 py-10 md:px-10 md:py-14">
       <header className="flex items-center gap-3">
         <div className="grid size-10 place-items-center rounded-xl bg-muted">
           <SearchIcon className="size-5" />
@@ -39,8 +39,12 @@ export default async function SearchPage({
         {results.map((result) => (
           <Link
             key={`${result.sessionId}:${result.entryId}`}
-            href={`/projects/${result.projectId}/sessions/${result.sessionId}#entry-${result.entryId}`}
-            className="group rounded-xl focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+            href={`${
+              result.projectId === null
+                ? `/tasks/${result.sessionId}`
+                : `/projects/${result.projectId}/sessions/${result.sessionId}`
+            }#entry-${result.entryId}`}
+            className="group min-w-0 rounded-xl focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
           >
             <Card className="gap-3 transition-colors group-hover:bg-muted/50">
               <CardHeader className="flex-row items-start justify-between gap-4">
@@ -51,12 +55,13 @@ export default async function SearchPage({
                       result.sessionId}
                   </CardTitle>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    {result.projectName} · {formatTimestamp(result.timestamp)}
+                    {result.projectName ?? "独立任务"} ·{" "}
+                    {formatTimestamp(result.timestamp)}
                   </p>
                 </div>
                 <Badge variant="secondary">{result.entryType}</Badge>
               </CardHeader>
-              <CardContent className="text-sm leading-6 whitespace-pre-wrap">
+              <CardContent className="text-sm leading-6 break-words whitespace-pre-wrap">
                 {result.snippet}
               </CardContent>
             </Card>

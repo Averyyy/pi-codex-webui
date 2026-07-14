@@ -46,6 +46,7 @@ import {
   bindSessionRuntime,
   getSessionIdentityByNativeFile,
   getSessionRuntimeTarget,
+  markSessionStandalone,
 } from "@/lib/catalog"
 import { getEventHub, type EventHub } from "@/lib/event-hub"
 import { getMcpService } from "@/lib/mcp-service"
@@ -56,6 +57,7 @@ import type {
 import { RuntimeRequestError } from "@/lib/runtime-error"
 import {
   resolveNewSessionRuntime,
+  resolveNewTaskRuntime,
   runtimeWorkerCredentials,
 } from "@/lib/runtime-profiles"
 import { webUiAdaptersForRuntime } from "@/lib/webui-extensions/registry"
@@ -73,7 +75,7 @@ interface PendingRequest {
 
 interface ManagedRuntime {
   webSessionId: string
-  projectId: string
+  projectId: string | null
   runtimeKind: "pi" | "pi-client"
   runtimeProfileId: string
   nativeSessionId: string
@@ -482,15 +484,20 @@ export class RuntimeSupervisor {
     return this.launchUnboundRuntime(target, { mode: "new" }, null)
   }
 
+  async createTask(explicitRuntimeProfileId?: string) {
+    const target = await resolveNewTaskRuntime(explicitRuntimeProfileId)
+    return this.launchUnboundRuntime(target, { mode: "new" }, null)
+  }
+
   async duplicateIntoRuntime(sessionId: string, runtimeProfileId: string) {
     const source = await getSessionRuntimeTarget(sessionId)
     if (!source) {
       throw new RuntimeRequestError("SessionNotFound", "Session not found.")
     }
-    const target = await resolveNewSessionRuntime(
-      source.projectId,
-      runtimeProfileId
-    )
+    const target =
+      source.projectId === null
+        ? await resolveNewTaskRuntime(runtimeProfileId)
+        : await resolveNewSessionRuntime(source.projectId, runtimeProfileId)
     return this.launchUnboundRuntime(
       target,
       {
@@ -895,11 +902,25 @@ export class RuntimeSupervisor {
           "The indexed Pi session does not match the replacement runtime."
         )
       }
-      await bindSessionRuntime(
-        identity.id,
-        runtime.runtimeKind,
-        runtime.runtimeProfileId
-      )
+      if (runtime.projectId === null) {
+        await markSessionStandalone(identity.id, {
+          cwd: runtime.cwd,
+          runtimeKind: runtime.runtimeKind,
+          runtimeProfileId: runtime.runtimeProfileId,
+        })
+      } else {
+        if (identity.projectId !== runtime.projectId) {
+          throw new RuntimeRequestError(
+            "SessionProjectMismatch",
+            "The replacement session belongs to a different project."
+          )
+        }
+        await bindSessionRuntime(
+          identity.id,
+          runtime.runtimeKind,
+          runtime.runtimeProfileId
+        )
+      }
 
       let snapshot = result.snapshot
       if (identity.id !== provisionalWebSessionId) {
@@ -945,7 +966,7 @@ export class RuntimeSupervisor {
         payload: snapshot,
       })
       return {
-        projectId: identity.projectId,
+        projectId: runtime.projectId,
         sessionId: identity.id,
         snapshot,
       }
@@ -960,7 +981,7 @@ export class RuntimeSupervisor {
 
   private async launchUnboundRuntime(
     target: {
-      projectId: string
+      projectId: string | null
       cwd: string
       profileId: string
       runtimeKind: "pi" | "pi-client"
@@ -998,11 +1019,16 @@ export class RuntimeSupervisor {
     const mcpContext = await this.mcpContext(target.projectId, target.cwd)
     const [mcpTools, webuiAdapters] = await Promise.all([
       getMcpService().toolDefinitions(mcpContext),
-      webUiAdaptersForRuntime(target.runtimeKind, {
-        cwd: target.cwd,
-        projectId: target.projectId,
-        projectTrusted: mcpContext.projectTrusted,
-      }),
+      webUiAdaptersForRuntime(
+        target.runtimeKind,
+        target.projectId === null
+          ? { projectId: null, projectTrusted: false }
+          : {
+              cwd: target.cwd,
+              projectId: target.projectId,
+              projectTrusted: mcpContext.projectTrusted,
+            }
+      ),
     ])
 
     const provisionalWebSessionId = randomUUID()
@@ -1073,18 +1099,27 @@ export class RuntimeSupervisor {
           "The new runtime session was not indexed with the expected identity."
         )
       }
-      if (identity.projectId !== target.projectId) {
-        throw new RuntimeRequestError(
-          "SessionProjectMismatch",
-          "The new runtime session belongs to a different project."
+      if (target.projectId === null) {
+        await markSessionStandalone(identity.id, {
+          cwd: target.cwd,
+          runtimeKind: target.runtimeKind,
+          runtimeProfileId: target.profileId,
+          migratedFromSessionId,
+        })
+      } else {
+        if (identity.projectId !== target.projectId) {
+          throw new RuntimeRequestError(
+            "SessionProjectMismatch",
+            "The new runtime session belongs to a different project."
+          )
+        }
+        await bindSessionRuntime(
+          identity.id,
+          target.runtimeKind,
+          target.profileId,
+          migratedFromSessionId
         )
       }
-      await bindSessionRuntime(
-        identity.id,
-        target.runtimeKind,
-        target.profileId,
-        migratedFromSessionId
-      )
 
       if (identity.id !== provisionalWebSessionId) {
         snapshot = runtimeSnapshotSchema.parse(
@@ -1114,7 +1149,7 @@ export class RuntimeSupervisor {
         payload: snapshot,
       })
       return {
-        projectId: identity.projectId,
+        projectId: target.projectId,
         sessionId: identity.id,
         snapshot,
       }
@@ -1167,11 +1202,16 @@ export class RuntimeSupervisor {
     const mcpContext = await this.mcpContext(target.projectId, target.cwd)
     const [mcpTools, webuiAdapters] = await Promise.all([
       getMcpService().toolDefinitions(mcpContext),
-      webUiAdaptersForRuntime(target.runtimeKind, {
-        cwd: target.cwd,
-        projectId: target.projectId,
-        projectTrusted: mcpContext.projectTrusted,
-      }),
+      webUiAdaptersForRuntime(
+        target.runtimeKind,
+        target.projectId === null
+          ? { projectId: null, projectTrusted: false }
+          : {
+              cwd: target.cwd,
+              projectId: target.projectId,
+              projectTrusted: mcpContext.projectTrusted,
+            }
+      ),
     ])
     const lockPath = await this.acquireSessionLock({
       webSessionId: sessionId,
@@ -1479,7 +1519,7 @@ export class RuntimeSupervisor {
         message.payload.arguments,
         {
           projectId: runtime.projectId,
-          projectPath: runtime.cwd,
+          projectPath: runtime.projectId === null ? null : runtime.cwd,
           projectTrusted: runtime.projectTrusted,
           signal: controller.signal,
         }
@@ -1629,7 +1669,14 @@ export class RuntimeSupervisor {
     })
   }
 
-  private async mcpContext(projectId: string, cwd: string) {
+  private async mcpContext(projectId: string | null, cwd: string) {
+    if (projectId === null) {
+      return {
+        projectId: null,
+        projectPath: null,
+        projectTrusted: false,
+      }
+    }
     const catalog = await this.resourceCatalog(cwd)
     return {
       projectId,

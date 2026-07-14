@@ -10,7 +10,7 @@ export function Markdown({ children }: { children: string }) {
         a: ({ className, ...props }: ComponentProps<"a">) => (
           <a
             {...props}
-            className={`text-primary underline underline-offset-4 ${className ?? ""}`}
+            className={`break-all text-primary underline underline-offset-4 ${className ?? ""}`}
             target="_blank"
             rel="noreferrer"
           />
@@ -54,7 +54,7 @@ export function Markdown({ children }: { children: string }) {
         p: ({ className, ...props }: ComponentProps<"p">) => (
           <p
             {...props}
-            className={`my-3 leading-7 first:mt-0 last:mb-0 ${className ?? ""}`}
+            className={`my-3 leading-7 break-words first:mt-0 last:mb-0 ${className ?? ""}`}
           />
         ),
         pre: ({ className, ...props }: ComponentProps<"pre">) => (

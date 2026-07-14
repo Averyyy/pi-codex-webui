@@ -8,7 +8,8 @@ export interface ProjectSummary {
 
 export interface SessionSummary {
   id: string
-  projectId: string
+  projectId: string | null
+  cwd: string
   nativeSessionId: string
   nativeSessionFile: string
   title: string | null
@@ -62,16 +63,16 @@ export type TranscriptEntry =
 
 export interface SessionSnapshot {
   session: SessionSummary & {
-    projectPath: string
-    projectName: string
+    projectPath: string | null
+    projectName: string | null
     parentSessionFile: string | null
   }
   entries: TranscriptEntry[]
 }
 
 export interface SessionSearchResult {
-  projectId: string
-  projectName: string
+  projectId: string | null
+  projectName: string | null
   sessionId: string
   sessionTitle: string | null
   sessionFirstMessage: string

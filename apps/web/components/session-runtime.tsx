@@ -765,8 +765,8 @@ export function SessionRuntime({
   )
 
   return (
-    <div className="sticky bottom-0 z-10 -mx-4 border-t bg-background/95 px-4 py-3 backdrop-blur sm:-mx-6 sm:px-6 sm:py-4 md:-mx-10 md:px-10">
-      <div className="mx-auto grid w-full max-w-4xl gap-3">
+    <div className="z-10 shrink-0 border-t bg-background/95 px-4 py-3 backdrop-blur sm:px-6 sm:py-4">
+      <div className="mx-auto grid w-full max-w-[46rem] min-w-0 gap-3">
         {inlineSurfaces("header").map(renderTuiSurface)}
         {hasStreamingContent ? (
           <div className="grid gap-2 rounded-xl border bg-background p-4 text-sm">

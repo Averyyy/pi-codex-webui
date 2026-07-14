@@ -48,7 +48,7 @@ import type { SessionStats, SessionTree } from "@workspace/runtime-protocol"
 type DialogKind = "rename" | "fork" | "tree" | "stats" | "import" | "runtime"
 
 interface ReplacementResult {
-  projectId: string
+  projectId: string | null
   sessionId: string
 }
 
@@ -77,7 +77,7 @@ export function SessionOperations({
   runtimeProfiles,
 }: {
   sessionId: string
-  projectId: string
+  projectId: string | null
   title: string
   mutationToken: string
   runtimeProfileId: string
@@ -120,7 +120,11 @@ export function SessionOperations({
   function navigateTo(result: ReplacementResult) {
     setDialog(null)
     setFile(null)
-    router.push(`/projects/${result.projectId}/sessions/${result.sessionId}`)
+    router.push(
+      result.projectId === null
+        ? `/tasks/${result.sessionId}`
+        : `/projects/${result.projectId}/sessions/${result.sessionId}`
+    )
     router.refresh()
   }
 
@@ -200,7 +204,9 @@ export function SessionOperations({
     await run(async () => {
       navigateTo(
         await mutate<ReplacementResult>(
-          `/api/v1/projects/${projectId}/sessions`
+          projectId === null
+            ? "/api/v1/tasks"
+            : `/api/v1/projects/${projectId}/sessions`
         )
       )
     })

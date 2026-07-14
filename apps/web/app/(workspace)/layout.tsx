@@ -7,13 +7,19 @@ import {
 } from "@workspace/ui/components/sidebar"
 
 import { WorkspaceNav } from "@/components/workspace-nav"
-import { listWorkspaceProjects } from "@/lib/catalog"
+import { listWorkspaceProjects, listWorkspaceTasks } from "@/lib/catalog"
+import { getMutationToken } from "@/lib/request-security"
 
 export default async function WorkspaceLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
+  const [projects, tasks] = await Promise.all([
+    listWorkspaceProjects(),
+    listWorkspaceTasks(),
+  ])
+
   return (
     <SidebarProvider
       style={
@@ -22,8 +28,12 @@ export default async function WorkspaceLayout({
         } as CSSProperties
       }
     >
-      <WorkspaceNav projects={await listWorkspaceProjects()} />
-      <SidebarInset className="min-h-svh">
+      <WorkspaceNav
+        projects={projects}
+        tasks={tasks}
+        mutationToken={getMutationToken()}
+      />
+      <SidebarInset className="min-h-svh overflow-hidden">
         <header className="flex h-12 shrink-0 items-center border-b px-3 md:hidden">
           <SidebarTrigger />
           <span className="ml-2 font-medium">pi-web-codex</span>

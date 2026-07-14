@@ -24,7 +24,8 @@ declare global {
 
 interface IndexedSessionRow {
   id: string
-  project_id: string
+  project_id: string | null
+  cwd: string
   native_session_id: string
   title: string | null
   first_message: string
@@ -36,6 +37,7 @@ interface IndexedSessionRow {
   ends_with_newline: number
   content_hash: string
   last_entry_id: string | null
+  entry_count: number
 }
 
 const decoder = new TextDecoder("utf-8", { fatal: true })
@@ -72,9 +74,12 @@ async function discoverSessionFiles(root: string) {
 function indexedSession(database: DatabaseSync, file: string) {
   return database
     .prepare(
-      `SELECT id, project_id, native_session_id, title, first_message,
-              message_count, updated_at, file_mtime_ns, indexed_size,
-              indexed_lines, ends_with_newline, content_hash, last_entry_id
+      `SELECT sessions.id, project_id, cwd, native_session_id, title,
+              first_message, message_count, updated_at, file_mtime_ns,
+              indexed_size, indexed_lines, ends_with_newline, content_hash,
+              last_entry_id,
+              (SELECT count(*) FROM session_entries
+               WHERE session_id = sessions.id) AS entry_count
        FROM sessions
        WHERE native_session_file = ?`
     )
@@ -165,23 +170,27 @@ function replaceSession(
       database.prepare("DELETE FROM sessions WHERE id = ?").run(existing.id)
     }
 
-    const projectId = ensureProject(
-      database,
-      canonicalPath,
-      parsed.header.timestamp,
-      parsed.updatedAt
-    )
+    const projectId =
+      existing?.project_id === null
+        ? null
+        : ensureProject(
+            database,
+            canonicalPath,
+            parsed.header.timestamp,
+            parsed.updatedAt
+          )
     database
       .prepare(
         `INSERT INTO sessions(
-           id, project_id, runtime_kind, runtime_profile_id,
+           id, project_id, cwd, runtime_kind, runtime_profile_id,
            native_session_id, native_session_file, parent_session_file,
            title, created_at, updated_at, message_count, first_message,
            file_mtime_ns, indexed_size, indexed_lines, ends_with_newline,
            content_hash, last_entry_id
-         ) VALUES (?, ?, 'pi', 'pi', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ) VALUES (?, ?, ?, 'pi', 'pi', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(native_session_file) DO UPDATE SET
            project_id = excluded.project_id,
+           cwd = excluded.cwd,
            native_session_id = excluded.native_session_id,
            parent_session_file = excluded.parent_session_file,
            title = excluded.title,
@@ -199,6 +208,7 @@ function replaceSession(
       .run(
         sessionId,
         projectId,
+        canonicalPath,
         parsed.header.id,
         file,
         parsed.header.parentSession ?? null,
@@ -278,7 +288,8 @@ async function indexSessionFile(database: DatabaseSync, file: string) {
   if (
     existing &&
     existing.file_mtime_ns === mtimeNs &&
-    existing.indexed_size === Number(fileStats.size)
+    existing.indexed_size === Number(fileStats.size) &&
+    existing.entry_count === existing.indexed_lines - 1
   ) {
     return
   }
@@ -287,6 +298,7 @@ async function indexSessionFile(database: DatabaseSync, file: string) {
   const { content } = stable
   if (
     existing &&
+    existing.entry_count === existing.indexed_lines - 1 &&
     existing.ends_with_newline === 1 &&
     content.length >= existing.indexed_size &&
     hash(content.subarray(0, existing.indexed_size)) === existing.content_hash

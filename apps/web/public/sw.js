@@ -1,4 +1,4 @@
-const CACHE_NAME = "pi-web-codex-static-v1"
+const CACHE_NAME = "pi-web-codex-static-v2"
 
 self.addEventListener("install", () => self.skipWaiting())
 
@@ -9,7 +9,10 @@ self.addEventListener("activate", (event) => {
       .then((keys) =>
         Promise.all(
           keys
-            .filter((key) => key.startsWith("pi-web-codex-static-") && key !== CACHE_NAME)
+            .filter(
+              (key) =>
+                key.startsWith("pi-web-codex-static-") && key !== CACHE_NAME
+            )
             .map((key) => caches.delete(key))
         )
       )
@@ -21,11 +24,7 @@ self.addEventListener("fetch", (event) => {
   const request = event.request
   if (request.method !== "GET") return
   const url = new URL(request.url)
-  if (
-    url.origin !== self.location.origin ||
-    (!url.pathname.startsWith("/_next/static/") &&
-      url.pathname !== "/pwa-icon.svg")
-  ) {
+  if (url.origin !== self.location.origin || url.pathname !== "/pwa-icon.svg") {
     return
   }
 

@@ -154,13 +154,18 @@ Open the existing instance or configure another port.
 
 ```text
 /projects/:projectId/sessions/:sessionId
+/tasks/:sessionId
 ```
 
 例如：
 
 ```text
 /projects/p_01JX/sessions/s_01JY
+/tasks/s_01JZ
 ```
+
+项目 session 绑定真实工作目录；独立 task 的 `project_id` 为 `NULL`，不加载
+Files、Git 或 project-scoped resources。两者都由稳定的 Web session ID 标识。
 
 禁止仅依赖：
 
@@ -193,6 +198,7 @@ let currentConversation
 │ Browser                                                      │
 │                                                              │
 │ /projects/:projectId/sessions/:sessionId                     │
+│ /tasks/:sessionId                                            │
 │ /settings/general                                            │
 │ /settings/appearance                                         │
 │ /settings/models                                             │
@@ -1749,7 +1755,8 @@ CREATE TABLE projects (
 
 CREATE TABLE sessions (
   id TEXT PRIMARY KEY,
-  project_id TEXT NOT NULL,
+  project_id TEXT,
+  cwd TEXT NOT NULL,
 
   runtime_kind TEXT NOT NULL,
   runtime_profile_id TEXT NOT NULL,
@@ -1821,6 +1828,9 @@ mtime/size 未变化
 app/
 ├── layout.tsx
 ├── page.tsx
+│
+├── tasks/
+│   └── [sessionId]/page.tsx
 │
 ├── projects/
 │   └── [projectId]/

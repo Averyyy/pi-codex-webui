@@ -1,7 +1,12 @@
-import { ChevronDownIcon, CircleAlertIcon, TerminalIcon } from "lucide-react"
+import {
+  ChevronDownIcon,
+  CircleAlertIcon,
+  Settings2Icon,
+  TerminalIcon,
+} from "lucide-react"
 
 import { Badge } from "@workspace/ui/components/badge"
-import { Button } from "@workspace/ui/components/button"
+import { buttonVariants } from "@workspace/ui/components/button"
 import {
   Collapsible,
   CollapsibleContent,
@@ -108,7 +113,7 @@ function ToolCallCard({
   return (
     <Collapsible
       defaultOpen={result?.isError === true}
-      className="rounded-xl border"
+      className="min-w-0 rounded-xl border"
     >
       <div className="flex min-w-0 items-center gap-2 px-3 py-2">
         <TerminalIcon className="size-4 shrink-0" />
@@ -127,15 +132,16 @@ function ToolCallCard({
             done
           </Badge>
         ) : null}
-        <CollapsibleTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            className="ml-auto shrink-0 data-open:bg-muted [&_svg]:transition-transform data-open:[&_svg]:rotate-180"
-            aria-label={`查看 ${part.name} 详情`}
-          >
-            <ChevronDownIcon />
-          </Button>
+        <CollapsibleTrigger
+          className={buttonVariants({
+            variant: "ghost",
+            size: "icon-sm",
+            className:
+              "ml-auto shrink-0 data-open:bg-muted [&_svg]:transition-transform data-open:[&_svg]:rotate-180",
+          })}
+          aria-label={`查看 ${part.name} 详情`}
+        >
+          <ChevronDownIcon />
         </CollapsibleTrigger>
       </div>
       <CollapsibleContent className="border-t">
@@ -144,7 +150,7 @@ function ToolCallCard({
             <p className="mb-2 text-xs font-medium text-muted-foreground">
               参数
             </p>
-            <pre className="max-h-80 overflow-auto rounded-lg bg-muted p-3 font-mono text-xs leading-5">
+            <pre className="max-h-80 max-w-full overflow-auto rounded-lg bg-muted p-3 font-mono text-xs leading-5">
               {json(part.arguments)}
             </pre>
           </div>
@@ -200,8 +206,8 @@ function Message({
       id={`entry-${entry.id}`}
       className={
         user
-          ? "ml-auto max-w-[85%] rounded-2xl bg-muted px-4 py-3"
-          : "grid gap-3"
+          ? "ml-auto max-w-[85%] min-w-0 rounded-2xl bg-muted px-4 py-3"
+          : "grid min-w-0 gap-3"
       }
     >
       {!user ? (
@@ -212,7 +218,7 @@ function Message({
           </span>
         </div>
       ) : null}
-      <div className="grid gap-3">
+      <div className="grid min-w-0 gap-3">
         {entry.parts.map((part, index) =>
           part.type === "toolCall" ? (
             <ToolCallCard
@@ -280,6 +286,63 @@ function Event({
   )
 }
 
+type SettingEvent = Extract<TranscriptEntry, { kind: "event" }>
+
+function isSettingEvent(entry: TranscriptEntry): entry is SettingEvent {
+  return (
+    entry.kind === "event" &&
+    (entry.eventType === "model_change" ||
+      entry.eventType === "thinking_level_change")
+  )
+}
+
+function SettingChanges({ entries }: { entries: SettingEvent[] }) {
+  return (
+    <details className="group text-xs text-muted-foreground">
+      <summary className="flex w-fit cursor-pointer list-none items-center gap-2 rounded-md px-1 py-1 hover:text-foreground [&::-webkit-details-marker]:hidden">
+        <Settings2Icon className="size-3.5" />
+        <span>会话设置变更</span>
+        <span className="tabular-nums">{entries.length}</span>
+        <ChevronDownIcon className="size-3.5 transition-transform group-open:rotate-180" />
+      </summary>
+      <div className="mt-2 ml-2 grid gap-2 border-l pl-4">
+        {entries.map((entry) => (
+          <div
+            key={entry.id}
+            id={`entry-${entry.id}`}
+            className="flex min-w-0 items-baseline gap-2"
+          >
+            <span className="shrink-0">{entry.title}</span>
+            {entry.text ? (
+              <code className="min-w-0 truncate">{entry.text}</code>
+            ) : null}
+          </div>
+        ))}
+      </div>
+    </details>
+  )
+}
+
+function transcriptBlocks(entries: TranscriptEntry[]) {
+  const blocks: (TranscriptEntry | SettingEvent[])[] = []
+  let settingEvents: SettingEvent[] = []
+  const flush = () => {
+    if (!settingEvents.length) return
+    blocks.push(settingEvents)
+    settingEvents = []
+  }
+  for (const entry of entries) {
+    if (isSettingEvent(entry)) {
+      settingEvents.push(entry)
+    } else {
+      flush()
+      blocks.push(entry)
+    }
+  }
+  flush()
+  return blocks
+}
+
 export function SessionTranscript({ snapshot }: { snapshot: SessionSnapshot }) {
   const toolResults = new Map<string, MessageEntry>()
   const renderedToolResults = new Set<string>()
@@ -299,8 +362,12 @@ export function SessionTranscript({ snapshot }: { snapshot: SessionSnapshot }) {
   }
 
   return (
-    <div className="grid gap-7">
-      {snapshot.entries.map((entry) => {
+    <div className="grid min-w-0 gap-6">
+      {transcriptBlocks(snapshot.entries).map((block) => {
+        if (Array.isArray(block)) {
+          return <SettingChanges key={block[0]?.id} entries={block} />
+        }
+        const entry = block
         if (
           entry.kind === "message" &&
           entry.role === "toolResult" &&

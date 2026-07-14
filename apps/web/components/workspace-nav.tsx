@@ -1,15 +1,19 @@
 "use client"
 
+import { useState } from "react"
 import Link from "next/link"
-import { usePathname } from "next/navigation"
+import { usePathname, useRouter } from "next/navigation"
 import {
   ChevronRightIcon,
-  FileTextIcon,
   FolderGit2Icon,
-  GitBranchIcon,
+  HomeIcon,
+  ListTodoIcon,
+  LoaderCircleIcon,
+  PlusIcon,
   SearchIcon,
   SettingsIcon,
 } from "lucide-react"
+import { toast } from "sonner"
 
 import {
   Collapsible,
@@ -35,17 +39,53 @@ import {
 } from "@workspace/ui/components/sidebar"
 
 import { displaySessionTitle } from "@/lib/session-display"
-import type { WorkspaceProject } from "@/lib/session-types"
+import type { SessionSummary, WorkspaceProject } from "@/lib/session-types"
 
-export function WorkspaceNav({ projects }: { projects: WorkspaceProject[] }) {
+const VISIBLE_PROJECT_SESSIONS = 5
+
+export function WorkspaceNav({
+  projects,
+  tasks,
+  mutationToken,
+}: {
+  projects: WorkspaceProject[]
+  tasks: SessionSummary[]
+  mutationToken: string
+}) {
   const pathname = usePathname()
+  const router = useRouter()
+  const [creatingTask, setCreatingTask] = useState(false)
+
+  async function createTask() {
+    if (creatingTask) return
+    setCreatingTask(true)
+    try {
+      const response = await fetch("/api/v1/tasks", {
+        method: "POST",
+        headers: { "X-Pi-Web-Codex-Mutation-Token": mutationToken },
+      })
+      const result = (await response.json()) as {
+        error?: string
+        sessionId?: string
+      }
+      if (!response.ok || !result.sessionId) {
+        throw new Error(result.error ?? "创建任务失败。")
+      }
+      router.push(`/tasks/${result.sessionId}`)
+      router.refresh()
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error))
+    } finally {
+      setCreatingTask(false)
+    }
+  }
 
   return (
     <Sidebar collapsible="offcanvas">
-      <SidebarHeader className="gap-3">
+      <SidebarHeader className="gap-3 px-3 pt-3">
         <Link
           href="/"
-          className="flex h-10 items-center px-2 text-base font-semibold"
+          className="flex h-9 items-center px-1 text-base font-semibold tracking-tight"
         >
           pi-web-codex
         </Link>
@@ -53,9 +93,9 @@ export function WorkspaceNav({ projects }: { projects: WorkspaceProject[] }) {
           <Input
             name="q"
             type="search"
-            placeholder="搜索 session"
-            aria-label="搜索 session"
-            className="h-8 pr-8"
+            placeholder="搜索对话"
+            aria-label="搜索对话"
+            className="h-8 bg-background pr-8 shadow-none"
           />
           <button
             type="submit"
@@ -66,17 +106,80 @@ export function WorkspaceNav({ projects }: { projects: WorkspaceProject[] }) {
           </button>
         </form>
       </SidebarHeader>
+
       <SidebarContent>
-        <SidebarGroup>
+        <SidebarGroup className="pb-1">
+          <SidebarGroupContent>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  onClick={() => void createTask()}
+                  disabled={creatingTask}
+                  className="font-medium"
+                >
+                  {creatingTask ? (
+                    <LoaderCircleIcon className="animate-spin" />
+                  ) : (
+                    <PlusIcon />
+                  )}
+                  <span>新建任务</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={pathname === "/"}>
+                  <Link href="/">
+                    <HomeIcon />
+                    <span>概览</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        {tasks.length ? (
+          <SidebarGroup className="pt-1">
+            <SidebarGroupLabel>任务</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {tasks.map((task) => {
+                  const href = `/tasks/${task.id}`
+                  return (
+                    <SidebarMenuItem key={task.id}>
+                      <SidebarMenuButton
+                        asChild
+                        isActive={pathname === href}
+                        tooltip={displaySessionTitle(task)}
+                      >
+                        <Link href={href} prefetch={false}>
+                          <ListTodoIcon />
+                          <span className="min-w-0 flex-1 truncate">
+                            {displaySessionTitle(task)}
+                          </span>
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  )
+                })}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        ) : null}
+
+        <SidebarGroup className="pt-1">
           <SidebarGroupLabel>项目</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
               {projects.map((project) => {
                 const projectPath = `/projects/${project.id}`
                 const active = pathname.startsWith(projectPath)
+                const recent = project.sessions.slice(
+                  0,
+                  VISIBLE_PROJECT_SESSIONS
+                )
                 return (
                   <Collapsible
-                    key={project.id}
+                    key={`${project.id}:${active ? "active" : "inactive"}`}
                     asChild
                     defaultOpen={active}
                     className="group/collapsible"
@@ -85,44 +188,21 @@ export function WorkspaceNav({ projects }: { projects: WorkspaceProject[] }) {
                       <CollapsibleTrigger asChild>
                         <SidebarMenuButton
                           isActive={active}
-                          tooltip={project.path || project.name}
+                          tooltip={project.path}
                         >
                           <FolderGit2Icon />
-                          <span>{project.name}</span>
-                          <span className="ml-auto text-xs text-muted-foreground tabular-nums">
+                          <span className="min-w-0 flex-1 truncate">
+                            {project.name}
+                          </span>
+                          <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
                             {project.sessionCount}
                           </span>
-                          <ChevronRightIcon className="transition-transform group-data-open/collapsible:rotate-90" />
+                          <ChevronRightIcon className="shrink-0 transition-transform group-data-open/collapsible:rotate-90" />
                         </SidebarMenuButton>
                       </CollapsibleTrigger>
                       <CollapsibleContent>
                         <SidebarMenuSub>
-                          <SidebarMenuSubItem>
-                            <SidebarMenuSubButton asChild>
-                              <Link href={projectPath}>全部 session</Link>
-                            </SidebarMenuSubButton>
-                          </SidebarMenuSubItem>
-                          <SidebarMenuSubItem>
-                            <SidebarMenuSubButton
-                              asChild
-                              isActive={pathname === `${projectPath}/files`}
-                            >
-                              <Link href={`${projectPath}/files`}>
-                                <FileTextIcon /> 文件
-                              </Link>
-                            </SidebarMenuSubButton>
-                          </SidebarMenuSubItem>
-                          <SidebarMenuSubItem>
-                            <SidebarMenuSubButton
-                              asChild
-                              isActive={pathname === `${projectPath}/git`}
-                            >
-                              <Link href={`${projectPath}/git`}>
-                                <GitBranchIcon /> Git
-                              </Link>
-                            </SidebarMenuSubButton>
-                          </SidebarMenuSubItem>
-                          {project.sessions.map((session) => {
+                          {recent.map((session) => {
                             const href = `${projectPath}/sessions/${session.id}`
                             return (
                               <SidebarMenuSubItem key={session.id}>
@@ -132,14 +212,26 @@ export function WorkspaceNav({ projects }: { projects: WorkspaceProject[] }) {
                                 >
                                   <Link
                                     href={href}
+                                    prefetch={false}
                                     title={displaySessionTitle(session)}
                                   >
-                                    <span>{displaySessionTitle(session)}</span>
+                                    <span className="min-w-0 truncate">
+                                      {displaySessionTitle(session)}
+                                    </span>
                                   </Link>
                                 </SidebarMenuSubButton>
                               </SidebarMenuSubItem>
                             )
                           })}
+                          {project.sessions.length > recent.length ? (
+                            <SidebarMenuSubItem>
+                              <SidebarMenuSubButton asChild>
+                                <Link href={projectPath}>
+                                  查看全部 {project.sessionCount} 条
+                                </Link>
+                              </SidebarMenuSubButton>
+                            </SidebarMenuSubItem>
+                          ) : null}
                         </SidebarMenuSub>
                       </CollapsibleContent>
                     </SidebarMenuItem>
@@ -150,6 +242,7 @@ export function WorkspaceNav({ projects }: { projects: WorkspaceProject[] }) {
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
+
       <SidebarFooter>
         <SidebarMenu>
           <SidebarMenuItem>

@@ -1,7 +1,11 @@
 import type { SessionSummary } from "@/lib/session-types"
 
 export function displaySessionTitle(session: SessionSummary) {
-  return session.title || session.firstMessage || session.nativeSessionId
+  return (
+    session.title ||
+    session.firstMessage ||
+    (session.projectId === null ? "新任务" : "未命名会话")
+  )
 }
 
 const dateFormatter = new Intl.DateTimeFormat("zh-CN", {

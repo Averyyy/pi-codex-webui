@@ -9,7 +9,7 @@ declare global {
   var piWebCodexDatabase: Promise<DatabaseSync> | undefined
 }
 
-const SCHEMA_VERSION = 2
+const SCHEMA_VERSION = 3
 
 async function openDatabase() {
   const paths = getAppPaths()
@@ -18,7 +18,10 @@ async function openDatabase() {
   const database = new DatabaseSync(paths.database)
   database.exec("PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;")
 
-  const version = database.prepare("PRAGMA user_version").get()?.user_version
+  let version = database.prepare("PRAGMA user_version").get()?.user_version
+  if (version === 1 || version === 2) {
+    database.exec("PRAGMA foreign_keys = OFF;")
+  }
   if (version === 0) {
     database.exec(`
       BEGIN IMMEDIATE;
@@ -34,7 +37,8 @@ async function openDatabase() {
 
       CREATE TABLE sessions (
         id TEXT PRIMARY KEY,
-        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+        cwd TEXT NOT NULL,
         runtime_kind TEXT NOT NULL CHECK (runtime_kind IN ('pi', 'pi-client')),
         runtime_profile_id TEXT NOT NULL,
         native_session_id TEXT NOT NULL,
@@ -81,6 +85,7 @@ async function openDatabase() {
       PRAGMA user_version = ${SCHEMA_VERSION};
       COMMIT;
     `)
+    version = SCHEMA_VERSION
   } else if (version === 1) {
     database.exec(`
       BEGIN IMMEDIATE;
@@ -131,10 +136,72 @@ async function openDatabase() {
       CREATE INDEX sessions_project_updated
         ON sessions(project_id, updated_at DESC);
 
+      PRAGMA user_version = 2;
+      COMMIT;
+    `)
+    version = 2
+  }
+
+  if (version === 2) {
+    database.exec(`
+      BEGIN IMMEDIATE;
+
+      DROP INDEX sessions_project_updated;
+
+      CREATE TABLE sessions_v3 (
+        id TEXT PRIMARY KEY,
+        project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+        cwd TEXT NOT NULL,
+        runtime_kind TEXT NOT NULL CHECK (runtime_kind IN ('pi', 'pi-client')),
+        runtime_profile_id TEXT NOT NULL,
+        native_session_id TEXT NOT NULL,
+        native_session_file TEXT NOT NULL UNIQUE,
+        parent_session_file TEXT,
+        title TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        message_count INTEGER NOT NULL,
+        first_message TEXT NOT NULL,
+        file_mtime_ns TEXT NOT NULL,
+        indexed_size INTEGER NOT NULL,
+        indexed_lines INTEGER NOT NULL,
+        ends_with_newline INTEGER NOT NULL CHECK (ends_with_newline IN (0, 1)),
+        content_hash TEXT NOT NULL,
+        last_entry_id TEXT,
+        migrated_from_session_id TEXT REFERENCES sessions_v3(id)
+      ) STRICT;
+
+      INSERT INTO sessions_v3(
+        id, project_id, cwd, runtime_kind, runtime_profile_id,
+        native_session_id, native_session_file, parent_session_file,
+        title, created_at, updated_at, message_count, first_message,
+        file_mtime_ns, indexed_size, indexed_lines, ends_with_newline,
+        content_hash, last_entry_id, migrated_from_session_id
+      )
+      SELECT sessions.id, sessions.project_id, projects.canonical_path,
+        sessions.runtime_kind, sessions.runtime_profile_id,
+        sessions.native_session_id, sessions.native_session_file,
+        sessions.parent_session_file, sessions.title, sessions.created_at,
+        sessions.updated_at, sessions.message_count, sessions.first_message,
+        sessions.file_mtime_ns, sessions.indexed_size,
+        sessions.indexed_lines, sessions.ends_with_newline,
+        sessions.content_hash, sessions.last_entry_id,
+        sessions.migrated_from_session_id
+      FROM sessions
+      LEFT JOIN projects ON projects.id = sessions.project_id;
+
+      DROP TABLE sessions;
+      ALTER TABLE sessions_v3 RENAME TO sessions;
+      CREATE INDEX sessions_project_updated
+        ON sessions(project_id, updated_at DESC);
+
       PRAGMA user_version = ${SCHEMA_VERSION};
       COMMIT;
     `)
-  } else if (version !== SCHEMA_VERSION) {
+    version = SCHEMA_VERSION
+  }
+
+  if (version !== SCHEMA_VERSION) {
     throw new Error(
       `Unsupported state.db schema ${String(version)}; expected ${SCHEMA_VERSION}.`
     )

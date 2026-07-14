@@ -1,6 +1,9 @@
 import "server-only"
 
+import { mkdir } from "node:fs/promises"
+
 import type { AppConfig } from "@/lib/config-schema"
+import { getAppPaths } from "@/lib/app-paths"
 import { getProjectRuntimeTarget } from "@/lib/catalog"
 import { loadConfig } from "@/lib/config"
 import { RuntimeRequestError } from "@/lib/runtime-error"
@@ -117,6 +120,33 @@ export async function resolveNewSessionRuntime(
   }
   return {
     ...project,
+    profileId,
+    runtimeKind: profile.kind,
+  }
+}
+
+export async function resolveNewTaskRuntime(explicitProfileId?: string) {
+  const config = await loadConfig()
+  const profileId =
+    explicitProfileId ?? config.developer.runtime.default ?? "pi"
+  const profile = config.developer.runtime.profiles[profileId]
+  if (!profile) {
+    throw new RuntimeRequestError(
+      "RuntimeProfileNotFound",
+      `Runtime profile ${profileId} does not exist.`
+    )
+  }
+  if (!profile.enabled) {
+    throw new RuntimeRequestError(
+      "RuntimeProfileDisabled",
+      `Runtime profile ${profileId} is disabled.`
+    )
+  }
+  const cwd = getAppPaths().taskWorkspace
+  await mkdir(cwd, { recursive: true, mode: 0o700 })
+  return {
+    projectId: null,
+    cwd,
     profileId,
     runtimeKind: profile.kind,
   }

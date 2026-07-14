@@ -51,7 +51,7 @@ export function SessionExtensionProvider({
   children,
 }: {
   sessionId: string
-  projectId: string
+  projectId: string | null
   mutationToken: string
   initialCatalog: WebUiExtensionCatalogView
   children: ReactNode
@@ -139,10 +139,13 @@ export function SessionExtensionProvider({
   })
 
   const loadCatalog = useEffectEvent(async () => {
-    const response = await fetch(
-      `/api/v1/webui-extensions?projectId=${encodeURIComponent(projectId)}`,
-      { cache: "no-store" }
-    )
+    const query =
+      projectId === null
+        ? `?scope=global&sessionId=${encodeURIComponent(sessionId)}`
+        : `?projectId=${encodeURIComponent(projectId)}`
+    const response = await fetch(`/api/v1/webui-extensions${query}`, {
+      cache: "no-store",
+    })
     if (!response.ok) {
       throw new Error(
         `WebUI extension catalog failed (HTTP ${response.status}).`

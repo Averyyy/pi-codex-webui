@@ -1,6 +1,8 @@
 import "server-only"
 
-import { getDatabase } from "@/lib/database"
+import { stat } from "node:fs/promises"
+
+import { getDatabase, inTransaction } from "@/lib/database"
 import {
   parsePiSession,
   readStablePiSessionFile,
@@ -25,7 +27,8 @@ interface ProjectRow {
 
 interface SessionRow {
   id: string
-  project_id: string
+  project_id: string | null
+  cwd: string
   native_session_id: string
   native_session_file: string
   parent_session_file: string | null
@@ -37,13 +40,16 @@ interface SessionRow {
   runtime_kind: "pi" | "pi-client"
   runtime_profile_id: string
   migrated_from_session_id: string | null
-  project_path?: string
-  project_name?: string
+}
+
+interface SnapshotRow extends SessionRow {
+  project_path: string | null
+  project_name: string | null
 }
 
 interface SearchRow {
-  project_id: string
-  project_name: string
+  project_id: string | null
+  project_name: string | null
   session_id: string
   session_title: string | null
   session_first_message: string
@@ -55,17 +61,17 @@ interface SearchRow {
 
 interface RuntimeTargetRow {
   id: string
-  project_id: string
+  project_id: string | null
+  cwd: string
   runtime_kind: "pi" | "pi-client"
   runtime_profile_id: string
   native_session_id: string
   native_session_file: string
-  project_path: string
 }
 
 interface SessionIdentityRow {
   id: string
-  project_id: string
+  project_id: string | null
   native_session_id: string
   native_session_file: string
 }
@@ -90,6 +96,7 @@ function sessionSummary(row: SessionRow): SessionSummary {
   return {
     id: row.id,
     projectId: row.project_id,
+    cwd: row.cwd,
     nativeSessionId: row.native_session_id,
     nativeSessionFile: row.native_session_file,
     title: row.title,
@@ -100,6 +107,15 @@ function sessionSummary(row: SessionRow): SessionSummary {
     runtimeKind: row.runtime_kind,
     runtimeProfileId: row.runtime_profile_id,
     migratedFromSessionId: row.migrated_from_session_id,
+  }
+}
+
+export async function isProjectDirectoryAvailable(canonicalPath: string) {
+  try {
+    return (await stat(canonicalPath)).isDirectory()
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false
+    throw error
   }
 }
 
@@ -119,7 +135,7 @@ export async function listWorkspaceProjects(): Promise<WorkspaceProject[]> {
     .all() as unknown as ProjectRow[]
   const sessions = database
     .prepare(
-      `SELECT id, project_id, native_session_id, native_session_file,
+      `SELECT id, project_id, cwd, native_session_id, native_session_file,
               parent_session_file, title, created_at, updated_at,
               message_count, first_message, runtime_kind,
               runtime_profile_id, migrated_from_session_id
@@ -129,12 +145,22 @@ export async function listWorkspaceProjects(): Promise<WorkspaceProject[]> {
     .all() as unknown as SessionRow[]
   const byProject = new Map<string, SessionRow[]>()
   for (const session of sessions) {
+    if (session.project_id === null) continue
     const projectSessions = byProject.get(session.project_id) ?? []
     projectSessions.push(session)
     byProject.set(session.project_id, projectSessions)
   }
 
-  return projects.map((project) => ({
+  const availableProjects = (
+    await Promise.all(
+      projects.map(async (project) =>
+        (await isProjectDirectoryAvailable(project.canonical_path))
+          ? project
+          : null
+      )
+    )
+  ).filter((project): project is ProjectRow => project !== null)
+  return availableProjects.map((project) => ({
     ...projectSummary(project),
     sessions: (byProject.get(project.id) ?? []).map(sessionSummary),
   }))
@@ -163,7 +189,7 @@ export async function listProjectSessions(projectId: string) {
   return (
     database
       .prepare(
-        `SELECT id, project_id, native_session_id, native_session_file,
+        `SELECT id, project_id, cwd, native_session_id, native_session_file,
                 parent_session_file, title, created_at, updated_at,
                 message_count, first_message, runtime_kind,
                 runtime_profile_id, migrated_from_session_id
@@ -175,12 +201,30 @@ export async function listProjectSessions(projectId: string) {
   ).map(sessionSummary)
 }
 
+export async function listWorkspaceTasks(): Promise<SessionSummary[]> {
+  await syncPiSessionIndex()
+  const database = await getDatabase()
+  return (
+    database
+      .prepare(
+        `SELECT id, project_id, cwd, native_session_id, native_session_file,
+                parent_session_file, title, created_at, updated_at,
+                message_count, first_message, runtime_kind,
+                runtime_profile_id, migrated_from_session_id
+         FROM sessions
+         WHERE project_id IS NULL
+         ORDER BY updated_at DESC`
+      )
+      .all() as unknown as SessionRow[]
+  ).map(sessionSummary)
+}
+
 export async function getSessionSnapshot(sessionId: string) {
   await syncPiSessionIndex()
   const database = await getDatabase()
   const row = database
     .prepare(
-      `SELECT sessions.id, project_id, native_session_id,
+      `SELECT sessions.id, project_id, sessions.cwd, native_session_id,
               native_session_file, parent_session_file, title,
               sessions.created_at, sessions.updated_at, message_count,
               first_message, runtime_kind, runtime_profile_id,
@@ -188,17 +232,11 @@ export async function getSessionSnapshot(sessionId: string) {
               projects.canonical_path AS project_path,
               projects.display_name AS project_name
        FROM sessions
-       JOIN projects ON projects.id = sessions.project_id
+       LEFT JOIN projects ON projects.id = sessions.project_id
        WHERE sessions.id = ?`
     )
-    .get(sessionId) as unknown as SessionRow | undefined
-  if (
-    !row ||
-    typeof row.project_path !== "string" ||
-    typeof row.project_name !== "string"
-  ) {
-    return null
-  }
+    .get(sessionId) as unknown as SnapshotRow | undefined
+  if (!row) return null
 
   const { content } = await readStablePiSessionFile(row.native_session_file)
   const parsed = parsePiSession(
@@ -234,11 +272,10 @@ export async function getSessionRuntimeTarget(sessionId: string) {
   const database = await getDatabase()
   const row = database
     .prepare(
-      `SELECT sessions.id, project_id, runtime_kind, runtime_profile_id,
-              native_session_id, native_session_file,
-              projects.canonical_path AS project_path
+      `SELECT sessions.id, project_id, sessions.cwd, runtime_kind,
+              runtime_profile_id, native_session_id, native_session_file
        FROM sessions
-       JOIN projects ON projects.id = sessions.project_id
+       LEFT JOIN projects ON projects.id = sessions.project_id
        WHERE sessions.id = ?`
     )
     .get(sessionId) as unknown as RuntimeTargetRow | undefined
@@ -250,7 +287,7 @@ export async function getSessionRuntimeTarget(sessionId: string) {
     runtimeProfileId: row.runtime_profile_id,
     nativeSessionId: row.native_session_id,
     nativeSessionFile: row.native_session_file,
-    cwd: row.project_path,
+    cwd: row.cwd,
   }
 }
 
@@ -291,6 +328,60 @@ export async function bindSessionRuntime(
   }
 }
 
+export async function markSessionStandalone(
+  sessionId: string,
+  options: {
+    cwd: string
+    runtimeKind: "pi" | "pi-client"
+    runtimeProfileId: string
+    migratedFromSessionId?: string | null
+  }
+) {
+  if (!options.cwd) throw new Error("Standalone session cwd is required.")
+  const database = await getDatabase()
+  inTransaction(database, () => {
+    const session = database
+      .prepare("SELECT project_id FROM sessions WHERE id = ?")
+      .get(sessionId) as { project_id: string | null } | undefined
+    if (!session)
+      throw new Error(`Cannot mark missing Web session ${sessionId}.`)
+
+    database
+      .prepare(
+        `UPDATE sessions SET
+           project_id = NULL, cwd = ?, runtime_kind = ?,
+           runtime_profile_id = ?, migrated_from_session_id = ?
+         WHERE id = ?`
+      )
+      .run(
+        options.cwd,
+        options.runtimeKind,
+        options.runtimeProfileId,
+        options.migratedFromSessionId ?? null,
+        sessionId
+      )
+
+    if (session.project_id === null) return
+    database
+      .prepare(
+        `DELETE FROM projects
+         WHERE id = ?
+           AND NOT EXISTS (
+             SELECT 1 FROM sessions WHERE project_id = projects.id
+           )`
+      )
+      .run(session.project_id)
+    database
+      .prepare(
+        `UPDATE projects SET
+           created_at = (SELECT min(created_at) FROM sessions WHERE project_id = ?),
+           updated_at = (SELECT max(updated_at) FROM sessions WHERE project_id = ?)
+         WHERE id = ?`
+      )
+      .run(session.project_id, session.project_id, session.project_id)
+  })
+}
+
 export async function getSessionIdentityByNativeFile(
   nativeSessionFile: string
 ) {
@@ -319,7 +410,7 @@ export async function searchSessions(query: string) {
   const literalQuery = `"${query.replaceAll('"', '""')}"`
   const rows = database
     .prepare(
-      `SELECT projects.id AS project_id,
+      `SELECT sessions.project_id,
               projects.display_name AS project_name,
               sessions.id AS session_id,
               sessions.title AS session_title,
@@ -330,7 +421,7 @@ export async function searchSessions(query: string) {
               snippet(session_search, 4, '【', '】', '…', 24) AS snippet
        FROM session_search
        JOIN sessions ON sessions.id = session_search.session_id
-       JOIN projects ON projects.id = sessions.project_id
+       LEFT JOIN projects ON projects.id = sessions.project_id
        WHERE session_search MATCH ?
        ORDER BY rank, session_search.timestamp DESC
        LIMIT 100`
