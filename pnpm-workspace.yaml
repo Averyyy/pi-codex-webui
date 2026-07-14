@@ -1,6 +1,8 @@
 packages:
   - apps/*
   - packages/*
+  - webui-extensions/builtin/*
+  - webui-extensions/examples/*
 
 injectWorkspacePackages: true
 

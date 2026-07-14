@@ -48,6 +48,7 @@ test("runtime initialization declares resume, new, or duplicate explicitly", () 
       cwd: "/tmp/project",
       agentDir: "/tmp/agent",
       mcpTools: [],
+      webuiAdapters: [],
     },
   }
   assert.equal(
@@ -61,6 +62,41 @@ test("runtime initialization declares resume, new, or duplicate explicitly", () 
     hostToWorkerMessageSchema.safeParse({
       ...base,
       payload: { ...base.payload, nativeSessionFile: "/tmp/session.jsonl" },
+    }).success,
+    false
+  )
+})
+
+test("WebUI view and client messages remain protocol validated", () => {
+  const view = {
+    version: 1,
+    extensionId: "conversation",
+    adapterKey: "builtin:conversation#conversation",
+    viewId: "conversation.browser",
+    instanceId: "01234567-89ab-4def-8123-456789abcdef",
+    placement: "session.overlay",
+    revision: 0,
+    state: { conversations: [] },
+    blocking: true,
+  }
+  assert.equal(
+    workerToHostMessageSchema.parse({
+      type: "webui.view.event",
+      sessionId: "session-a",
+      payload: { version: 1, kind: "open", view },
+    }).type,
+    "webui.view.event"
+  )
+  assert.equal(
+    hostToWorkerMessageSchema.safeParse({
+      type: "webui.client.status",
+      requestId: "request-a",
+      sessionId: "session-a",
+      payload: {
+        extensionId: "conversation",
+        instanceId: view.instanceId,
+        status: "unknown",
+      },
     }).success,
     false
   )

@@ -157,13 +157,30 @@ const appearanceSchema = z.object({
   sidebarWidth: z.number().int().min(240).max(360),
 })
 
+export const webUiExtensionIdSchema = z
+  .string()
+  .min(1)
+  .max(128)
+  .regex(/^[a-z0-9]+(?:[._-][a-z0-9]+)*$/)
+
+const webUiExtensionPreferenceSchema = z.object({
+  enabled: z.boolean(),
+  rendering: z.enum(["native", "tui"]),
+  selectedAdapter: z.string().min(1).max(512).nullable(),
+})
+
+const webUiExtensionsSchema = z.object({
+  preferences: z.record(webUiExtensionIdSchema, webUiExtensionPreferenceSchema),
+})
+
 export const configSchema = z.object({
-  schemaVersion: z.literal(2),
+  schemaVersion: z.literal(3),
   revision: z.number().int().nonnegative(),
   server: serverSchema,
   appearance: appearanceSchema,
   developer: developerSchema,
   mcp: mcpSchema,
+  webuiExtensions: webUiExtensionsSchema,
 })
 
 export const configPatchSchema = z
@@ -172,6 +189,7 @@ export const configPatchSchema = z
     appearance: appearanceSchema.partial(),
     developer: developerSchema,
     mcp: mcpSchema,
+    webuiExtensions: webUiExtensionsSchema,
   })
   .partial()
   .refine(
@@ -188,7 +206,7 @@ export type McpServerConfig = AppConfig["mcp"]["servers"][string]
 export type McpStoredValue = z.infer<typeof mcpStoredValueSchema>
 
 export const DEFAULT_CONFIG: AppConfig = {
-  schemaVersion: 2,
+  schemaVersion: 3,
   revision: 0,
   server: {
     host: DEFAULT_HOST,
@@ -217,18 +235,22 @@ export const DEFAULT_CONFIG: AppConfig = {
   mcp: {
     servers: {},
   },
+  webuiExtensions: {
+    preferences: {},
+  },
 }
 
 export function parseConfig(value: unknown): AppConfig {
   if (typeof value === "object" && value !== null && !Array.isArray(value)) {
     const legacy = value as Record<string, unknown>
-    if (legacy.schemaVersion === 1) {
+    if (legacy.schemaVersion === 1 || legacy.schemaVersion === 2) {
       return configSchema.parse({
         ...legacy,
-        schemaVersion: 2,
+        schemaVersion: 3,
         developer:
           legacy.developer ?? structuredClone(DEFAULT_CONFIG.developer),
-        mcp: structuredClone(DEFAULT_CONFIG.mcp),
+        mcp: legacy.mcp ?? structuredClone(DEFAULT_CONFIG.mcp),
+        webuiExtensions: structuredClone(DEFAULT_CONFIG.webuiExtensions),
       })
     }
   }
@@ -242,5 +264,6 @@ export function mergeConfig(config: AppConfig, patch: ConfigPatch): AppConfig {
     appearance: { ...config.appearance, ...patch.appearance },
     developer: patch.developer ?? config.developer,
     mcp: patch.mcp ?? config.mcp,
+    webuiExtensions: patch.webuiExtensions ?? config.webuiExtensions,
   })
 }

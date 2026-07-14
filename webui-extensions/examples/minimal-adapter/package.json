@@ -1,0 +1,57 @@
+{
+  "name": "pi-webui-minimal-adapter-example",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsup",
+    "lint": "eslint",
+    "format": "prettier --write \"src/**/*.ts\" \"tsup.config.ts\"",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@pi-web-codex/extension-sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "@workspace/eslint-config": "workspace:*",
+    "@workspace/typescript-config": "workspace:*",
+    "eslint": "^9",
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3"
+  },
+  "piWebCodex": {
+    "apiVersion": 1,
+    "host": {
+      "version": ">=0.1.0 <1.0.0",
+      "protocolVersion": 1
+    },
+    "extensions": [
+      {
+        "id": "minimal-greeter",
+        "name": "Minimal Greeter",
+        "target": {
+          "packageName": "pi-example-greeter",
+          "extensionPath": "**/index.js",
+          "version": ">=1.0.0 <2.0.0",
+          "testedVersions": ["1.0.0"],
+          "compatibility": {
+            "mode": "probe",
+            "onUntestedVersion": "allow-if-probe-passes"
+          }
+        },
+        "runtimes": ["pi", "pi-client"],
+        "worker": "./dist/worker.mjs",
+        "client": "./dist/client.mjs",
+        "contributes": {
+          "commandAdapters": [
+            {
+              "command": "greet",
+              "handler": "greeter.open"
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

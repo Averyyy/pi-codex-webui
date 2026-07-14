@@ -29,6 +29,8 @@ import { createSettingsManager } from "./settings.js"
 import type { CodingAgentModule, TuiModule } from "./coding-agent.js"
 import { createMcpToolDefinitions } from "./mcp.js"
 import { createFooterData, TuiSurfaceManager } from "./tui-surfaces.js"
+import { createExtensionInstrumentor } from "./extension-instrumentation.js"
+import { WebUiAdapterHost } from "./webui-adapter-host.js"
 
 let codingAgent: CodingAgentModule
 let tuiModule: TuiModule
@@ -38,6 +40,7 @@ let nativeSessionFile: string | undefined
 let unsubscribe: (() => void) | undefined
 let eventSequence = 0
 let surfaceManager: TuiSurfaceManager | undefined
+let adapterHost: WebUiAdapterHost | undefined
 let editorComponentFactory: Parameters<
   ExtensionUIContext["setEditorComponent"]
 >[0]
@@ -204,6 +207,11 @@ function currentTheme() {
 function currentSurfaceManager() {
   if (!surfaceManager) throw new Error("Pi TUI surfaces are not initialized.")
   return surfaceManager
+}
+
+function currentAdapterHost() {
+  if (!adapterHost) throw new Error("WebUI adapter host is not initialized.")
+  return adapterHost
 }
 
 function createEditorTheme(theme: ExtensionUIContext["theme"]): EditorTheme {
@@ -513,11 +521,65 @@ async function initialize(
       options.agentDir,
       projectTrustedForWeb(codingAgent, options.cwd, options.agentDir)
     )
+    adapterHost?.dispose()
+    adapterHost = new WebUiAdapterHost({
+      descriptors: message.payload.webuiAdapters,
+      session: () => ({
+        cwd: currentRuntime().cwd,
+        sessionFile: currentRuntime().session.sessionFile,
+        listSessions: async () =>
+          (
+            await codingAgent.SessionManager.list(
+              currentRuntime().cwd,
+              currentRuntime().session.sessionManager.getSessionDir()
+            )
+          ).map((session) => ({
+            sessionPath: session.path,
+            id: session.id,
+            cwd: session.cwd,
+            name: session.name,
+            createdAt: session.created.toISOString(),
+            updatedAt: session.modified.toISOString(),
+            messageCount: session.messageCount,
+            firstMessage: session.firstMessage,
+          })),
+        switchSession: (sessionPath) =>
+          currentRuntime().switchSession(sessionPath),
+      }),
+      emitView: (event) => {
+        if (!webSessionId) {
+          throw new Error("Pi runtime identity is not initialized.")
+        }
+        send({
+          type: "webui.view.event",
+          sessionId: webSessionId,
+          payload: event,
+        })
+      },
+      emitStatus: (status) => {
+        if (!webSessionId) {
+          throw new Error("Pi runtime identity is not initialized.")
+        }
+        send({
+          type: "webui.extension.status",
+          sessionId: webSessionId,
+          payload: status,
+        })
+      },
+    })
     const services = await codingAgent.createAgentSessionServices({
       cwd: options.cwd,
       agentDir: options.agentDir,
       settingsManager,
+      resourceLoaderOptions: {
+        extensionsOverride: createExtensionInstrumentor(() =>
+          currentAdapterHost()
+        ),
+      },
     })
+    await adapterHost.initialize(
+      services.resourceLoader.getExtensions().extensions
+    )
     const created = await codingAgent.createAgentSessionFromServices({
       services,
       sessionManager: options.sessionManager,
@@ -569,6 +631,8 @@ async function shutdown() {
   unsubscribe?.()
   surfaceManager?.dispose()
   surfaceManager = undefined
+  adapterHost?.dispose()
+  adapterHost = undefined
   for (const resolve of pendingExtensionRequests.values()) {
     resolve({ cancelled: true })
   }
@@ -706,6 +770,9 @@ async function dispatch(message: HostToWorkerMessage) {
       )
     )
     await session.reload()
+    await currentAdapterHost().initialize(
+      currentRuntime().services.resourceLoader.getExtensions().extensions
+    )
     respond(message.requestId, { success: true, data: snapshot(session) })
   } else if (message.type === "tui.surface.list") {
     respond(message.requestId, {
@@ -716,6 +783,29 @@ async function dispatch(message: HostToWorkerMessage) {
     currentSurfaceManager().action(
       message.payload.surfaceId,
       message.payload.action
+    )
+    respond(message.requestId, { success: true })
+  } else if (message.type === "webui.view.list") {
+    respond(message.requestId, {
+      success: true,
+      data: currentAdapterHost().snapshots(),
+    })
+  } else if (message.type === "webui.action.invoke") {
+    respond(message.requestId, {
+      success: true,
+      data: await currentAdapterHost().action(
+        message.payload.extensionId,
+        message.payload.instanceId,
+        message.payload.actionId,
+        message.payload.input
+      ),
+    })
+  } else if (message.type === "webui.client.status") {
+    currentAdapterHost().clientStatus(
+      message.payload.extensionId,
+      message.payload.instanceId,
+      message.payload.status,
+      message.payload.message
     )
     respond(message.requestId, { success: true })
   } else if (message.type === "session.prompt") {

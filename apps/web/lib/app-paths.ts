@@ -55,6 +55,28 @@ export function getPiSessionsRoot() {
   return path.join(getPiAgentDir(), "sessions")
 }
 
+export function getBuiltinWebUiExtensionsRoot() {
+  if (process.env.PI_WEB_CODEX_BUILTIN_EXTENSION_ROOT) {
+    return path.resolve(process.env.PI_WEB_CODEX_BUILTIN_EXTENSION_ROOT)
+  }
+  return path.resolve(process.cwd(), "../../webui-extensions/builtin")
+}
+
+export function getExternalWebUiExtensionsRoot() {
+  return path.join(getAppPaths().root, "webui-extensions", "node_modules")
+}
+
+export function getProjectWebUiExtensionsRoot(cwd: string) {
+  return path.join(cwd, ".pi", "webui-extensions")
+}
+
+export function getDevelopmentWebUiExtensionPaths() {
+  return (process.env.PI_WEB_CODEX_WEBUI_EXTENSION_PATHS ?? "")
+    .split(path.delimiter)
+    .filter(Boolean)
+    .map((entry) => path.resolve(entry))
+}
+
 export function getPiWorkerPath() {
   if (process.env.PI_WEB_CODEX_PI_WORKER_PATH) {
     return path.resolve(process.env.PI_WEB_CODEX_PI_WORKER_PATH)

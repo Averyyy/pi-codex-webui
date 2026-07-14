@@ -36,6 +36,9 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: 1.29.0
         version: 1.29.0(zod@4.4.3)
+      '@pi-web-codex/extension-sdk':
+        specifier: workspace:*
+        version: link:../../packages/extension-sdk
       '@workspace/runtime-protocol':
         specifier: workspace:*
         version: link:../../packages/runtime-protocol
@@ -69,6 +72,9 @@ importers:
       remark-gfm:
         specifier: ^4.0.1
         version: 4.0.1
+      semver:
+        specifier: ^7.8.5
+        version: 7.8.5
       server-only:
         specifier: ^0.0.1
         version: 0.0.1
@@ -94,6 +100,9 @@ importers:
       '@types/react-dom':
         specifier: ^19.2.3
         version: 19.2.3(@types/react@19.2.17)
+      '@types/semver':
+        specifier: ^7.7.1
+        version: 7.7.1
       '@workspace/eslint-config':
         specifier: workspace:*
         version: link:../../packages/eslint-config
@@ -148,6 +157,39 @@ importers:
       typescript-eslint:
         specifier: ^8.60.0
         version: 8.63.0(eslint@9.39.5(jiti@2.7.0))(typescript@5.9.3)
+
+  packages/extension-sdk:
+    devDependencies:
+      '@types/node':
+        specifier: ^26.1.1
+        version: 26.1.1
+      '@types/react':
+        specifier: ^19.2.17
+        version: 19.2.17
+      '@types/react-dom':
+        specifier: ^19.2.3
+        version: 19.2.3(@types/react@19.2.17)
+      '@workspace/eslint-config':
+        specifier: workspace:*
+        version: link:../eslint-config
+      '@workspace/typescript-config':
+        specifier: workspace:*
+        version: link:../typescript-config
+      eslint:
+        specifier: ^9
+        version: 9.39.5(jiti@2.7.0)
+      react:
+        specifier: ^19.2.7
+        version: 19.2.7
+      react-dom:
+        specifier: ^19.2.7
+        version: 19.2.7(react@19.2.7)
+      tsup:
+        specifier: ^8.5.1
+        version: 8.5.1(jiti@2.7.0)(postcss@8.5.17)(tsx@4.23.1)(typescript@5.9.3)(yaml@2.9.0)
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
 
   packages/runtime-protocol:
     dependencies:
@@ -245,9 +287,15 @@ importers:
 
   packages/worker-common:
     dependencies:
+      '@pi-web-codex/extension-sdk':
+        specifier: workspace:*
+        version: link:../extension-sdk
       proper-lockfile:
         specifier: ^4.1.2
         version: 4.1.2
+      semver:
+        specifier: ^7.8.5
+        version: 7.8.5
     devDependencies:
       '@earendil-works/pi-coding-agent':
         specifier: 0.80.6
@@ -261,6 +309,9 @@ importers:
       '@types/proper-lockfile':
         specifier: ^4.1.4
         version: 4.1.4
+      '@types/semver':
+        specifier: ^7.7.1
+        version: 7.7.1
       '@workspace/eslint-config':
         specifier: workspace:*
         version: link:../eslint-config
@@ -353,6 +404,56 @@ importers:
       '@workspace/worker-common':
         specifier: workspace:*
         version: link:../worker-common
+      eslint:
+        specifier: ^9
+        version: 9.39.5(jiti@2.7.0)
+      tsup:
+        specifier: ^8.5.1
+        version: 8.5.1(jiti@2.7.0)(postcss@8.5.17)(tsx@4.23.1)(typescript@5.9.3)(yaml@2.9.0)
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
+  webui-extensions/builtin/conversation:
+    dependencies:
+      '@pi-web-codex/extension-sdk':
+        specifier: workspace:*
+        version: link:../../../packages/extension-sdk
+    devDependencies:
+      '@types/node':
+        specifier: ^26.1.1
+        version: 26.1.1
+      '@workspace/eslint-config':
+        specifier: workspace:*
+        version: link:../../../packages/eslint-config
+      '@workspace/typescript-config':
+        specifier: workspace:*
+        version: link:../../../packages/typescript-config
+      eslint:
+        specifier: ^9
+        version: 9.39.5(jiti@2.7.0)
+      tsup:
+        specifier: ^8.5.1
+        version: 8.5.1(jiti@2.7.0)(postcss@8.5.17)(tsx@4.23.1)(typescript@5.9.3)(yaml@2.9.0)
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
+  webui-extensions/examples/minimal-adapter:
+    dependencies:
+      '@pi-web-codex/extension-sdk':
+        specifier: workspace:*
+        version: link:../../../packages/extension-sdk
+    devDependencies:
+      '@types/node':
+        specifier: ^26.1.1
+        version: 26.1.1
+      '@workspace/eslint-config':
+        specifier: workspace:*
+        version: link:../../../packages/eslint-config
+      '@workspace/typescript-config':
+        specifier: workspace:*
+        version: link:../../../packages/typescript-config
       eslint:
         specifier: ^9
         version: 9.39.5(jiti@2.7.0)
@@ -2616,6 +2717,9 @@ packages:
 
   '@types/retry@0.12.0':
     resolution: {integrity: sha512-wWKOClTTiizcZhXnPY4wikVAwmdYHp8q6DmC+EJUzAMsycb7HB32Kh9RN4+0gExjmPmZSAQjgURXIGATPegAvA==}
+
+  '@types/semver@7.7.1':
+    resolution: {integrity: sha512-FmgJfu+MOcQ370SD0ev7EI8TlCAfKYU+B4m5T3yXc1CiRN94g/SZPtsCkk506aUDtlMnFZvasDwHHUcZUEaYuA==}
 
   '@types/send@1.2.1':
     resolution: {integrity: sha512-arsCikDvlU99zl1g69TcAB3mzZPpxgw0UQnaHeC1Nwb015xp8bknZv5rIfri9xTOcMuaVgvabfIRA7PSZVuZIQ==}
@@ -7674,6 +7778,8 @@ snapshots:
       csstype: 3.2.3
 
   '@types/retry@0.12.0': {}
+
+  '@types/semver@7.7.1': {}
 
   '@types/send@1.2.1':
     dependencies:

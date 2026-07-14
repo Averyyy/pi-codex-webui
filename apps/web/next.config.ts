@@ -14,11 +14,16 @@ const nextConfig: NextConfig = {
       "./next.config.ts",
       "./postcss.config.mjs",
       "./tsconfig.json",
+      "../../webui-extensions/**/*",
     ],
   },
   poweredByHeader: false,
   reactStrictMode: true,
-  transpilePackages: ["@workspace/runtime-protocol", "@workspace/ui"],
+  transpilePackages: [
+    "@pi-web-codex/extension-sdk",
+    "@workspace/runtime-protocol",
+    "@workspace/ui",
+  ],
 }
 
 export default nextConfig

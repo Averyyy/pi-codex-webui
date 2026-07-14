@@ -21,16 +21,41 @@ test("settings patches preserve authority boundaries", () => {
   assert.deepEqual(configSchema.parse(next), next)
 })
 
-test("version 1 settings gain deterministic runtime and MCP defaults", () => {
+test("legacy settings gain deterministic runtime, MCP, and WebUI defaults", () => {
   const legacy = structuredClone(DEFAULT_CONFIG) as Record<string, unknown>
   legacy.schemaVersion = 1
   delete legacy.developer
   delete legacy.mcp
 
   const migrated = parseConfig(legacy)
-  assert.equal(migrated.schemaVersion, 2)
+  assert.equal(migrated.schemaVersion, 3)
   assert.deepEqual(migrated.developer, DEFAULT_CONFIG.developer)
   assert.deepEqual(migrated.mcp, DEFAULT_CONFIG.mcp)
+  assert.deepEqual(migrated.webuiExtensions, DEFAULT_CONFIG.webuiExtensions)
+})
+
+test("version 2 settings preserve MCP configuration", () => {
+  const legacy = structuredClone(DEFAULT_CONFIG) as Record<string, unknown>
+  legacy.schemaVersion = 2
+  delete legacy.webuiExtensions
+  const mcp = legacy.mcp as { servers: Record<string, unknown> }
+  mcp.servers.example = {
+    id: "example",
+    name: "Example",
+    scope: "global",
+    projectId: null,
+    enabled: false,
+    transport: { type: "stdio", command: "example", args: [], cwd: null },
+    env: {},
+    timeoutMs: 30_000,
+    enabledTools: [],
+    disabledTools: [],
+  }
+
+  const migrated = parseConfig(legacy)
+  assert.equal(migrated.schemaVersion, 3)
+  assert.ok(migrated.mcp.servers.example)
+  assert.deepEqual(migrated.webuiExtensions, DEFAULT_CONFIG.webuiExtensions)
 })
 
 test("settings patches reject unsupported and out-of-range values", () => {

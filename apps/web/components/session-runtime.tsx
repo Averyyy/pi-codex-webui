@@ -53,6 +53,7 @@ import {
 
 import { Markdown } from "@/components/markdown"
 import { PiTuiSurface } from "@/components/pi-tui-surface"
+import { ExtensionSlot } from "@/components/extension-slot"
 import { notifyWhenHidden } from "@/lib/browser-notifications"
 
 interface RuntimeEvent {
@@ -793,6 +794,7 @@ export function SessionRuntime({
               {widget.lines.join("\n")}
             </pre>
           ))}
+        <ExtensionSlot name="composer.above" />
         <form
           onSubmit={submit}
           className="rounded-2xl border bg-background p-2 shadow-sm"
@@ -836,6 +838,7 @@ export function SessionRuntime({
                 {text}
               </span>
             ))}
+            <ExtensionSlot name="composer.actions" />
             <div className="ml-auto flex items-center gap-2">
               {isBusy ? (
                 <Select
@@ -946,6 +949,7 @@ export function SessionRuntime({
             </div>
           ) : null}
         </form>
+        <ExtensionSlot name="composer.below" />
         {widgets
           .filter(([, widget]) => widget.placement === "belowEditor")
           .map(([key, widget]) => (

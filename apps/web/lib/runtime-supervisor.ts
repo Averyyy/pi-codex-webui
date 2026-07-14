@@ -24,6 +24,7 @@ import {
   sessionStatsSchema,
   sessionTreeSchema,
   tuiSurfaceSnapshotsSchema,
+  webUiViewSnapshotsSchema,
   runtimeSnapshotSchema,
   workerToHostMessageSchema,
   type HostToWorkerMessage,
@@ -31,6 +32,7 @@ import {
   type ResourceCatalog,
   type RuntimeSnapshot,
   type RuntimeStatus,
+  type WebUiExtensionStatus,
   type WorkerToHostMessage,
 } from "@workspace/runtime-protocol"
 
@@ -56,6 +58,7 @@ import {
   resolveNewSessionRuntime,
   runtimeWorkerCredentials,
 } from "@/lib/runtime-profiles"
+import { webUiAdaptersForRuntime } from "@/lib/webui-extensions/registry"
 
 export interface RuntimeState {
   status: RuntimeStatus
@@ -88,10 +91,13 @@ interface ManagedRuntime {
   cleaned: boolean
   pendingResourceReload: boolean
   pendingMcpRestart: boolean
+  pendingWebUiRestart: boolean
+  webUiRestartPromise: Promise<void> | null
   projectTrusted: boolean
   mcpServerIds: Set<string>
   mcpCalls: Map<string, AbortController>
   cleanupPromise: Promise<void> | null
+  webUiStatuses: Map<string, WebUiExtensionStatus>
 }
 
 interface SessionLock {
@@ -599,6 +605,86 @@ export class RuntimeSupervisor {
     )
   }
 
+  async webUiViews(sessionId: string) {
+    const runtime = this.runtimes.get(sessionId)
+    if (!runtime || runtime.cleaned) return []
+    return webUiViewSnapshotsSchema.parse(
+      await this.request(runtime, {
+        type: "webui.view.list",
+        requestId: requestId(),
+        sessionId,
+      })
+    )
+  }
+
+  async invokeWebUiAction(
+    sessionId: string,
+    extensionId: string,
+    instanceId: string,
+    actionId: string,
+    input?: unknown
+  ) {
+    const runtime = this.runtimes.get(sessionId)
+    if (!runtime || runtime.cleaned) {
+      throw new RuntimeRequestError(
+        "RuntimeNotActive",
+        "The Pi runtime is not active."
+      )
+    }
+    runtime.lastActivityAt = Date.now()
+    return this.request(runtime, {
+      type: "webui.action.invoke",
+      requestId: requestId(),
+      sessionId,
+      payload: { extensionId, instanceId, actionId, input },
+    })
+  }
+
+  async reportWebUiClientStatus(
+    sessionId: string,
+    extensionId: string,
+    instanceId: string,
+    status: "ready" | "error" | "disposed",
+    message?: string
+  ) {
+    const runtime = this.runtimes.get(sessionId)
+    if (!runtime || runtime.cleaned) {
+      if (status === "disposed") return
+      throw new RuntimeRequestError(
+        "RuntimeNotActive",
+        "The Pi runtime is not active."
+      )
+    }
+    await this.request(runtime, {
+      type: "webui.client.status",
+      requestId: requestId(),
+      sessionId,
+      payload: { extensionId, instanceId, status, message },
+    })
+  }
+
+  webUiExtensionStatuses(sessionIds: string[]) {
+    return sessionIds.flatMap((sessionId) => {
+      const runtime = this.runtimes.get(sessionId)
+      return runtime
+        ? [...runtime.webUiStatuses.values()].map((status) => ({
+            sessionId,
+            ...status,
+          }))
+        : []
+    })
+  }
+
+  refreshWebUiExtensions() {
+    for (const runtime of [...this.runtimes.values()]) {
+      if (runtime.status === "ready") {
+        this.scheduleWebUiRestart(runtime)
+      } else if (runtime.status === "busy" || runtime.status === "starting") {
+        runtime.pendingWebUiRestart = true
+      }
+    }
+  }
+
   async actOnTuiSurface(
     sessionId: string,
     surfaceId: string,
@@ -910,7 +996,14 @@ export class RuntimeSupervisor {
     )
     await access(workerPath)
     const mcpContext = await this.mcpContext(target.projectId, target.cwd)
-    const mcpTools = await getMcpService().toolDefinitions(mcpContext)
+    const [mcpTools, webuiAdapters] = await Promise.all([
+      getMcpService().toolDefinitions(mcpContext),
+      webUiAdaptersForRuntime(target.runtimeKind, {
+        cwd: target.cwd,
+        projectId: target.projectId,
+        projectTrusted: mcpContext.projectTrusted,
+      }),
+    ])
 
     const provisionalWebSessionId = randomUUID()
     const child = fork(workerPath, [], {
@@ -939,10 +1032,13 @@ export class RuntimeSupervisor {
       cleaned: false,
       pendingResourceReload: false,
       pendingMcpRestart: false,
+      pendingWebUiRestart: false,
+      webUiRestartPromise: null,
       projectTrusted: mcpContext.projectTrusted,
       mcpServerIds: new Set(mcpTools.map((tool) => tool.serverId)),
       mcpCalls: new Map(),
       cleanupPromise: null,
+      webUiStatuses: new Map(),
     }
     this.runtimes.set(provisionalWebSessionId, managed)
     this.bindChild(managed)
@@ -963,6 +1059,7 @@ export class RuntimeSupervisor {
             cwd: target.cwd,
             agentDir: getPiAgentDir(),
             mcpTools,
+            webuiAdapters,
             target: initializationTarget,
           },
         })
@@ -1068,7 +1165,14 @@ export class RuntimeSupervisor {
     ])
     await access(workerPath)
     const mcpContext = await this.mcpContext(target.projectId, target.cwd)
-    const mcpTools = await getMcpService().toolDefinitions(mcpContext)
+    const [mcpTools, webuiAdapters] = await Promise.all([
+      getMcpService().toolDefinitions(mcpContext),
+      webUiAdaptersForRuntime(target.runtimeKind, {
+        cwd: target.cwd,
+        projectId: target.projectId,
+        projectTrusted: mcpContext.projectTrusted,
+      }),
+    ])
     const lockPath = await this.acquireSessionLock({
       webSessionId: sessionId,
       runtimeProfileId: target.runtimeProfileId,
@@ -1102,10 +1206,13 @@ export class RuntimeSupervisor {
       cleaned: false,
       pendingResourceReload: false,
       pendingMcpRestart: false,
+      pendingWebUiRestart: false,
+      webUiRestartPromise: null,
       projectTrusted: mcpContext.projectTrusted,
       mcpServerIds: new Set(mcpTools.map((tool) => tool.serverId)),
       mcpCalls: new Map(),
       cleanupPromise: null,
+      webUiStatuses: new Map(),
     }
     this.runtimes.set(sessionId, managed)
     this.bindChild(managed)
@@ -1126,6 +1233,7 @@ export class RuntimeSupervisor {
             cwd: target.cwd,
             agentDir: getPiAgentDir(),
             mcpTools,
+            webuiAdapters,
             target: { mode: "resume", nativeSessionFile },
           },
         })
@@ -1240,6 +1348,23 @@ export class RuntimeSupervisor {
       })
       return
     }
+    if (message.type === "webui.view.event") {
+      this.eventHub.publish({
+        type: "webui.view",
+        sessionId: runtime.webSessionId,
+        payload: message.payload,
+      })
+      return
+    }
+    if (message.type === "webui.extension.status") {
+      runtime.webUiStatuses.set(message.payload.extensionId, message.payload)
+      this.eventHub.publish({
+        type: "webui.extension.status",
+        sessionId: runtime.webSessionId,
+        payload: message.payload,
+      })
+      return
+    }
     if (message.type === "runtime.ready") {
       this.failures.delete(runtime.webSessionId)
       runtime.snapshot = message.payload
@@ -1250,7 +1375,9 @@ export class RuntimeSupervisor {
         sessionId: runtime.webSessionId,
         payload: message.payload,
       })
-      if (runtime.pendingMcpRestart) {
+      if (runtime.pendingWebUiRestart) {
+        setImmediate(() => this.scheduleWebUiRestart(runtime))
+      } else if (runtime.pendingMcpRestart) {
         setImmediate(() => this.scheduleMcpRestart(runtime))
       }
       return
@@ -1295,7 +1422,10 @@ export class RuntimeSupervisor {
     }
     if (message.eventType === "agent_settled") {
       runtime.status = "ready"
-      if (runtime.pendingMcpRestart) {
+      if (runtime.pendingWebUiRestart) {
+        runtime.pendingResourceReload = false
+        this.scheduleWebUiRestart(runtime)
+      } else if (runtime.pendingMcpRestart) {
         runtime.pendingResourceReload = false
         this.scheduleMcpRestart(runtime)
       } else if (runtime.pendingResourceReload) {
@@ -1536,6 +1666,39 @@ export class RuntimeSupervisor {
         },
       })
     })
+  }
+
+  private scheduleWebUiRestart(runtime: ManagedRuntime) {
+    if (runtime.webUiRestartPromise) return
+    runtime.webUiRestartPromise = this.restartWebUiRuntime(runtime)
+      .catch((error: unknown) => {
+        this.eventHub.publish({
+          type: "webui.reload.failed",
+          sessionId: runtime.webSessionId,
+          payload: {
+            message: error instanceof Error ? error.message : String(error),
+          },
+        })
+      })
+      .finally(() => {
+        runtime.webUiRestartPromise = null
+      })
+  }
+
+  private async restartWebUiRuntime(runtime: ManagedRuntime) {
+    if (runtime.cleaned) return
+    const sessionId = runtime.webSessionId
+    runtime.pendingWebUiRestart = false
+    runtime.pendingMcpRestart = false
+    runtime.pendingResourceReload = false
+    this.eventHub.publish({
+      type: "webui.reload.started",
+      sessionId,
+      payload: {},
+    })
+    await this.stop(sessionId)
+    await this.cleanup(runtime)
+    await this.activate(sessionId)
   }
 
   private async restartMcpRuntime(runtime: ManagedRuntime) {

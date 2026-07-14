@@ -327,6 +327,136 @@ export const tuiSurfaceActionSchema = z.discriminatedUnion("action", [
   }),
 ])
 
+export const webUiPlacementSchema = z.enum([
+  "session.header",
+  "session.toolbar",
+  "conversation.before",
+  "conversation.after",
+  "composer.above",
+  "composer.actions",
+  "composer.below",
+  "session.rightPanel",
+  "session.dialog",
+  "session.overlay",
+])
+
+export const webUiExtensionTargetSchema = z
+  .object({
+    packageName: z.string().min(1).optional(),
+    extensionPath: z.string().min(1).optional(),
+    version: z.string().min(1).optional(),
+    testedVersions: z.array(z.string().min(1)).optional(),
+    compatibility: z
+      .object({
+        mode: z.literal("probe"),
+        onUntestedVersion: z.enum(["allow-if-probe-passes", "reject"]),
+      })
+      .optional(),
+  })
+  .refine(
+    (target) =>
+      target.packageName !== undefined || target.extensionPath !== undefined
+  )
+
+export const webUiExtensionContributionSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1).optional(),
+  target: webUiExtensionTargetSchema,
+  runtimes: z.array(z.enum(["pi", "pi-client"])).min(1),
+  worker: z.string().min(1),
+  client: z.string().min(1),
+  style: z.string().min(1).optional(),
+  contributes: z.object({
+    commandAdapters: z
+      .array(
+        z.object({
+          command: z.string().min(1),
+          handler: z.string().min(1),
+        })
+      )
+      .optional(),
+    rendererAdapters: z
+      .array(
+        z.object({
+          kind: z.enum(["tool", "message", "entry"]),
+          name: z.string().min(1),
+          handler: z.string().min(1),
+        })
+      )
+      .optional(),
+  }),
+})
+
+export const webUiAdapterDescriptorSchema = z.object({
+  key: z.string().min(1),
+  source: z.enum(["builtin", "external", "project", "development"]),
+  packageName: z.string().min(1),
+  packageVersion: z.string().min(1),
+  extension: webUiExtensionContributionSchema,
+  workerPath: z.string().min(1),
+  preference: z.object({
+    enabled: z.boolean(),
+    rendering: z.enum(["native", "tui"]),
+    selectedAdapter: z.string().min(1).nullable(),
+  }),
+})
+
+export const webUiViewSnapshotSchema = z.object({
+  version: z.literal(1),
+  extensionId: z.string().min(1),
+  adapterKey: z.string().min(1),
+  viewId: z.string().min(1),
+  instanceId: z.uuid(),
+  placement: webUiPlacementSchema,
+  revision: z.number().int().nonnegative(),
+  state: z.unknown(),
+  title: z.string().optional(),
+  blocking: z.boolean(),
+})
+
+export const webUiViewSnapshotsSchema = z.array(webUiViewSnapshotSchema)
+
+export const webUiViewEventSchema = z.discriminatedUnion("kind", [
+  z.object({
+    version: z.literal(1),
+    kind: z.literal("open"),
+    view: webUiViewSnapshotSchema,
+  }),
+  z.object({
+    version: z.literal(1),
+    kind: z.literal("update"),
+    view: webUiViewSnapshotSchema,
+  }),
+  z.object({
+    version: z.literal(1),
+    kind: z.literal("close"),
+    extensionId: z.string().min(1),
+    instanceId: z.uuid(),
+  }),
+])
+
+export const webUiExtensionStatusSchema = z.object({
+  version: z.literal(1),
+  extensionId: z.string().min(1),
+  adapterKey: z.string().min(1).optional(),
+  state: z.enum([
+    "tested",
+    "compatible-by-probe",
+    "unknown",
+    "incompatible",
+    "disabled",
+    "conflict",
+    "tui",
+    "error",
+  ]),
+  targetPackageName: z.string().min(1).optional(),
+  targetPackageVersion: z.string().min(1).optional(),
+  supportedVersion: z.string().min(1).optional(),
+  testedVersions: z.array(z.string()).optional(),
+  probePassed: z.boolean().optional(),
+  reason: z.string().optional(),
+})
+
 export const resourceKindSchema = z.enum([
   "extension",
   "skill",
@@ -375,6 +505,7 @@ const initializeMessageSchema = z.object({
     cwd: z.string().min(1),
     agentDir: z.string().min(1),
     mcpTools: z.array(mcpToolDefinitionSchema),
+    webuiAdapters: z.array(webUiAdapterDescriptorSchema),
     target: z.discriminatedUnion("mode", [
       z.object({
         mode: z.literal("resume"),
@@ -539,6 +670,36 @@ const tuiSurfaceActionMessageSchema = z.object({
   }),
 })
 
+const webUiViewListMessageSchema = z.object({
+  type: z.literal("webui.view.list"),
+  requestId: z.string().min(1),
+  sessionId: z.string().min(1),
+})
+
+const webUiActionMessageSchema = z.object({
+  type: z.literal("webui.action.invoke"),
+  requestId: z.string().min(1),
+  sessionId: z.string().min(1),
+  payload: z.object({
+    extensionId: z.string().min(1),
+    instanceId: z.uuid(),
+    actionId: z.string().min(1),
+    input: z.unknown().optional(),
+  }),
+})
+
+const webUiClientStatusMessageSchema = z.object({
+  type: z.literal("webui.client.status"),
+  requestId: z.string().min(1),
+  sessionId: z.string().min(1),
+  payload: z.object({
+    extensionId: z.string().min(1),
+    instanceId: z.uuid(),
+    status: z.enum(["ready", "error", "disposed"]),
+    message: z.string().max(4_096).optional(),
+  }),
+})
+
 const shutdownMessageSchema = z.object({
   type: z.literal("runtime.shutdown"),
   requestId: z.string().min(1),
@@ -633,6 +794,9 @@ export const hostToWorkerMessageSchema = z.discriminatedUnion("type", [
   extensionUIResponseMessageSchema,
   tuiSurfaceListMessageSchema,
   tuiSurfaceActionMessageSchema,
+  webUiViewListMessageSchema,
+  webUiActionMessageSchema,
+  webUiClientStatusMessageSchema,
   reloadResourcesMessageSchema,
   resourceCatalogMessageSchema,
   resourceToggleMessageSchema,
@@ -698,6 +862,18 @@ const tuiSurfaceEventMessageSchema = z.object({
   payload: tuiSurfaceEventSchema,
 })
 
+const webUiViewEventMessageSchema = z.object({
+  type: z.literal("webui.view.event"),
+  sessionId: z.string().min(1),
+  payload: webUiViewEventSchema,
+})
+
+const webUiExtensionStatusMessageSchema = z.object({
+  type: z.literal("webui.extension.status"),
+  sessionId: z.string().min(1),
+  payload: webUiExtensionStatusSchema,
+})
+
 const mcpCallRequestMessageSchema = z.object({
   type: z.literal("mcp.call.request"),
   requestId: z.string().min(1),
@@ -723,6 +899,8 @@ export const workerToHostMessageSchema = z.discriminatedUnion("type", [
   runtimeFatalMessageSchema,
   extensionUIRequestMessageSchema,
   tuiSurfaceEventMessageSchema,
+  webUiViewEventMessageSchema,
+  webUiExtensionStatusMessageSchema,
   mcpCallRequestMessageSchema,
   mcpCallCancelMessageSchema,
 ])
@@ -753,6 +931,13 @@ export type TuiSurfacePlacement = z.infer<typeof tuiSurfacePlacementSchema>
 export type TuiSurfaceSnapshot = z.infer<typeof tuiSurfaceSnapshotSchema>
 export type TuiSurfaceEvent = z.infer<typeof tuiSurfaceEventSchema>
 export type TuiSurfaceAction = z.infer<typeof tuiSurfaceActionSchema>
+export type WebUiPlacement = z.infer<typeof webUiPlacementSchema>
+export type WebUiAdapterDescriptor = z.infer<
+  typeof webUiAdapterDescriptorSchema
+>
+export type WebUiViewSnapshot = z.infer<typeof webUiViewSnapshotSchema>
+export type WebUiViewEvent = z.infer<typeof webUiViewEventSchema>
+export type WebUiExtensionStatus = z.infer<typeof webUiExtensionStatusSchema>
 export type ResourceView = z.infer<typeof resourceViewSchema>
 export type PackageView = z.infer<typeof packageViewSchema>
 export type ResourceCatalog = z.infer<typeof resourceCatalogSchema>

@@ -233,6 +233,11 @@ async function main() {
       HOSTNAME: host,
       PORT: String(port),
       PI_WEB_CODEX_CONFIG_DIR: root,
+      PI_WEB_CODEX_BUILTIN_EXTENSION_ROOT: path.join(
+        packageRoot,
+        "dist",
+        "webui-extensions"
+      ),
       PI_WEB_CODEX_PI_WORKER_PATH: path.join(
         packageRoot,
         "dist",

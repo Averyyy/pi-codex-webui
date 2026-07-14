@@ -9,8 +9,10 @@
     "PI_SERVER_MODE",
     "PI_SERVER_URL",
     "PI_WEB_CODEX_CONFIG_DIR",
+    "PI_WEB_CODEX_BUILTIN_EXTENSION_ROOT",
     "PI_WEB_CODEX_PI_WORKER_PATH",
     "PI_WEB_CODEX_PI_CLIENT_WORKER_PATH",
+    "PI_WEB_CODEX_WEBUI_EXTENSION_PATHS",
     "PORT",
     "XDG_CONFIG_HOME"
   ],
@@ -32,6 +34,7 @@
     },
     "dev": {
       "cache": false,
+      "dependsOn": ["^build"],
       "persistent": true
     }
   }

@@ -4,6 +4,7 @@ import {
   cp,
   lstat,
   mkdir,
+  readFile,
   readdir,
   realpath,
   rm,
@@ -122,6 +123,33 @@ await Promise.all([
   deployWorker("@workspace/worker-pi", "pi"),
   deployWorker("@workspace/worker-pi-client", "pi-client"),
 ])
+
+const builtinSourceRoot = path.join(root, "webui-extensions", "builtin")
+const builtinOutputRoot = path.join(root, "dist", "webui-extensions")
+const builtinPackages = await readdir(builtinSourceRoot, {
+  withFileTypes: true,
+})
+await Promise.all(
+  builtinPackages
+    .filter((entry) => entry.isDirectory())
+    .map(async (entry) => {
+      const source = path.join(builtinSourceRoot, entry.name)
+      const packageJson = JSON.parse(
+        await readFile(path.join(source, "package.json"), "utf8")
+      )
+      if (!packageJson.piWebCodex) return
+      const destination = path.join(builtinOutputRoot, entry.name)
+      await mkdir(destination, { recursive: true })
+      await cp(
+        path.join(source, "package.json"),
+        path.join(destination, "package.json")
+      )
+      await copyPortable(
+        path.join(source, "dist"),
+        path.join(destination, "dist")
+      )
+    })
+)
 
 const leakedSource = (await sourceFiles(path.join(root, "dist"))).find((file) =>
   /\.tsx?$/.test(file)

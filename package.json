@@ -14,9 +14,9 @@
   ],
   "scripts": {
     "build": "turbo build && node scripts/assemble-dist.mjs",
-    "dev": "turbo dev --filter=web --filter=@workspace/worker-pi --filter=@workspace/worker-pi-client",
+    "dev": "turbo dev --filter=web --filter=@workspace/worker-pi --filter=@workspace/worker-pi-client --filter=@pi-web-codex/extension-sdk --filter=pi-codex-conversation-webui",
     "lint": "turbo lint",
-    "test": "node --conditions=react-server --import tsx --test apps/web/lib/*.test.ts packages/worker-common/src/*.test.ts",
+    "test": "node --conditions=react-server --import tsx --test apps/web/lib/*.test.ts packages/extension-sdk/src/*.test.ts packages/worker-common/src/*.test.ts webui-extensions/builtin/conversation/src/*.test.ts",
     "release:verify": "pnpm build && node scripts/verify-release.mjs",
     "format": "turbo format && prettier --write \"bin/**/*.mjs\" \"scripts/**/*.mjs\"",
     "typecheck": "turbo typecheck"

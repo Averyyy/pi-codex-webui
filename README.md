@@ -13,7 +13,10 @@ import, and statistics. Extensions can use native Web confirm, select, input,
 editor, notification, status, and line-widget controls. Component widgets,
 custom dialogs and overlays, headers, footers, raw terminal input, and custom
 editors keep running as real Pi TUI components inside the worker and render in
-the browser through versioned virtual-terminal surfaces.
+the browser through versioned virtual-terminal surfaces. Independent WebUI
+Adapter packages can progressively replace known commands and renderers with
+content-hashed Shadow DOM views; built-in and external packages use one runtime
+manifest/SDK, and every failure returns to the original Pi/Virtual TUI path.
 Packages, extensions, and skills have dedicated Global/Current Project settings
 pages backed by Pi's real SettingsManager and DefaultPackageManager. Resource
 changes respect Pi project trust, persist atomically, reload idle runtimes
@@ -75,4 +78,6 @@ temporary global prefix, and starts the installed CLI through its health check.
 
 ## Architecture
 
-See [docs/architecture.md](docs/architecture.md).
+See [docs/architecture.md](docs/architecture.md) and the
+[WebUI Extension architecture](docs/webui-extensions/architecture.md). Adapter
+authors can start with [webui-extensions/README.md](webui-extensions/README.md).

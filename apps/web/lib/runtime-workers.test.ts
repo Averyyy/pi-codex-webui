@@ -103,6 +103,7 @@ test("Pi Client duplicates into its own worker without changing the source", asy
           },
         },
       ],
+      webuiAdapters: [],
       target: { mode: "new" },
     },
   })
@@ -123,6 +124,7 @@ test("Pi Client duplicates into its own worker without changing the source", asy
       cwd,
       agentDir,
       mcpTools: [],
+      webuiAdapters: [],
       target: {
         mode: "duplicate",
         sourceSessionFile: piSnapshot.nativeSessionFile,
