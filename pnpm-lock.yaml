@@ -5,6 +5,9 @@ settings:
   excludeLinksFromLockfile: false
   injectWorkspacePackages: true
 
+patchedDependencies:
+  next-themes@0.4.6: d5d3f6fccf19abc9f9510e0cb05b04476717842b72830eba0b1ee95507014317
+
 importers:
 
   .:
@@ -59,7 +62,7 @@ importers:
         version: 16.2.10(@opentelemetry/api@1.9.0)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       next-themes:
         specifier: ^0.4.6
-        version: 0.4.6(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+        version: 0.4.6(patch_hash=d5d3f6fccf19abc9f9510e0cb05b04476717842b72830eba0b1ee95507014317)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       react:
         specifier: 19.2.7
         version: 19.2.7
@@ -228,7 +231,7 @@ importers:
         version: 1.24.0(react@19.2.7)
       next-themes:
         specifier: ^0.4.6
-        version: 0.4.6(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+        version: 0.4.6(patch_hash=d5d3f6fccf19abc9f9510e0cb05b04476717842b72830eba0b1ee95507014317)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       radix-ui:
         specifier: ^1.6.2
         version: 1.6.2(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -9829,7 +9832,7 @@ snapshots:
 
   negotiator@1.0.0: {}
 
-  next-themes@0.4.6(react-dom@19.2.7(react@19.2.7))(react@19.2.7):
+  next-themes@0.4.6(patch_hash=d5d3f6fccf19abc9f9510e0cb05b04476717842b72830eba0b1ee95507014317)(react-dom@19.2.7(react@19.2.7))(react@19.2.7):
     dependencies:
       react: 19.2.7
       react-dom: 19.2.7(react@19.2.7)
