@@ -32,13 +32,13 @@ export function Markdown({ children }: { children: string }) {
         h1: ({ className, ...props }: ComponentProps<"h1">) => (
           <h1
             {...props}
-            className={`mt-6 mb-3 text-xl font-semibold ${className ?? ""}`}
+            className={`mt-5 mb-2.5 text-xl font-semibold ${className ?? ""}`}
           />
         ),
         h2: ({ className, ...props }: ComponentProps<"h2">) => (
           <h2
             {...props}
-            className={`mt-5 mb-2 text-lg font-semibold ${className ?? ""}`}
+            className={`mt-4 mb-2 text-lg font-semibold ${className ?? ""}`}
           />
         ),
         h3: ({ className, ...props }: ComponentProps<"h3">) => (
@@ -50,23 +50,23 @@ export function Markdown({ children }: { children: string }) {
         ol: ({ className, ...props }: ComponentProps<"ol">) => (
           <ol
             {...props}
-            className={`my-3 list-decimal space-y-1 pl-6 ${className ?? ""}`}
+            className={`my-2.5 list-decimal space-y-1 pl-6 ${className ?? ""}`}
           />
         ),
         p: ({ className, ...props }: ComponentProps<"p">) => (
           <p
             {...props}
-            className={`my-3 leading-7 break-words first:mt-0 last:mb-0 ${className ?? ""}`}
+            className={`my-2.5 leading-6 break-words first:mt-0 last:mb-0 ${className ?? ""}`}
           />
         ),
         pre: ({ className, ...props }: ComponentProps<"pre">) => (
           <pre
             {...props}
-            className={`my-4 overflow-x-auto rounded-xl border bg-muted/50 p-4 text-xs leading-5 [&_code]:bg-transparent [&_code]:p-0 ${className ?? ""}`}
+            className={`my-3 overflow-x-auto rounded-lg border bg-muted/50 p-3 text-xs leading-5 [&_code]:bg-transparent [&_code]:p-0 ${className ?? ""}`}
           />
         ),
         table: ({ className, ...props }: ComponentProps<"table">) => (
-          <div className="my-4 overflow-x-auto">
+          <div className="my-3 overflow-x-auto">
             <table
               {...props}
               className={`w-full border-collapse text-sm [&_td]:border [&_td]:p-2 [&_th]:border [&_th]:bg-muted [&_th]:p-2 [&_th]:text-left ${className ?? ""}`}
@@ -76,7 +76,7 @@ export function Markdown({ children }: { children: string }) {
         ul: ({ className, ...props }: ComponentProps<"ul">) => (
           <ul
             {...props}
-            className={`my-3 list-disc space-y-1 pl-6 ${className ?? ""}`}
+            className={`my-2.5 list-disc space-y-1 pl-6 ${className ?? ""}`}
           />
         ),
       }}

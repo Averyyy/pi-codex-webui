@@ -1,21 +1,15 @@
 import {
-  ChevronDownIcon,
+  BrainIcon,
   CircleAlertIcon,
+  FileTextIcon,
   Settings2Icon,
   TerminalIcon,
 } from "lucide-react"
 
-import { Badge } from "@workspace/ui/components/badge"
-import { buttonVariants } from "@workspace/ui/components/button"
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@workspace/ui/components/collapsible"
-
+import { ConversationDisclosure } from "@/components/conversation-disclosure"
 import { Markdown } from "@/components/markdown"
 import { stripAnsi } from "@/lib/ansi"
-import { formatTimestamp } from "@/lib/session-display"
+import { formatInlinePreview, formatTimestamp } from "@/lib/session-display"
 import type {
   SessionSnapshot,
   TranscriptEntry,
@@ -29,14 +23,24 @@ function json(value: unknown) {
 }
 
 function toolSummary(name: string, args: Record<string, unknown>) {
-  const field =
-    name === "bash"
-      ? args.command
-      : ["read", "write", "edit", "find"].includes(name)
-        ? args.path
-        : name === "grep"
-          ? args.pattern
-          : undefined
+  let field: unknown
+  switch (name) {
+    case "bash":
+      field = args.command
+      break
+    case "Agent":
+      field = args.description
+      break
+    case "read":
+    case "write":
+    case "edit":
+    case "find":
+      field = args.path
+      break
+    case "grep":
+      field = args.pattern
+      break
+  }
   return typeof field === "string" ? field : ""
 }
 
@@ -78,14 +82,16 @@ function TextParts({
     }
     if (part.type === "thinking") {
       return (
-        <details key={index} className="group rounded-lg border bg-muted/30">
-          <summary className="cursor-pointer px-3 py-2 text-sm font-medium">
-            {part.redacted ? "已脱敏思考" : "思考"}
-          </summary>
-          <div className="border-t px-3 py-3 text-muted-foreground">
-            <Markdown>{part.text}</Markdown>
-          </div>
-        </details>
+        <ConversationDisclosure
+          key={index}
+          label={part.redacted ? "已脱敏思考" : "思考"}
+          preview={formatInlinePreview(part.text)}
+          icon={<BrainIcon />}
+          ariaLabel={part.redacted ? "展开已脱敏思考" : "展开思考"}
+          contentClassName="max-h-80 overflow-y-auto pr-2 text-xs text-muted-foreground [&_p]:leading-5"
+        >
+          <Markdown>{part.text}</Markdown>
+        </ConversationDisclosure>
       )
     }
     if (part.type === "image") return <ImagePart key={index} part={part} />
@@ -112,62 +118,36 @@ function ToolCallCard({
 }) {
   const summary = toolSummary(part.name, part.arguments)
   return (
-    <Collapsible
+    <ConversationDisclosure
       defaultOpen={result?.isError === true}
-      className="min-w-0 rounded-xl border"
+      label={<code className="font-mono text-xs">{part.name}</code>}
+      preview={summary}
+      icon={<TerminalIcon />}
+      status={result?.isError ? "失败" : result ? "完成" : "运行中"}
+      statusTone={result?.isError ? "destructive" : "muted"}
+      ariaLabel={`展开 ${part.name} 详情`}
     >
-      <div className="flex min-w-0 items-center gap-2 px-3 py-2">
-        <TerminalIcon className="size-4 shrink-0" />
-        <span className="font-mono text-xs font-medium">{part.name}</span>
-        {summary ? (
-          <span className="min-w-0 truncate text-xs text-muted-foreground">
-            {summary}
-          </span>
-        ) : null}
-        {result?.isError ? (
-          <Badge variant="destructive" className="ml-auto shrink-0">
-            error
-          </Badge>
-        ) : result ? (
-          <Badge variant="secondary" className="ml-auto shrink-0">
-            done
-          </Badge>
-        ) : null}
-        <CollapsibleTrigger
-          className={buttonVariants({
-            variant: "ghost",
-            size: "icon-sm",
-            className:
-              "ml-auto shrink-0 data-open:bg-muted [&_svg]:transition-transform data-open:[&_svg]:rotate-180",
-          })}
-          aria-label={`查看 ${part.name} 详情`}
-        >
-          <ChevronDownIcon />
-        </CollapsibleTrigger>
-      </div>
-      <CollapsibleContent className="border-t">
-        <div className="grid gap-4 p-3">
+      <div className="flex min-w-0 flex-col gap-3">
+        <section>
+          <p className="mb-1.5 text-xs font-medium text-muted-foreground">
+            参数
+          </p>
+          <pre className="max-h-72 max-w-full overflow-auto rounded-lg bg-muted/60 p-3 font-mono text-xs leading-5">
+            {json(part.arguments)}
+          </pre>
+        </section>
+        {result ? (
           <div>
-            <p className="mb-2 text-xs font-medium text-muted-foreground">
-              参数
+            <p className="mb-1.5 text-xs font-medium text-muted-foreground">
+              结果
             </p>
-            <pre className="max-h-80 max-w-full overflow-auto rounded-lg bg-muted p-3 font-mono text-xs leading-5">
-              {json(part.arguments)}
-            </pre>
-          </div>
-          {result ? (
-            <div>
-              <p className="mb-2 text-xs font-medium text-muted-foreground">
-                结果
-              </p>
-              <div className="grid gap-3 text-sm">
-                <TextParts parts={result.parts} literal />
-              </div>
+            <div className="flex min-w-0 flex-col gap-2 text-sm">
+              <TextParts parts={result.parts} literal />
             </div>
-          ) : null}
-        </div>
-      </CollapsibleContent>
-    </Collapsible>
+          </div>
+        ) : null}
+      </div>
+    </ConversationDisclosure>
   )
 }
 
@@ -180,22 +160,25 @@ function Message({
 }) {
   if (entry.role === "bashExecution") {
     const [command, output] = entry.parts
+    const commandText =
+      command?.type === "text" ? formatInlinePreview(command.text) : ""
     return (
-      <div id={`entry-${entry.id}`} className="rounded-xl border">
-        <div className="flex items-center gap-2 border-b px-3 py-2">
-          <TerminalIcon className="size-4" />
-          <span className="font-mono text-xs">shell</span>
-          {entry.isError ? (
-            <Badge variant="destructive" className="ml-auto">
-              error
-            </Badge>
-          ) : null}
-        </div>
-        <pre className="overflow-x-auto bg-muted/50 p-3 text-xs leading-5">
-          $ {command?.type === "text" ? stripAnsi(command.text) : ""}
-          {"\n"}
-          {output?.type === "text" ? stripAnsi(output.text) : ""}
-        </pre>
+      <div id={`entry-${entry.id}`}>
+        <ConversationDisclosure
+          defaultOpen={entry.isError === true}
+          label={<code className="font-mono text-xs">shell</code>}
+          preview={commandText}
+          icon={<TerminalIcon />}
+          status={entry.isError ? "失败" : "完成"}
+          statusTone={entry.isError ? "destructive" : "muted"}
+          ariaLabel="展开 shell 详情"
+        >
+          <pre className="max-h-72 overflow-auto rounded-lg bg-muted/60 p-3 font-mono text-xs leading-5 whitespace-pre-wrap">
+            $ {command?.type === "text" ? stripAnsi(command.text) : ""}
+            {"\n"}
+            {output?.type === "text" ? stripAnsi(output.text) : ""}
+          </pre>
+        </ConversationDisclosure>
       </div>
     )
   }
@@ -207,19 +190,19 @@ function Message({
       id={`entry-${entry.id}`}
       className={
         user
-          ? "ml-auto max-w-[85%] min-w-0 rounded-2xl bg-muted px-4 py-3"
-          : "grid min-w-0 gap-3"
+          ? "ml-auto max-w-[88%] min-w-0 rounded-2xl bg-muted px-3.5 py-2.5"
+          : "flex min-w-0 flex-col gap-2"
       }
     >
-      {!user ? (
+      {!user && !assistant ? (
         <div className="flex items-center gap-2 text-xs font-medium">
-          <span>{assistant ? "Pi" : entry.role}</span>
+          <span>{entry.role}</span>
           <span className="font-normal text-muted-foreground">
             {formatTimestamp(entry.timestamp)}
           </span>
         </div>
       ) : null}
-      <div className="grid min-w-0 gap-3">
+      <div className="flex min-w-0 flex-col gap-2">
         {entry.parts.map((part, index) =>
           part.type === "toolCall" ? (
             <ToolCallCard
@@ -249,30 +232,32 @@ function Event({
     entry.eventType === "compaction" || entry.eventType === "branch_summary"
   if (summary) {
     return (
-      <details
-        id={`entry-${entry.id}`}
-        className="rounded-xl border bg-muted/30"
-      >
-        <summary className="cursor-pointer px-4 py-3 text-sm font-medium">
-          {entry.title}
-        </summary>
-        <div className="border-t px-4 py-4 text-sm text-muted-foreground">
+      <div id={`entry-${entry.id}`}>
+        <ConversationDisclosure
+          label={entry.title}
+          preview={entry.text ? formatInlinePreview(entry.text) : undefined}
+          icon={<FileTextIcon />}
+          ariaLabel={`展开${entry.title}`}
+          contentClassName="text-sm text-muted-foreground"
+        >
           <Markdown>{entry.text ?? ""}</Markdown>
-        </div>
-      </details>
+        </ConversationDisclosure>
+      </div>
     )
   }
   if (entry.value !== undefined) {
     return (
-      <div
-        id={`entry-${entry.id}`}
-        className="rounded-xl border border-dashed p-3"
-      >
-        <div className="mb-2 flex items-center gap-2 text-sm font-medium">
-          <CircleAlertIcon className="size-4" />
-          {entry.title}
-        </div>
-        <pre className="overflow-x-auto text-xs">{json(entry.value)}</pre>
+      <div id={`entry-${entry.id}`}>
+        <ConversationDisclosure
+          label={entry.title}
+          preview={formatInlinePreview(json(entry.value))}
+          icon={<CircleAlertIcon />}
+          ariaLabel={`展开${entry.title}`}
+        >
+          <pre className="max-h-72 overflow-auto rounded-lg bg-muted/60 p-3 text-xs">
+            {json(entry.value)}
+          </pre>
+        </ConversationDisclosure>
       </div>
     )
   }
@@ -299,14 +284,14 @@ function isSettingEvent(entry: TranscriptEntry): entry is SettingEvent {
 
 function SettingChanges({ entries }: { entries: SettingEvent[] }) {
   return (
-    <details className="group text-xs text-muted-foreground">
-      <summary className="flex w-fit cursor-pointer list-none items-center gap-2 rounded-md px-1 py-1 hover:text-foreground [&::-webkit-details-marker]:hidden">
-        <Settings2Icon className="size-3.5" />
-        <span>会话设置变更</span>
-        <span className="tabular-nums">{entries.length}</span>
-        <ChevronDownIcon className="size-3.5 transition-transform group-open:rotate-180" />
-      </summary>
-      <div className="mt-2 ml-2 grid gap-2 border-l pl-4">
+    <ConversationDisclosure
+      label="会话设置变更"
+      preview={`${entries.length} 项`}
+      icon={<Settings2Icon />}
+      ariaLabel="展开会话设置变更"
+      contentClassName="text-xs text-muted-foreground"
+    >
+      <div className="flex flex-col gap-2">
         {entries.map((entry) => (
           <div
             key={entry.id}
@@ -320,7 +305,7 @@ function SettingChanges({ entries }: { entries: SettingEvent[] }) {
           </div>
         ))}
       </div>
-    </details>
+    </ConversationDisclosure>
   )
 }
 
@@ -363,7 +348,7 @@ export function SessionTranscript({ snapshot }: { snapshot: SessionSnapshot }) {
   }
 
   return (
-    <div className="grid min-w-0 gap-6">
+    <div className="flex min-w-0 flex-col gap-5">
       {transcriptBlocks(snapshot.entries).map((block) => {
         if (Array.isArray(block)) {
           return <SettingChanges key={block[0]?.id} entries={block} />

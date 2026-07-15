@@ -52,6 +52,7 @@ import {
 
 import { Markdown } from "@/components/markdown"
 import { PiTuiSurface } from "@/components/pi-tui-surface"
+import { ConversationDisclosure } from "@/components/conversation-disclosure"
 import { ExtensionSlot } from "@/components/extension-slot"
 import {
   ComposerModelSelect,
@@ -60,6 +61,7 @@ import {
 } from "@/components/conversation-composer"
 import { stripAnsi } from "@/lib/ansi"
 import { notifyWhenHidden } from "@/lib/browser-notifications"
+import { formatInlinePreview } from "@/lib/session-display"
 
 interface RuntimeEvent {
   type: string
@@ -749,19 +751,20 @@ export function SessionRuntime({
 
   return (
     <div className="z-10 shrink-0 border-t bg-background/95 px-4 py-3 backdrop-blur sm:px-6 sm:py-4">
-      <div className="mx-auto grid w-full max-w-[46rem] min-w-0 gap-3">
+      <div className="mx-auto grid w-full max-w-[52rem] min-w-0 gap-3">
         {inlineSurfaces("header").map(renderTuiSurface)}
         {hasStreamingContent ? (
-          <div className="grid gap-2 rounded-xl border bg-background p-4 text-sm">
+          <div className="flex max-h-64 min-w-0 flex-col gap-2 overflow-y-auto border-l pl-3 text-sm">
             {streaming.thinking ? (
-              <details>
-                <summary className="cursor-pointer text-xs font-medium text-muted-foreground">
-                  思考中
-                </summary>
-                <p className="mt-2 whitespace-pre-wrap text-muted-foreground">
-                  {streaming.thinking}
-                </p>
-              </details>
+              <ConversationDisclosure
+                label="思考中"
+                preview={formatInlinePreview(streaming.thinking)}
+                icon={<LoaderCircleIcon className="animate-spin" />}
+                ariaLabel="展开正在生成的思考"
+                contentClassName="text-xs text-muted-foreground"
+              >
+                <p className="whitespace-pre-wrap">{streaming.thinking}</p>
+              </ConversationDisclosure>
             ) : null}
             {streaming.text ? <Markdown>{streaming.text}</Markdown> : null}
           </div>

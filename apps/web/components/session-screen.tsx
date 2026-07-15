@@ -76,7 +76,7 @@ export async function SessionScreen({
       <div className="flex h-[calc(100svh-3rem)] min-w-0 overflow-hidden md:h-svh">
         <section className="flex min-w-0 flex-1 flex-col bg-background">
           <header className="shrink-0 border-b bg-background/95 backdrop-blur">
-            <div className="mx-auto flex min-h-14 w-full max-w-[46rem] items-center gap-3 px-4 py-2 sm:px-6">
+            <div className="mx-auto flex min-h-14 w-full max-w-[52rem] items-center gap-3 px-4 py-2 sm:px-6">
               <div className="min-w-0 flex-1">
                 <h1 className="truncate text-sm font-semibold sm:text-base">
                   {displaySessionTitle(snapshot.session)}
@@ -116,13 +116,13 @@ export async function SessionScreen({
               ) : null}
               <ExtensionSlot name="session.header" />
             </div>
-            <div className="mx-auto w-full max-w-[46rem] px-4 sm:px-6">
+            <div className="mx-auto w-full max-w-[52rem] px-4 sm:px-6">
               <ExtensionSlot name="session.toolbar" />
             </div>
           </header>
 
           <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
-            <div className="mx-auto grid w-full max-w-[46rem] min-w-0 gap-8 px-4 py-8 sm:px-6 sm:py-10">
+            <div className="mx-auto grid w-full max-w-[52rem] min-w-0 gap-6 px-4 py-6 sm:px-6 sm:py-8">
               {!workspaceAvailable ? (
                 <div className="rounded-xl border border-dashed bg-muted/30 p-4 text-sm">
                   <p className="font-medium">历史会话仅可阅读</p>

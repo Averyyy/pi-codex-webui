@@ -1,4 +1,5 @@
 import type { SessionSummary } from "@/lib/session-types"
+import { stripAnsi } from "@/lib/ansi"
 
 export function displaySessionTitle(session: SessionSummary) {
   return (
@@ -15,4 +16,8 @@ const dateFormatter = new Intl.DateTimeFormat("zh-CN", {
 
 export function formatTimestamp(value: string) {
   return dateFormatter.format(new Date(value))
+}
+
+export function formatInlinePreview(value: string) {
+  return stripAnsi(value).replace(/\s+/g, " ").trim()
 }
