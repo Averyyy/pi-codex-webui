@@ -52,6 +52,14 @@ export class PiSessionFormatError extends Error {
   }
 }
 
+export function parsePiSessionHeader(file: string, line: string) {
+  const result = headerSchema.safeParse(parseLine(file, line, 1))
+  if (!result.success) {
+    throw new PiSessionFormatError(file, 1, z.prettifyError(result.error))
+  }
+  return result.data
+}
+
 export async function readStablePiSessionFile(file: string) {
   const handle = await open(file, "r")
   try {
@@ -102,10 +110,7 @@ function parseLines(file: string, content: string) {
     throw new PiSessionFormatError(file, 1, "Session file is empty.")
   }
 
-  const headerResult = headerSchema.safeParse(parseLine(file, lines[0]!, 1))
-  if (!headerResult.success) {
-    throw new PiSessionFormatError(file, 1, z.prettifyError(headerResult.error))
-  }
+  const header = parsePiSessionHeader(file, lines[0]!)
 
   const entries = lines.slice(1).map((line, index) => {
     const lineNumber = index + 2
@@ -120,7 +125,7 @@ function parseLines(file: string, content: string) {
     return result.data
   })
 
-  return { header: headerResult.data, entries }
+  return { header, entries }
 }
 
 export function parsePiSessionEntries(

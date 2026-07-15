@@ -27,6 +27,8 @@ export type ProjectGitStatus =
 
 type GitResult = { code: number; stdout: string; stderr: string }
 
+export class ProjectGitError extends Error {}
+
 function runGit(cwd: string, args: string[]) {
   return new Promise<GitResult>((resolve, reject) => {
     const child = spawn("git", ["-C", cwd, ...args], {
@@ -49,6 +51,25 @@ function runGit(cwd: string, args: string[]) {
 
 function commandValue(result: GitResult) {
   return result.code === 0 ? result.stdout.trim() || null : null
+}
+
+export async function createProjectWorktree(
+  projectPath: string,
+  targetPath: string,
+  branch: string
+) {
+  const result = await runGit(projectPath, [
+    "worktree",
+    "add",
+    "-b",
+    branch,
+    targetPath,
+  ])
+  if (result.code !== 0) {
+    throw new ProjectGitError(
+      result.stderr.trim() || "Git worktree creation failed."
+    )
+  }
 }
 
 function parseStatus(output: string) {

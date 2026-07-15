@@ -8,6 +8,7 @@ import {
 
 import { WorkspaceNav } from "@/components/workspace-nav"
 import { listWorkspaceProjects, listWorkspaceTasks } from "@/lib/catalog"
+import { getMutationToken } from "@/lib/request-security"
 
 export default async function WorkspaceLayout({
   children,
@@ -27,7 +28,11 @@ export default async function WorkspaceLayout({
         } as CSSProperties
       }
     >
-      <WorkspaceNav projects={projects} tasks={tasks} />
+      <WorkspaceNav
+        projects={projects}
+        tasks={tasks}
+        mutationToken={getMutationToken()}
+      />
       <SidebarInset className="min-h-svh overflow-hidden">
         <header className="flex h-12 shrink-0 items-center border-b px-3 md:hidden">
           <SidebarTrigger />

@@ -4,6 +4,7 @@ export interface ProjectSummary {
   name: string
   sessionCount: number
   updatedAt: string
+  isPinned: boolean
 }
 
 export interface SessionSummary {
@@ -18,6 +19,7 @@ export interface SessionSummary {
   updatedAt: string
   messageCount: number
   archivedAt: string | null
+  isPinned: boolean
   runtimeKind: "pi" | "pi-client"
   runtimeProfileId: string
   migratedFromSessionId: string | null

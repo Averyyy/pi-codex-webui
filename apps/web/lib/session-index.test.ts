@@ -1,13 +1,15 @@
 import assert from "node:assert/strict"
-import { mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, realpath, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import test from "node:test"
 
 import {
+  addWorkspaceProject,
   archiveSession,
   deleteArchivedSession,
   getProject,
+  getSessionIdentityByNativeFile,
   getSessionRuntimeTarget,
   getSessionSnapshot,
   isProjectDirectoryAvailable,
@@ -15,7 +17,10 @@ import {
   listWorkspaceProjects,
   listWorkspaceTasks,
   markSessionStandalone,
+  removeWorkspaceProject,
   searchSessions,
+  setProjectPinned,
+  setSessionPinned,
 } from "./catalog"
 import { getDatabase } from "./database"
 import { syncPiSessionIndex } from "./session-index"
@@ -67,6 +72,7 @@ test("standalone sessions survive reindexing and remain outside projects", async
   const sessionRoot = path.join(root, "sessions")
   const projectCwd = path.join(root, "project")
   const taskCwd = path.join(root, "task")
+  const emptyCwd = path.join(root, "empty-project")
   const previous = {
     config: process.env.PI_WEB_CODEX_CONFIG_DIR,
     sessions: process.env.PI_CODING_AGENT_SESSION_DIR,
@@ -81,6 +87,7 @@ test("standalone sessions survive reindexing and remain outside projects", async
       mkdir(sessionRoot, { recursive: true }),
       mkdir(projectCwd, { recursive: true }),
       mkdir(taskCwd, { recursive: true }),
+      mkdir(emptyCwd, { recursive: true }),
     ])
     const projectFile = path.join(sessionRoot, "project.jsonl")
     const taskFile = path.join(sessionRoot, "task.jsonl")
@@ -96,17 +103,32 @@ test("standalone sessions survive reindexing and remain outside projects", async
     ])
 
     await syncPiSessionIndex()
-    const imported = await listWorkspaceProjects()
-    assert.equal(imported.length, 2)
+    assert.deepEqual(await listWorkspaceProjects(), [])
     assert.deepEqual(await listWorkspaceTasks(), [])
-    const projectSession = imported.find(({ path: cwd }) => cwd === projectCwd)
-      ?.sessions[0]
-    const taskSession = imported.find(({ path: cwd }) => cwd === taskCwd)
-      ?.sessions[0]
+
+    const registered = await addWorkspaceProject(projectCwd)
+    const canonicalProjectCwd = await realpath(projectCwd)
+    assert.equal(registered.path, canonicalProjectCwd)
+    const emptyProject = await addWorkspaceProject(emptyCwd)
+    assert.equal(emptyProject.sessionCount, 0)
+    assert.equal(await removeWorkspaceProject(emptyProject.id), true)
+    const imported = await listWorkspaceProjects()
+    assert.equal(imported.length, 1)
+    const projectSession = imported[0]?.sessions[0]
+    const taskSession = await getSessionIdentityByNativeFile(taskFile)
     assert.ok(projectSession)
     assert.ok(taskSession)
     const projectId = projectSession.projectId
     assert.ok(projectId)
+    assert.equal(await setProjectPinned(projectId, true), true)
+    assert.equal((await listWorkspaceProjects())[0]?.isPinned, true)
+    assert.equal(await setSessionPinned(projectSession.id, true), true)
+    assert.equal(
+      (await listWorkspaceProjects())[0]?.sessions[0]?.isPinned,
+      true
+    )
+    await setProjectPinned(projectId, false)
+    await setSessionPinned(projectSession.id, false)
 
     await markSessionStandalone(taskSession.id, {
       cwd: taskCwd,
@@ -118,7 +140,7 @@ test("standalone sessions survive reindexing and remain outside projects", async
     const projects = await listWorkspaceProjects()
     assert.deepEqual(
       projects.map(({ path: cwd }) => cwd),
-      [projectCwd]
+      [canonicalProjectCwd]
     )
     const [task] = await listWorkspaceTasks()
     assert.ok(task)
@@ -200,7 +222,7 @@ test("standalone sessions survive reindexing and remain outside projects", async
 
     await rm(projectCwd, { recursive: true })
     assert.deepEqual(await listWorkspaceProjects(), [])
-    assert.equal((await getProject(projectId))?.path, projectCwd)
+    assert.equal((await getProject(projectId))?.path, canonicalProjectCwd)
   } finally {
     const database = await getDatabase()
     database.close()

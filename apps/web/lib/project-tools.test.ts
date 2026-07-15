@@ -11,7 +11,7 @@ import {
   readProjectEntry,
   readProjectFile,
 } from "./project-files"
-import { readProjectGitStatus } from "./project-git"
+import { createProjectWorktree, readProjectGitStatus } from "./project-git"
 
 const run = promisify(execFile)
 
@@ -81,6 +81,14 @@ test("project Git integration reports the real branch and working tree", async (
   await writeFile(path.join(project, "tracked.txt"), "first\n")
   await run("git", ["-C", project, "add", "tracked.txt"])
   await run("git", ["-C", project, "commit", "-m", "fixture"])
+  const worktree = `${project}-worktree`
+  await createProjectWorktree(project, worktree, "fixture-worktree")
+  assert.equal(
+    (
+      await run("git", ["-C", worktree, "branch", "--show-current"])
+    ).stdout.trim(),
+    "fixture-worktree"
+  )
   await Promise.all([
     writeFile(path.join(project, "tracked.txt"), "changed\n"),
     writeFile(path.join(project, "untracked.txt"), "new\n"),
@@ -99,5 +107,8 @@ test("project Git integration reports the real branch and working tree", async (
       ]
     )
   }
-  await rm(project, { recursive: true, force: true })
+  await Promise.all([
+    rm(project, { recursive: true, force: true }),
+    rm(worktree, { recursive: true, force: true }),
+  ])
 })

@@ -2,7 +2,7 @@ import "server-only"
 
 import { createHash, randomUUID } from "node:crypto"
 import type { Dirent } from "node:fs"
-import { readdir, realpath, stat } from "node:fs/promises"
+import { open, readdir, realpath, stat } from "node:fs/promises"
 import path from "node:path"
 import type { DatabaseSync } from "node:sqlite"
 
@@ -10,8 +10,8 @@ import { getPiSessionsRoot } from "@/lib/app-paths"
 import { getDatabase, inTransaction } from "@/lib/database"
 import {
   parsePiSession,
+  parsePiSessionHeader,
   parsePiSessionEntries,
-  projectName,
   readStablePiSessionFile,
   searchableText,
   summarizePiEntries,
@@ -123,32 +123,37 @@ function insertEntries(
   }
 }
 
-function ensureProject(
-  database: DatabaseSync,
-  canonicalPath: string,
-  createdAt: string,
-  updatedAt: string
-) {
-  const existing = database
-    .prepare("SELECT id FROM projects WHERE canonical_path = ?")
-    .get(canonicalPath) as { id: string } | undefined
-  const id = existing?.id ?? randomUUID()
-
-  database
-    .prepare(
-      `INSERT INTO projects(
-         id, canonical_path, display_name, created_at, updated_at
-       ) VALUES (?, ?, ?, ?, ?)
-       ON CONFLICT(canonical_path) DO UPDATE SET
-         display_name = excluded.display_name,
-         created_at = min(projects.created_at, excluded.created_at),
-         updated_at = max(projects.updated_at, excluded.updated_at)`
-    )
-    .run(id, canonicalPath, projectName(canonicalPath), createdAt, updatedAt)
-  return id
+function registeredProjectId(database: DatabaseSync, canonicalPath: string) {
+  return (
+    database
+      .prepare("SELECT id FROM projects WHERE canonical_path = ?")
+      .get(canonicalPath) as { id: string } | undefined
+  )?.id
 }
 
-function replaceSession(
+async function canonicalizeCwd(cwd: string) {
+  const resolved = path.resolve(cwd)
+  try {
+    return await realpath(resolved)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return resolved
+    throw error
+  }
+}
+
+async function sessionFileCwd(file: string) {
+  const handle = await open(file, "r")
+  try {
+    for await (const line of handle.readLines()) {
+      return canonicalizeCwd(parsePiSessionHeader(file, line).cwd)
+    }
+  } finally {
+    await handle.close()
+  }
+  throw new Error(`Session file is empty: ${file}`)
+}
+
+async function replaceSession(
   database: DatabaseSync,
   file: string,
   content: Buffer,
@@ -156,7 +161,7 @@ function replaceSession(
   existing: IndexedSessionRow | undefined
 ) {
   const parsed = parsePiSession(file, decoder.decode(content))
-  const canonicalPath = parsed.header.cwd ? path.resolve(parsed.header.cwd) : ""
+  const canonicalPath = await canonicalizeCwd(parsed.header.cwd)
   const sameNativeSession =
     !existing || existing.native_session_id === parsed.header.id
   const sessionId = existing && sameNativeSession ? existing.id : randomUUID()
@@ -173,12 +178,7 @@ function replaceSession(
     const projectId =
       existing?.project_id === null
         ? null
-        : ensureProject(
-            database,
-            canonicalPath,
-            parsed.header.timestamp,
-            parsed.updatedAt
-          )
+        : (registeredProjectId(database, canonicalPath) ?? null)
     database
       .prepare(
         `INSERT INTO sessions(
@@ -313,7 +313,7 @@ async function indexSessionFile(database: DatabaseSync, file: string) {
     return
   }
 
-  replaceSession(database, file, content, stable.mtimeNs, existing)
+  await replaceSession(database, file, content, stable.mtimeNs, existing)
 }
 
 function removeMissingSessions(database: DatabaseSync, files: Set<string>) {
@@ -330,20 +330,15 @@ function removeMissingSessions(database: DatabaseSync, files: Set<string>) {
       database.prepare("DELETE FROM sessions WHERE id = ?").run(session.id)
     }
     database.exec(`
-      DELETE FROM projects
-      WHERE NOT EXISTS (
-        SELECT 1 FROM sessions WHERE sessions.project_id = projects.id
-      );
-
       UPDATE projects SET
-        created_at = (
+        created_at = coalesce((
           SELECT min(created_at) FROM sessions
           WHERE sessions.project_id = projects.id
-        ),
-        updated_at = (
+        ), created_at),
+        updated_at = coalesce((
           SELECT max(updated_at) FROM sessions
           WHERE sessions.project_id = projects.id
-        );
+        ), updated_at);
     `)
   })
 }
@@ -353,7 +348,20 @@ async function performSync() {
     getDatabase(),
     discoverSessionFiles(getPiSessionsRoot()),
   ])
+  const registeredPaths = new Set(
+    (
+      database.prepare("SELECT canonical_path FROM projects").all() as {
+        canonical_path: string
+      }[]
+    ).map(({ canonical_path }) => canonical_path)
+  )
   for (const file of files) {
+    if (
+      !indexedSession(database, file) &&
+      !registeredPaths.has(await sessionFileCwd(file))
+    ) {
+      continue
+    }
     await indexSessionFile(database, file)
   }
   removeMissingSessions(database, new Set(files))
@@ -377,6 +385,22 @@ export function syncPiSessionIndex() {
   )
   globalThis.piWebCodexIndexSync = operation
   return operation
+}
+
+export async function syncPiProjectSessions(projectId: string) {
+  await syncPiSessionIndex()
+  const database = await getDatabase()
+  const project = database
+    .prepare("SELECT canonical_path FROM projects WHERE id = ?")
+    .get(projectId) as { canonical_path: string } | undefined
+  if (!project) throw new Error(`Project not found: ${projectId}`)
+
+  const files = await discoverSessionFiles(getPiSessionsRoot())
+  for (const file of files) {
+    if ((await sessionFileCwd(file)) === project.canonical_path) {
+      await indexSessionFile(database, file)
+    }
+  }
 }
 
 export async function syncPiSessionFile(file: string) {

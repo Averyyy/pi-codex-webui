@@ -1,6 +1,8 @@
 import "server-only"
 
-import { rm, stat } from "node:fs/promises"
+import { randomUUID } from "node:crypto"
+import { realpath, rm, stat } from "node:fs/promises"
+import path from "node:path"
 
 import { getDatabase, inTransaction } from "@/lib/database"
 import {
@@ -8,7 +10,11 @@ import {
   readStablePiSessionFile,
   toTranscriptEntries,
 } from "@/lib/pi-session"
-import { syncPiSessionFile, syncPiSessionIndex } from "@/lib/session-index"
+import {
+  syncPiProjectSessions,
+  syncPiSessionFile,
+  syncPiSessionIndex,
+} from "@/lib/session-index"
 import type {
   ProjectSummary,
   ArchivedSession,
@@ -24,6 +30,7 @@ interface ProjectRow {
   display_name: string
   session_count: number
   updated_at: string
+  pinned_at: string | null
 }
 
 interface SessionRow {
@@ -39,6 +46,7 @@ interface SessionRow {
   message_count: number
   first_message: string
   archived_at: string | null
+  pinned_at: string | null
   runtime_kind: "pi" | "pi-client"
   runtime_profile_id: string
   migrated_from_session_id: string | null
@@ -95,6 +103,7 @@ function projectSummary(row: ProjectRow): ProjectSummary {
     name: row.display_name,
     sessionCount: row.session_count,
     updatedAt: row.updated_at,
+    isPinned: row.pinned_at !== null,
   }
 }
 
@@ -111,6 +120,7 @@ function sessionSummary(row: SessionRow): SessionSummary {
     updatedAt: row.updated_at,
     messageCount: row.message_count,
     archivedAt: row.archived_at,
+    isPinned: row.pinned_at !== null,
     runtimeKind: row.runtime_kind,
     runtimeProfileId: row.runtime_profile_id,
     migratedFromSessionId: row.migrated_from_session_id,
@@ -123,18 +133,15 @@ function refreshProject(
 ) {
   database
     .prepare(
-      `DELETE FROM projects
-       WHERE id = ?
-         AND NOT EXISTS (
-           SELECT 1 FROM sessions WHERE project_id = projects.id
-         )`
-    )
-    .run(projectId)
-  database
-    .prepare(
       `UPDATE projects SET
-         created_at = (SELECT min(created_at) FROM sessions WHERE project_id = ?),
-         updated_at = (SELECT max(updated_at) FROM sessions WHERE project_id = ?)
+         created_at = coalesce(
+           (SELECT min(created_at) FROM sessions WHERE project_id = ?),
+           created_at
+         ),
+         updated_at = coalesce(
+           (SELECT max(updated_at) FROM sessions WHERE project_id = ?),
+           updated_at
+         )
        WHERE id = ?`
     )
     .run(projectId, projectId, projectId)
@@ -149,6 +156,81 @@ export async function isProjectDirectoryAvailable(canonicalPath: string) {
   }
 }
 
+export async function addWorkspaceProject(inputPath: string) {
+  const canonicalPath = await realpath(path.resolve(inputPath))
+  if (!(await stat(canonicalPath)).isDirectory()) {
+    throw new Error("Project path must be a directory.")
+  }
+
+  const database = await getDatabase()
+  const existing = database
+    .prepare("SELECT id FROM projects WHERE canonical_path = ?")
+    .get(canonicalPath) as { id: string } | undefined
+  const projectId = existing?.id ?? randomUUID()
+  if (!existing) {
+    const now = new Date().toISOString()
+    database
+      .prepare(
+        `INSERT INTO projects(
+           id, canonical_path, display_name, created_at, updated_at
+         ) VALUES (?, ?, ?, ?, ?)`
+      )
+      .run(projectId, canonicalPath, path.basename(canonicalPath), now, now)
+  }
+
+  await syncPiProjectSessions(projectId)
+  const project = await getProject(projectId)
+  if (!project) throw new Error("Registered project could not be loaded.")
+  return project
+}
+
+export async function renameWorkspaceProject(projectId: string, name: string) {
+  const database = await getDatabase()
+  const result = database
+    .prepare("UPDATE projects SET display_name = ? WHERE id = ?")
+    .run(name, projectId)
+  return result.changes === 1
+}
+
+export async function setProjectPinned(projectId: string, pinned: boolean) {
+  const database = await getDatabase()
+  const result = database
+    .prepare("UPDATE projects SET pinned_at = ? WHERE id = ?")
+    .run(pinned ? new Date().toISOString() : null, projectId)
+  return result.changes === 1
+}
+
+export async function setSessionPinned(sessionId: string, pinned: boolean) {
+  const database = await getDatabase()
+  const result = database
+    .prepare(
+      `UPDATE sessions SET pinned_at = ?
+       WHERE id = ? AND archived_at IS NULL`
+    )
+    .run(pinned ? new Date().toISOString() : null, sessionId)
+  return result.changes === 1
+}
+
+export async function removeWorkspaceProject(projectId: string) {
+  const database = await getDatabase()
+  return inTransaction(database, () => {
+    const exists = database
+      .prepare("SELECT 1 FROM projects WHERE id = ?")
+      .get(projectId)
+    if (!exists) return false
+
+    database
+      .prepare(
+        `DELETE FROM session_search WHERE session_id IN (
+           SELECT id FROM sessions WHERE project_id = ?
+         )`
+      )
+      .run(projectId)
+    database.prepare("DELETE FROM projects WHERE id = ?").run(projectId)
+    return true
+  })
+}
+
 export async function listWorkspaceProjects(): Promise<WorkspaceProject[]> {
   await syncPiSessionIndex()
   const database = await getDatabase()
@@ -156,20 +238,21 @@ export async function listWorkspaceProjects(): Promise<WorkspaceProject[]> {
     .prepare(
       `SELECT projects.id, canonical_path, display_name,
               count(sessions.id) AS session_count,
-              projects.updated_at
+              projects.updated_at, projects.pinned_at
        FROM projects
-       JOIN sessions
+       LEFT JOIN sessions
          ON sessions.project_id = projects.id
         AND sessions.archived_at IS NULL
        GROUP BY projects.id
-       ORDER BY projects.updated_at DESC, display_name COLLATE NOCASE`
+       ORDER BY projects.pinned_at IS NULL, projects.pinned_at DESC,
+                projects.updated_at DESC, display_name COLLATE NOCASE`
     )
     .all() as unknown as ProjectRow[]
   const sessions = database
     .prepare(
       `SELECT id, project_id, cwd, native_session_id, native_session_file,
               parent_session_file, title, created_at, updated_at,
-              message_count, first_message, archived_at, runtime_kind,
+              message_count, first_message, archived_at, pinned_at, runtime_kind,
               runtime_profile_id, migrated_from_session_id
        FROM sessions
        WHERE archived_at IS NULL
@@ -206,9 +289,9 @@ export async function getProject(projectId: string) {
     .prepare(
       `SELECT projects.id, canonical_path, display_name,
               count(sessions.id) AS session_count,
-              projects.updated_at
+              projects.updated_at, projects.pinned_at
        FROM projects
-       JOIN sessions
+       LEFT JOIN sessions
          ON sessions.project_id = projects.id
         AND sessions.archived_at IS NULL
        WHERE projects.id = ?
@@ -226,11 +309,11 @@ export async function listProjectSessions(projectId: string) {
       .prepare(
         `SELECT id, project_id, cwd, native_session_id, native_session_file,
                 parent_session_file, title, created_at, updated_at,
-                message_count, first_message, archived_at, runtime_kind,
+                message_count, first_message, archived_at, pinned_at, runtime_kind,
                 runtime_profile_id, migrated_from_session_id
          FROM sessions
          WHERE project_id = ? AND archived_at IS NULL
-         ORDER BY updated_at DESC`
+         ORDER BY pinned_at IS NULL, pinned_at DESC, updated_at DESC`
       )
       .all(projectId) as unknown as SessionRow[]
   ).map(sessionSummary)
@@ -244,11 +327,11 @@ export async function listWorkspaceTasks(): Promise<SessionSummary[]> {
       .prepare(
         `SELECT id, project_id, cwd, native_session_id, native_session_file,
                 parent_session_file, title, created_at, updated_at,
-                message_count, first_message, archived_at, runtime_kind,
+                message_count, first_message, archived_at, pinned_at, runtime_kind,
                 runtime_profile_id, migrated_from_session_id
          FROM sessions
          WHERE project_id IS NULL AND archived_at IS NULL
-         ORDER BY updated_at DESC`
+         ORDER BY pinned_at IS NULL, pinned_at DESC, updated_at DESC`
       )
       .all() as unknown as SessionRow[]
   ).map(sessionSummary)
@@ -264,7 +347,7 @@ export async function listArchivedSessions(): Promise<ArchivedSession[]> {
               sessions.parent_session_file, sessions.title,
               sessions.created_at, sessions.updated_at,
               sessions.message_count, sessions.first_message,
-              sessions.archived_at, sessions.runtime_kind,
+              sessions.archived_at, sessions.pinned_at, sessions.runtime_kind,
               sessions.runtime_profile_id, sessions.migrated_from_session_id,
               projects.display_name AS project_name
        FROM sessions
@@ -290,7 +373,9 @@ export async function archiveSession(sessionId: string) {
 
     const archivedAt = new Date().toISOString()
     database
-      .prepare("UPDATE sessions SET archived_at = ? WHERE id = ?")
+      .prepare(
+        "UPDATE sessions SET archived_at = ?, pinned_at = NULL WHERE id = ?"
+      )
       .run(archivedAt, sessionId)
     return archivedAt
   })
@@ -330,7 +415,8 @@ export async function getSessionSnapshot(sessionId: string) {
       `SELECT sessions.id, project_id, sessions.cwd, native_session_id,
               native_session_file, parent_session_file, title,
               sessions.created_at, sessions.updated_at, message_count,
-              first_message, archived_at, runtime_kind, runtime_profile_id,
+              first_message, archived_at, sessions.pinned_at,
+              runtime_kind, runtime_profile_id,
               migrated_from_session_id,
               projects.canonical_path AS project_path,
               projects.display_name AS project_name
