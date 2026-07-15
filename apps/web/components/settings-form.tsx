@@ -116,7 +116,12 @@ export function GeneralSettingsForm({
   }
 
   return (
-    <form action={submit}>
+    <form
+      onSubmit={(event) => {
+        event.preventDefault()
+        submit(new FormData(event.currentTarget))
+      }}
+    >
       <Card>
         <CardHeader>
           <CardTitle>{t("settings.general.localService")}</CardTitle>
@@ -218,6 +223,7 @@ export function AppearanceSettingsForm({
           t("settings.common.saveFailed")
         )
         setConfig(saved)
+        setThemeValue(saved.appearance.theme)
         setTheme(saved.appearance.theme)
         setLanguage(saved.appearance.language)
         setLocale(saved.appearance.language)
@@ -245,7 +251,12 @@ export function AppearanceSettingsForm({
   }
 
   return (
-    <form action={submit}>
+    <form
+      onSubmit={(event) => {
+        event.preventDefault()
+        submit(new FormData(event.currentTarget))
+      }}
+    >
       <Card>
         <CardHeader>
           <CardTitle>{t("settings.appearance.interface")}</CardTitle>

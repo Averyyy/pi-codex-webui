@@ -1,5 +1,6 @@
 import type { ComponentProps } from "react"
 import ReactMarkdown from "react-markdown"
+import rehypeHighlight from "rehype-highlight"
 import remarkGfm from "remark-gfm"
 
 import { stripAnsi } from "@/lib/ansi"
@@ -8,6 +9,7 @@ export function Markdown({ children }: { children: string }) {
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
+      rehypePlugins={[[rehypeHighlight, { detect: false }]]}
       components={{
         a: ({ className, ...props }: ComponentProps<"a">) => (
           <a
@@ -62,7 +64,7 @@ export function Markdown({ children }: { children: string }) {
         pre: ({ className, ...props }: ComponentProps<"pre">) => (
           <pre
             {...props}
-            className={`my-3 overflow-x-auto rounded-lg border bg-muted/50 p-3 text-xs leading-5 [&_code]:bg-transparent [&_code]:p-0 ${className ?? ""}`}
+            className={`my-3 overflow-x-auto rounded-xl border bg-terminal p-3 text-xs leading-5 text-terminal-foreground [&_code]:bg-transparent [&_code]:p-0 ${className ?? ""}`}
           />
         ),
         table: ({ className, ...props }: ComponentProps<"table">) => (

@@ -296,7 +296,7 @@ export function RuntimeSettingsForm({
 
           {diagnostic ? (
             <div className="flex items-center gap-2 rounded-lg border bg-muted/40 px-4 py-3 text-sm">
-              <CheckCircle2Icon className="size-4 text-emerald-600" />
+              <CheckCircle2Icon className="size-4 text-success" />
               {t("settings.runtime.response", {
                 latency: diagnostic.latencyMs,
               })}

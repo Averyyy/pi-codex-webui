@@ -99,10 +99,7 @@ export function ConversationComposer({
   return (
     <form
       onSubmit={onSubmit}
-      className={cn(
-        "rounded-2xl border bg-background p-2 shadow-sm",
-        className
-      )}
+      className={cn("rounded-2xl border bg-card p-2 shadow-sm", className)}
     >
       {settings || editor === undefined ? (
         <div className="flex flex-wrap items-center gap-2 border-b px-1 pb-2">

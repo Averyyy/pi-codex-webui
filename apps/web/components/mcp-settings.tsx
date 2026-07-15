@@ -383,7 +383,7 @@ export function McpSettings({
         )
       })}
 
-      {notice ? <p className="text-sm text-emerald-700">{notice}</p> : null}
+      {notice ? <p className="text-sm text-success">{notice}</p> : null}
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
 
       {formOpen ? (

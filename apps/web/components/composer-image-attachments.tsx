@@ -147,6 +147,7 @@ export function ComposerImageAddButton({
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
+            data-liquid-glass="control"
             type="button"
             variant="secondary"
             size="icon"

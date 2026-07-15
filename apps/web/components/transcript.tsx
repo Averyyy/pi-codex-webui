@@ -1,15 +1,22 @@
 import {
+  BotIcon,
   BrainIcon,
   CircleAlertIcon,
   FileDownIcon,
+  FilePenLineIcon,
   FileSearchIcon,
   FileTextIcon,
+  FolderSearchIcon,
   SearchIcon,
   Settings2Icon,
   TerminalIcon,
+  WrenchIcon,
 } from "lucide-react"
 
-import { ConversationDisclosure } from "@/components/conversation-disclosure"
+import {
+  ConversationDisclosure,
+  type ConversationDisclosureTone,
+} from "@/components/conversation-disclosure"
 import { Markdown } from "@/components/markdown"
 import { stripAnsi } from "@/lib/ansi"
 import { formatInlinePreview, formatTimestamp } from "@/lib/session-display"
@@ -52,6 +59,29 @@ function toolSummary(name: string, args: Record<string, unknown>) {
   return typeof field === "string" ? field : ""
 }
 
+function toolAppearance(name: string): {
+  icon: React.ReactNode
+  tone: ConversationDisclosureTone
+} {
+  switch (name) {
+    case "bash":
+      return { icon: <TerminalIcon />, tone: "execute" }
+    case "Agent":
+      return { icon: <BotIcon />, tone: "agent" }
+    case "read":
+      return { icon: <FileTextIcon />, tone: "read" }
+    case "write":
+    case "edit":
+      return { icon: <FilePenLineIcon />, tone: "write" }
+    case "find":
+      return { icon: <FolderSearchIcon />, tone: "read" }
+    case "grep":
+      return { icon: <SearchIcon />, tone: "read" }
+    default:
+      return { icon: <WrenchIcon />, tone: "neutral" }
+  }
+}
+
 function ImagePart({
   part,
 }: {
@@ -80,7 +110,7 @@ function TextParts({
       return literal ? (
         <pre
           key={index}
-          className="max-h-96 overflow-auto font-mono text-xs leading-5 whitespace-pre-wrap"
+          className="max-h-96 overflow-auto rounded-lg border bg-terminal p-3 font-mono text-xs leading-5 whitespace-pre-wrap text-terminal-foreground"
         >
           {stripAnsi(part.text)}
         </pre>
@@ -95,6 +125,7 @@ function TextParts({
           label={part.redacted ? "已脱敏思考" : "思考"}
           preview={formatInlinePreview(part.text)}
           icon={<BrainIcon />}
+          tone="agent"
           ariaLabel={part.redacted ? "展开已脱敏思考" : "展开思考"}
           contentClassName="max-h-80 overflow-y-auto pr-2 text-xs text-muted-foreground [&_p]:leading-5"
         >
@@ -128,14 +159,18 @@ function ToolCallCard({
     return <WebAccessToolCard name={part.name} part={part} result={result} />
   }
   const summary = toolSummary(part.name, part.arguments)
+  const appearance = toolAppearance(part.name)
   return (
     <ConversationDisclosure
       defaultOpen={result?.isError === true}
       label={<code className="font-mono text-xs">{part.name}</code>}
       preview={summary}
-      icon={<TerminalIcon />}
+      icon={appearance.icon}
+      tone={appearance.tone}
       status={result?.isError ? "失败" : result ? "完成" : "运行中"}
-      statusTone={result?.isError ? "destructive" : "muted"}
+      statusTone={
+        result?.isError ? "destructive" : result ? "success" : "running"
+      }
       ariaLabel={`展开 ${part.name} 详情`}
     >
       <div className="flex min-w-0 flex-col gap-3">
@@ -189,8 +224,9 @@ function WebAccessToolCard({
       label={presentation.label}
       preview={presentation.preview}
       icon={WEB_ACCESS_ICONS[name]}
+      tone="web"
       status={failed ? "失败" : result ? "完成" : "运行中"}
-      statusTone={failed ? "destructive" : "muted"}
+      statusTone={failed ? "destructive" : result ? "success" : "running"}
       ariaLabel={`展开${presentation.label}详情`}
       contentClassName="max-w-full"
     >
@@ -255,11 +291,12 @@ function Message({
           label={<code className="font-mono text-xs">shell</code>}
           preview={commandText}
           icon={<TerminalIcon />}
+          tone="execute"
           status={entry.isError ? "失败" : "完成"}
-          statusTone={entry.isError ? "destructive" : "muted"}
+          statusTone={entry.isError ? "destructive" : "success"}
           ariaLabel="展开 shell 详情"
         >
-          <pre className="max-h-72 overflow-auto rounded-lg bg-muted/60 p-3 font-mono text-xs leading-5 whitespace-pre-wrap">
+          <pre className="max-h-72 overflow-auto rounded-lg border bg-terminal p-3 font-mono text-xs leading-5 whitespace-pre-wrap text-terminal-foreground">
             $ {command?.type === "text" ? stripAnsi(command.text) : ""}
             {"\n"}
             {output?.type === "text" ? stripAnsi(output.text) : ""}
@@ -323,6 +360,7 @@ function Event({
           label={entry.title}
           preview={entry.text ? formatInlinePreview(entry.text) : undefined}
           icon={<FileTextIcon />}
+          tone="read"
           ariaLabel={`展开${entry.title}`}
           contentClassName="text-sm text-muted-foreground"
         >

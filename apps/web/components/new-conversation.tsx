@@ -102,10 +102,26 @@ function initialModel(settings: ModelSettings) {
 }
 
 const STARTERS = [
-  { icon: SearchCodeIcon, label: "探索并理解代码" },
-  { icon: HammerIcon, label: "构建新功能、应用或工具" },
-  { icon: GitPullRequestIcon, label: "审查代码并提出修改建议" },
-  { icon: BugIcon, label: "修复问题和失败" },
+  {
+    icon: SearchCodeIcon,
+    label: "探索并理解代码",
+    iconClassName: "bg-tool-read/10 text-tool-read",
+  },
+  {
+    icon: HammerIcon,
+    label: "构建新功能、应用或工具",
+    iconClassName: "bg-tool-execute/10 text-tool-execute",
+  },
+  {
+    icon: GitPullRequestIcon,
+    label: "审查代码并提出修改建议",
+    iconClassName: "bg-tool-web/10 text-tool-web",
+  },
+  {
+    icon: BugIcon,
+    label: "修复问题和失败",
+    iconClassName: "bg-tool-write/10 text-tool-write",
+  },
 ] as const
 
 export function NewConversation({
@@ -257,7 +273,7 @@ export function NewConversation({
     <main className="flex min-h-[calc(100svh-3rem)] flex-col px-4 py-6 md:min-h-svh md:px-8 md:py-8">
       <section className="mx-auto flex w-full max-w-5xl flex-1 flex-col items-center justify-center gap-8 py-8 text-center">
         <div className="flex flex-col items-center gap-4">
-          <SparklesIcon className="size-7 text-muted-foreground" />
+          <SparklesIcon className="size-7 text-primary" />
           <h1 className="max-w-3xl text-3xl leading-tight font-medium tracking-tight sm:text-4xl">
             {selectedProject ? (
               <>
@@ -274,15 +290,19 @@ export function NewConversation({
         </div>
 
         <div className="grid w-full max-w-4xl grid-cols-2 gap-3 lg:grid-cols-4">
-          {STARTERS.map(({ icon: Icon, label }) => (
+          {STARTERS.map(({ icon: Icon, label, iconClassName }) => (
             <Button
               key={label}
               type="button"
-              variant="outline"
-              className="h-24 items-start justify-between p-4 text-left whitespace-normal sm:h-28 sm:flex-col"
+              variant="secondary"
+              className="h-24 items-start justify-between rounded-2xl border bg-card p-4 text-left whitespace-normal shadow-sm shadow-foreground/5 hover:bg-accent sm:h-28 sm:flex-col"
               onClick={() => setMessage(label)}
             >
-              <Icon />
+              <span
+                className={`flex size-9 items-center justify-center rounded-xl ${iconClassName}`}
+              >
+                <Icon />
+              </span>
               <span>{label}</span>
             </Button>
           ))}
