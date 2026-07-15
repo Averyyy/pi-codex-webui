@@ -16,6 +16,8 @@ import {
   listArchivedSessions,
   listWorkspaceProjects,
   listWorkspaceTasks,
+  markSessionCompleted,
+  markSessionRead,
   markSessionStandalone,
   removeWorkspaceProject,
   searchSessions,
@@ -118,6 +120,7 @@ test("standalone sessions survive reindexing and remain outside projects", async
     const taskSession = await getSessionIdentityByNativeFile(taskFile)
     assert.ok(projectSession)
     assert.ok(taskSession)
+    assert.equal(projectSession.hasUnreadCompletion, false)
     const projectId = projectSession.projectId
     assert.ok(projectId)
 
@@ -186,6 +189,16 @@ test("standalone sessions survive reindexing and remain outside projects", async
     )
     await setProjectPinned(projectId, false)
     await setSessionPinned(projectSession.id, false)
+    assert.equal(await markSessionCompleted(projectSession.id), true)
+    assert.equal(
+      (await listWorkspaceProjects())[0]?.sessions[0]?.hasUnreadCompletion,
+      true
+    )
+    assert.equal(await markSessionRead(projectSession.id), true)
+    assert.equal(
+      (await listWorkspaceProjects())[0]?.sessions[0]?.hasUnreadCompletion,
+      false
+    )
 
     await markSessionStandalone(taskSession.id, {
       cwd: taskCwd,

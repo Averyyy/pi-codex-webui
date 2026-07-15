@@ -91,11 +91,17 @@ async function responseJson(response: Response) {
 export function WorkspaceNavProject({
   project,
   mutationToken,
+  runningSessionIds,
+  unreadSessionIds,
+  activeSessionId,
   conversationShortcuts,
   shortcutModifier,
 }: {
   project: WorkspaceProject
   mutationToken: string
+  runningSessionIds: ReadonlySet<string>
+  unreadSessionIds: ReadonlySet<string>
+  activeSessionId: string | null
   conversationShortcuts: ReadonlyMap<string, number>
   shortcutModifier?: ConversationShortcutModifier
 }) {
@@ -337,6 +343,11 @@ export function WorkspaceNavProject({
                   session={session}
                   href={`${projectPath}/sessions/${session.id}`}
                   mutationToken={mutationToken}
+                  running={runningSessionIds.has(session.id)}
+                  unread={
+                    session.id !== activeSessionId &&
+                    unreadSessionIds.has(session.id)
+                  }
                   shortcutNumber={conversationShortcuts.get(
                     `${projectPath}/sessions/${session.id}`
                   )}

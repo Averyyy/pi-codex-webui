@@ -3,7 +3,12 @@
 import { useState } from "react"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
-import { ArchiveIcon, MessageSquareTextIcon, PinIcon } from "lucide-react"
+import {
+  ArchiveIcon,
+  LoaderCircleIcon,
+  MessageSquareTextIcon,
+  PinIcon,
+} from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@workspace/ui/components/button"
@@ -37,6 +42,8 @@ export function WorkspaceNavSession({
   session,
   href,
   mutationToken,
+  running,
+  unread,
   nested = false,
   shortcutNumber,
   shortcutModifier,
@@ -44,6 +51,8 @@ export function WorkspaceNavSession({
   session: SessionSummary
   href: string
   mutationToken: string
+  running: boolean
+  unread: boolean
   nested?: boolean
   shortcutNumber?: number
   shortcutModifier?: ConversationShortcutModifier
@@ -140,6 +149,19 @@ export function WorkspaceNavSession({
       {shortcutLabel}
     </kbd>
   ) : null
+  const indicator = shortcut ? null : running ? (
+    <span className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 text-muted-foreground">
+      <LoaderCircleIcon
+        aria-hidden="true"
+        className="size-4 animate-spin motion-reduce:animate-none"
+      />
+      <span className="sr-only">正在运行</span>
+    </span>
+  ) : unread ? (
+    <span className="pointer-events-none absolute top-1/2 right-2 size-2 -translate-y-1/2 rounded-full bg-blue-500">
+      <span className="sr-only">新完成</span>
+    </span>
+  ) : null
 
   if (nested) {
     return (
@@ -160,6 +182,7 @@ export function WorkspaceNavSession({
           </Link>
         </SidebarMenuSubButton>
         {shortcut}
+        {indicator}
         {actions}
       </SidebarMenuSubItem>
     )
@@ -184,6 +207,7 @@ export function WorkspaceNavSession({
         </Link>
       </SidebarMenuButton>
       {shortcut}
+      {indicator}
       {actions}
     </SidebarMenuItem>
   )

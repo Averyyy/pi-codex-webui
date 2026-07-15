@@ -47,6 +47,7 @@ interface SessionRow {
   first_message: string
   archived_at: string | null
   pinned_at: string | null
+  completion_unread: 0 | 1
   runtime_kind: "pi" | "pi-client"
   runtime_profile_id: string
   migrated_from_session_id: string | null
@@ -121,6 +122,7 @@ function sessionSummary(row: SessionRow): SessionSummary {
     messageCount: row.message_count,
     archivedAt: row.archived_at,
     isPinned: row.pinned_at !== null,
+    hasUnreadCompletion: row.completion_unread === 1,
     runtimeKind: row.runtime_kind,
     runtimeProfileId: row.runtime_profile_id,
     migratedFromSessionId: row.migrated_from_session_id,
@@ -231,6 +233,30 @@ export async function setSessionPinned(sessionId: string, pinned: boolean) {
   return result.changes === 1
 }
 
+export async function markSessionCompleted(sessionId: string) {
+  const database = await getDatabase()
+  return (
+    database
+      .prepare(
+        `UPDATE sessions SET completion_unread = 1
+         WHERE id = ? AND archived_at IS NULL`
+      )
+      .run(sessionId).changes > 0
+  )
+}
+
+export async function markSessionRead(sessionId: string) {
+  const database = await getDatabase()
+  return (
+    database
+      .prepare(
+        `UPDATE sessions SET completion_unread = 0
+         WHERE id = ? AND archived_at IS NULL`
+      )
+      .run(sessionId).changes > 0
+  )
+}
+
 export async function removeWorkspaceProject(projectId: string) {
   const database = await getDatabase()
   return (
@@ -262,7 +288,8 @@ export async function listWorkspaceProjects(): Promise<WorkspaceProject[]> {
     .prepare(
       `SELECT id, project_id, cwd, native_session_id, native_session_file,
               parent_session_file, title, created_at, updated_at,
-              message_count, first_message, archived_at, pinned_at, runtime_kind,
+              message_count, first_message, archived_at, pinned_at,
+              completion_unread, runtime_kind,
               runtime_profile_id, migrated_from_session_id
        FROM sessions
        WHERE archived_at IS NULL
@@ -320,7 +347,8 @@ export async function listProjectSessions(projectId: string) {
       .prepare(
         `SELECT id, project_id, cwd, native_session_id, native_session_file,
                 parent_session_file, title, created_at, updated_at,
-                message_count, first_message, archived_at, pinned_at, runtime_kind,
+                message_count, first_message, archived_at, pinned_at,
+                completion_unread, runtime_kind,
                 runtime_profile_id, migrated_from_session_id
          FROM sessions
          WHERE project_id = ? AND archived_at IS NULL
@@ -338,7 +366,8 @@ export async function listWorkspaceTasks(): Promise<SessionSummary[]> {
       .prepare(
         `SELECT id, project_id, cwd, native_session_id, native_session_file,
                 parent_session_file, title, created_at, updated_at,
-                message_count, first_message, archived_at, pinned_at, runtime_kind,
+                message_count, first_message, archived_at, pinned_at,
+                completion_unread, runtime_kind,
                 runtime_profile_id, migrated_from_session_id
          FROM sessions
          WHERE project_id IS NULL AND archived_at IS NULL
@@ -358,7 +387,8 @@ export async function listArchivedSessions(): Promise<ArchivedSession[]> {
               sessions.parent_session_file, sessions.title,
               sessions.created_at, sessions.updated_at,
               sessions.message_count, sessions.first_message,
-              sessions.archived_at, sessions.pinned_at, sessions.runtime_kind,
+              sessions.archived_at, sessions.pinned_at,
+              sessions.completion_unread, sessions.runtime_kind,
               sessions.runtime_profile_id, sessions.migrated_from_session_id,
               projects.display_name AS project_name
        FROM sessions
@@ -427,6 +457,7 @@ export async function getSessionSnapshot(sessionId: string) {
               native_session_file, parent_session_file, title,
               sessions.created_at, sessions.updated_at, message_count,
               first_message, archived_at, sessions.pinned_at,
+              sessions.completion_unread,
               runtime_kind, runtime_profile_id,
               migrated_from_session_id,
               projects.canonical_path AS project_path,

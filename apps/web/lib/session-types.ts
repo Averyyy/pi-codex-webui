@@ -20,6 +20,7 @@ export interface SessionSummary {
   messageCount: number
   archivedAt: string | null
   isPinned: boolean
+  hasUnreadCompletion: boolean
   runtimeKind: "pi" | "pi-client"
   runtimeProfileId: string
   migratedFromSessionId: string | null

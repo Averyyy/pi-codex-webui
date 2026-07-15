@@ -19,6 +19,7 @@ const nextConfig: NextConfig = {
     "/*": [
       "./app/**/*",
       "./components/**/*",
+      "./hooks/**/*",
       "./lib/**/*",
       "./components.json",
       "./eslint.config.js",

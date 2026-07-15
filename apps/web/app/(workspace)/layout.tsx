@@ -9,6 +9,7 @@ import {
 import { WorkspaceNav } from "@/components/workspace-nav"
 import { listWorkspaceProjects, listWorkspaceTasks } from "@/lib/catalog"
 import { getMutationToken } from "@/lib/request-security"
+import { getRuntimeSupervisor } from "@/lib/runtime-supervisor"
 
 export default async function WorkspaceLayout({
   children,
@@ -19,6 +20,13 @@ export default async function WorkspaceLayout({
     listWorkspaceProjects(),
     listWorkspaceTasks(),
   ])
+  const runtimeSupervisor = getRuntimeSupervisor()
+  const initialRunningSessionIds = [
+    ...projects.flatMap((project) => project.sessions),
+    ...tasks,
+  ]
+    .filter((session) => runtimeSupervisor.state(session.id).status === "busy")
+    .map((session) => session.id)
 
   return (
     <SidebarProvider
@@ -31,6 +39,7 @@ export default async function WorkspaceLayout({
       <WorkspaceNav
         projects={projects}
         tasks={tasks}
+        initialRunningSessionIds={initialRunningSessionIds}
         mutationToken={getMutationToken()}
       />
       <SidebarInset className="min-h-svh overflow-hidden">

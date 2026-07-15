@@ -52,6 +52,7 @@ import {
   deleteArchivedSession as deleteStoredArchivedSession,
   getSessionIdentityByNativeFile,
   getSessionRuntimeTarget,
+  markSessionCompleted as markStoredSessionCompleted,
   markSessionStandalone,
 } from "@/lib/catalog"
 import { getEventHub, type EventHub } from "@/lib/event-hub"
@@ -1643,27 +1644,55 @@ export class RuntimeSupervisor {
     }
     if (message.eventType === "agent_settled") {
       runtime.status = "ready"
-      if (runtime.pendingWebUiRestart) {
-        runtime.pendingResourceReload = false
-        runtime.pendingModelReload = false
-        this.scheduleWebUiRestart(runtime)
-      } else if (runtime.pendingMcpRestart) {
-        runtime.pendingResourceReload = false
-        runtime.pendingModelReload = false
-        this.scheduleMcpRestart(runtime)
-      } else if (runtime.pendingModelReload) {
-        this.scheduleModelSettingsReload(runtime)
-      } else if (runtime.pendingResourceReload) {
-        void this.reloadRuntimeResources(runtime).catch((error: Error) =>
-          this.failRuntime(runtime, error)
-        )
-      }
     }
-    this.eventHub.publish({
-      type: DOMAIN_EVENT_TYPES[message.eventType] ?? "session.event",
-      sessionId: runtime.webSessionId,
-      payload: message.payload,
-    })
+    const publishDomainEvent = () =>
+      this.eventHub.publish({
+        type: DOMAIN_EVENT_TYPES[message.eventType] ?? "session.event",
+        sessionId: runtime.webSessionId,
+        payload: message.payload,
+      })
+
+    if (message.eventType === "agent_settled") {
+      void markStoredSessionCompleted(runtime.webSessionId)
+        .then((updated) => {
+          if (!updated) {
+            throw new RuntimeRequestError(
+              "SessionNotFound",
+              `Cannot mark missing Web session ${runtime.webSessionId} completed.`
+            )
+          }
+          publishDomainEvent()
+          this.eventHub.publish({
+            type: "session.completed",
+            sessionId: runtime.webSessionId,
+            payload: {},
+          })
+          if (runtime.pendingWebUiRestart) {
+            runtime.pendingResourceReload = false
+            runtime.pendingModelReload = false
+            this.scheduleWebUiRestart(runtime)
+          } else if (runtime.pendingMcpRestart) {
+            runtime.pendingResourceReload = false
+            runtime.pendingModelReload = false
+            this.scheduleMcpRestart(runtime)
+          } else if (runtime.pendingModelReload) {
+            this.scheduleModelSettingsReload(runtime)
+          } else if (runtime.pendingResourceReload) {
+            void this.reloadRuntimeResources(runtime).catch((error: Error) =>
+              this.failRuntime(runtime, error)
+            )
+          }
+        })
+        .catch((error: unknown) =>
+          this.failRuntime(
+            runtime,
+            error instanceof Error ? error : new Error(String(error))
+          )
+        )
+      return
+    }
+
+    publishDomainEvent()
   }
 
   private async handleMcpCallRequest(

@@ -87,7 +87,7 @@ test("database v1 migration preserves sessions and adds runtime bindings", async
   legacy.close()
 
   const migrated = await getDatabase()
-  assert.equal(migrated.prepare("PRAGMA user_version").get()?.user_version, 6)
+  assert.equal(migrated.prepare("PRAGMA user_version").get()?.user_version, 7)
   assert.deepEqual(
     {
       ...migrated
@@ -113,6 +113,10 @@ test("database v1 migration preserves sessions and adds runtime bindings", async
   assert.equal(columns.find(({ name }) => name === "project_id")?.notnull, 0)
   assert.equal(columns.find(({ name }) => name === "cwd")?.notnull, 1)
   assert.equal(columns.find(({ name }) => name === "pinned_at")?.notnull, 0)
+  assert.equal(
+    columns.find(({ name }) => name === "completion_unread")?.notnull,
+    1
+  )
   assert.equal(
     migrated
       .prepare("SELECT count(*) AS count FROM project_registrations")
@@ -227,7 +231,7 @@ test("database v2 migration backfills cwd and permits standalone sessions", asyn
   legacy.close()
 
   const migrated = await getDatabase()
-  assert.equal(migrated.prepare("PRAGMA user_version").get()?.user_version, 6)
+  assert.equal(migrated.prepare("PRAGMA user_version").get()?.user_version, 7)
   assert.deepEqual(
     {
       ...migrated
@@ -272,11 +276,18 @@ test("database v2 migration backfills cwd and permits standalone sessions", asyn
   )
   migrated
     .prepare(
-      `INSERT INTO sessions VALUES (
+      `INSERT INTO sessions(
+         id, project_id, cwd, runtime_kind, runtime_profile_id,
+         native_session_id, native_session_file, parent_session_file, title,
+         created_at, updated_at, message_count, first_message, file_mtime_ns,
+         indexed_size, indexed_lines, ends_with_newline, content_hash,
+         last_entry_id, archived_at, pinned_at, completion_unread,
+         migrated_from_session_id
+       ) VALUES (
          'task-1', NULL, '/work/task', 'pi', 'pi', 'native-task',
          '/tmp/task.jsonl', NULL, NULL,
          '2026-02-02T00:00:00.000Z', '2026-02-02T00:00:00.000Z',
-         0, '', '0', 1, 1, 1, 'task-hash', NULL, NULL, NULL, NULL
+         0, '', '0', 1, 1, 1, 'task-hash', NULL, NULL, NULL, 0, NULL
        )`
     )
     .run()

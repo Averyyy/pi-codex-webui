@@ -40,6 +40,7 @@ import {
 import { AddProjectDialog } from "@/components/add-project-dialog"
 import { WorkspaceNavProject } from "@/components/workspace-nav-project"
 import { WorkspaceNavSession } from "@/components/workspace-nav-session"
+import { useSessionIndicators } from "@/hooks/use-session-indicators"
 import type { SessionSummary, WorkspaceProject } from "@/lib/session-types"
 
 const COLLAPSED_PROJECT_COUNT = 4
@@ -61,10 +62,12 @@ function sessionHref(session: SessionSummary) {
 export function WorkspaceNav({
   projects,
   tasks,
+  initialRunningSessionIds,
   mutationToken,
 }: {
   projects: WorkspaceProject[]
   tasks: SessionSummary[]
+  initialRunningSessionIds: string[]
   mutationToken: string
 }) {
   const pathname = usePathname()
@@ -75,6 +78,22 @@ export function WorkspaceNav({
   const [addProjectOpen, setAddProjectOpen] = useState(false)
   const [shortcutState, setShortcutState] =
     useState<ConversationShortcutState | null>(null)
+  const allSessions = useMemo(
+    () => [...projects.flatMap((project) => project.sessions), ...tasks],
+    [projects, tasks]
+  )
+  const sessionIdsByHref = useMemo(
+    () =>
+      new Map(allSessions.map((session) => [sessionHref(session), session.id])),
+    [allSessions]
+  )
+  const activeSessionId = sessionIdsByHref.get(pathname) ?? null
+  const { runningSessionIds, unreadSessionIds } = useSessionIndicators({
+    sessions: allSessions,
+    activeSessionId,
+    initialRunningSessionIds,
+    mutationToken,
+  })
   const pinnedSessions = useMemo(
     () =>
       [...projects.flatMap((project) => project.sessions), ...tasks]
@@ -212,6 +231,11 @@ export function WorkspaceNav({
                       session={session}
                       href={sessionHref(session)}
                       mutationToken={mutationToken}
+                      running={runningSessionIds.has(session.id)}
+                      unread={
+                        session.id !== activeSessionId &&
+                        unreadSessionIds.has(session.id)
+                      }
                       shortcutNumber={conversationShortcuts.get(
                         sessionHref(session)
                       )}
@@ -244,6 +268,9 @@ export function WorkspaceNav({
                     key={`${project.id}:${pathname.startsWith(`/projects/${project.id}`) ? "active" : "inactive"}`}
                     project={project}
                     mutationToken={mutationToken}
+                    runningSessionIds={runningSessionIds}
+                    unreadSessionIds={unreadSessionIds}
+                    activeSessionId={activeSessionId}
                     conversationShortcuts={conversationShortcuts}
                     shortcutModifier={shortcutModifier}
                   />
@@ -288,6 +315,11 @@ export function WorkspaceNav({
                           session={task}
                           href={`/tasks/${task.id}`}
                           mutationToken={mutationToken}
+                          running={runningSessionIds.has(task.id)}
+                          unread={
+                            task.id !== activeSessionId &&
+                            unreadSessionIds.has(task.id)
+                          }
                           shortcutNumber={conversationShortcuts.get(
                             `/tasks/${task.id}`
                           )}
