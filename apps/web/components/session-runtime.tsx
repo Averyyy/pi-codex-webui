@@ -882,7 +882,7 @@ export function SessionRuntime({
                   <SelectTrigger size="sm" aria-label="消息队列方式">
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent position="popper" side="top">
                     <SelectItem value="followUp">完成后继续</SelectItem>
                     <SelectItem value="steer">当前轮次补充</SelectItem>
                   </SelectContent>

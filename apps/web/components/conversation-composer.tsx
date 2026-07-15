@@ -104,6 +104,18 @@ export function ConversationComposer({
         className
       )}
     >
+      {settings || editor === undefined ? (
+        <div className="flex flex-wrap items-center gap-2 border-b px-1 pb-2">
+          {editor === undefined ? (
+            <ComposerImageAddButton
+              imagesSupported={imagesSupported}
+              disabled={submitting}
+              onImagesAdd={onImagesAdd}
+            />
+          ) : null}
+          {settings}
+        </div>
+      ) : null}
       <ComposerImagePreviews
         images={images}
         error={imageError}
@@ -146,18 +158,6 @@ export function ConversationComposer({
           ) : null}
         </div>
       </div>
-      {settings || editor === undefined ? (
-        <div className="flex flex-wrap items-center gap-2 border-t px-1 pt-2">
-          {editor === undefined ? (
-            <ComposerImageAddButton
-              imagesSupported={imagesSupported}
-              disabled={submitting}
-              onImagesAdd={onImagesAdd}
-            />
-          ) : null}
-          {settings}
-        </div>
-      ) : null}
     </form>
   )
 }
@@ -261,7 +261,7 @@ export function ComposerThinkingSelect({
       >
         <SelectValue />
       </SelectTrigger>
-      <SelectContent>
+      <SelectContent position="popper" side="top">
         {levels.map((available) => (
           <SelectItem key={available} value={available}>
             Reasoning: {available}
