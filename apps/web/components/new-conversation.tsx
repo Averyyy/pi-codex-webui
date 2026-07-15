@@ -34,6 +34,10 @@ import {
 
 import { AddProjectDialog } from "@/components/add-project-dialog"
 import {
+  promptImages,
+  useComposerImages,
+} from "@/components/composer-image-attachments"
+import {
   ComposerModelSelect,
   ComposerThinkingSelect,
   ConversationComposer,
@@ -130,6 +134,7 @@ export function NewConversation({
   const [submitting, setSubmitting] = useState(false)
   const [loadingModels, setLoadingModels] = useState(false)
   const [error, setError] = useState<ApiError | null>(null)
+  const composerImages = useComposerImages()
   const selectedProject = projects.find((project) => project.id === projectId)
   const models = enabledModels(modelSettings)
 
@@ -171,7 +176,13 @@ export function NewConversation({
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const text = message.trim()
-    if (!text || submitting || loadingModels) return
+    if (
+      (!text && composerImages.images.length === 0) ||
+      submitting ||
+      loadingModels
+    ) {
+      return
+    }
 
     setSubmitting(true)
     setError(null)
@@ -188,7 +199,8 @@ export function NewConversation({
               "X-Pi-Web-Codex-Mutation-Token": mutationToken,
             },
             body: JSON.stringify({
-              message: text,
+              message: text || "请查看附加图片。",
+              images: promptImages(composerImages.images),
               ...(model
                 ? { model: { provider: model.provider, modelId: model.id } }
                 : {}),
@@ -284,6 +296,11 @@ export function NewConversation({
           autoFocus
           submitting={submitting}
           sendDisabled={loadingModels}
+          images={composerImages.images}
+          imageError={composerImages.error}
+          imagesSupported={model?.input.includes("image") ?? false}
+          onImagesAdd={composerImages.addImages}
+          onImageRemove={composerImages.removeImage}
           onCycleThinkingLevel={
             model &&
             thinkingLevel &&

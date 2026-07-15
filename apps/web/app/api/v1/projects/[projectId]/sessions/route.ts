@@ -2,6 +2,7 @@ import { z } from "zod"
 import { thinkingLevelSchema } from "@workspace/runtime-protocol"
 
 import { getProject, listProjectSessions } from "@/lib/catalog"
+import { promptImagesSchema } from "@/lib/prompt-images"
 import { validateLocalMutation } from "@/lib/request-security"
 import { runtimeErrorResponse } from "@/lib/runtime-api"
 import { getRuntimeSupervisor } from "@/lib/runtime-supervisor"
@@ -11,6 +12,7 @@ export const runtime = "nodejs"
 const createSchema = z.object({
   runtimeProfileId: z.string().min(1).optional(),
   message: z.string().trim().min(1).max(100_000).optional(),
+  images: promptImagesSchema,
   thinkingLevel: thinkingLevelSchema.optional(),
   model: z
     .object({
@@ -61,6 +63,7 @@ export async function POST(
       await getRuntimeSupervisor().createSession(projectId, {
         runtimeProfileId: parsed.data.runtimeProfileId,
         initialMessage: parsed.data.message,
+        initialImages: parsed.data.images,
         model: parsed.data.model,
         thinkingLevel: parsed.data.thinkingLevel,
       }),

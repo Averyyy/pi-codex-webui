@@ -1,5 +1,6 @@
 import { z } from "zod"
 
+import { promptImagesSchema } from "@/lib/prompt-images"
 import { validateLocalMutation } from "@/lib/request-security"
 import { readJsonBody, runtimeErrorResponse } from "@/lib/runtime-api"
 import { getRuntimeSupervisor } from "@/lib/runtime-supervisor"
@@ -8,16 +9,7 @@ export const runtime = "nodejs"
 
 const messageSchema = z.object({
   message: z.string().trim().min(1).max(100_000),
-  images: z
-    .array(
-      z.object({
-        type: z.literal("image"),
-        data: z.string().min(1).max(20_000_000),
-        mimeType: z.string().regex(/^image\/[a-z0-9.+-]+$/i),
-      })
-    )
-    .max(10)
-    .default([]),
+  images: promptImagesSchema,
   streamingBehavior: z.enum(["steer", "followUp"]).default("followUp"),
 })
 

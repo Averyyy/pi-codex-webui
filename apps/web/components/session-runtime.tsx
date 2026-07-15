@@ -55,6 +55,11 @@ import { PiTuiSurface } from "@/components/pi-tui-surface"
 import { ConversationDisclosure } from "@/components/conversation-disclosure"
 import { ExtensionSlot } from "@/components/extension-slot"
 import {
+  promptImages,
+  type ComposerImage,
+  useComposerImages,
+} from "@/components/composer-image-attachments"
+import {
   ComposerModelSelect,
   ComposerThinkingSelect,
   ConversationComposer,
@@ -240,6 +245,7 @@ export function SessionRuntime({
   const [status, setStatus] = useState(initialStatus)
   const [snapshot, setSnapshot] = useState(initialSnapshot)
   const [draft, setDraft] = useState("")
+  const composerImages = useComposerImages()
   const [submitting, setSubmitting] = useState(false)
   const [updating, setUpdating] = useState(false)
   const [compacting, setCompacting] = useState(false)
@@ -269,6 +275,15 @@ export function SessionRuntime({
   const pendingSurfaceEvents = useRef(new Map<string, PendingSurfaceEvent[]>())
   const closedSurfaces = useRef(new Set<string>())
   const wasBusy = useRef(false)
+  const selectedModel = snapshot?.model
+  const imagesSupported = selectedModel
+    ? snapshot.availableModels.some(
+        (model) =>
+          model.provider === selectedModel.provider &&
+          model.id === selectedModel.id &&
+          model.input.includes("image")
+      )
+    : false
 
   async function mutate<T>(
     path: string,
@@ -299,20 +314,25 @@ export function SessionRuntime({
     return result as T
   }
 
-  async function sendMessage(rawMessage: string, clearDraft = false) {
-    const message = rawMessage.trim()
-    if (!message || submitting) return
+  async function sendMessage(
+    rawMessage: string,
+    options: { images?: ComposerImage[]; clearDraft?: boolean } = {}
+  ) {
+    const text = rawMessage.trim()
+    const images = options.images ?? []
+    if ((!text && images.length === 0) || submitting) return
 
     setSubmitting(true)
     setError(null)
     try {
       await mutate(`/api/v1/sessions/${sessionId}/messages`, "POST", {
-        message,
-        images: [],
+        message: text || "请查看附加图片。",
+        images: promptImages(images),
         streamingBehavior,
       })
-      if (clearDraft) {
-        setDraft((current) => (current.trim() === message ? "" : current))
+      if (options.clearDraft) {
+        setDraft((current) => (current.trim() === text ? "" : current))
+        composerImages.clearImages()
       }
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure))
@@ -599,7 +619,10 @@ export function SessionRuntime({
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    await sendMessage(draft, true)
+    await sendMessage(draft, {
+      images: composerImages.images,
+      clearDraft: true,
+    })
   }
 
   async function abort() {
@@ -790,6 +813,11 @@ export function SessionRuntime({
           onSubmit={submit}
           submitting={submitting}
           sendDisabled={status === "crashed"}
+          images={composerImages.images}
+          imageError={composerImages.error}
+          imagesSupported={imagesSupported}
+          onImagesAdd={composerImages.addImages}
+          onImageRemove={composerImages.removeImage}
           onCycleThinkingLevel={
             snapshot &&
             snapshot.availableThinkingLevels.length > 1 &&

@@ -54,6 +54,7 @@ import {
 } from "@/lib/catalog"
 import { getEventHub, type EventHub } from "@/lib/event-hub"
 import { getMcpService } from "@/lib/mcp-service"
+import type { PromptImage } from "@/lib/prompt-images"
 import type {
   RuntimeCrash,
   RuntimeDiagnostics,
@@ -121,6 +122,7 @@ interface ManagedRuntime {
 interface NewRuntimeOptions {
   runtimeProfileId?: string
   initialMessage?: string
+  initialImages?: PromptImage[]
   model?: { provider: string; modelId: string }
   thinkingLevel?: RuntimeSnapshot["thinkingLevel"]
 }
@@ -549,7 +551,7 @@ export class RuntimeSupervisor {
       if (options.initialMessage) {
         await this.prompt(created.sessionId, {
           message: options.initialMessage,
-          images: [],
+          images: options.initialImages ?? [],
           streamingBehavior: "followUp",
         })
       }

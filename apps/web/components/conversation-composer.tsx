@@ -1,7 +1,7 @@
 "use client"
 
-import type { FormEvent, KeyboardEvent, ReactNode } from "react"
 import Link from "next/link"
+import type { FormEvent, KeyboardEvent, ReactNode } from "react"
 import { ArrowUpIcon, LoaderCircleIcon, Settings2Icon } from "lucide-react"
 
 import { Button } from "@workspace/ui/components/button"
@@ -15,6 +15,12 @@ import {
 import { Textarea } from "@workspace/ui/components/textarea"
 import type { RuntimeModel, ThinkingLevel } from "@workspace/runtime-protocol"
 import { cn } from "@workspace/ui/lib/utils"
+
+import {
+  ComposerImageAddButton,
+  ComposerImagePreviews,
+  type ComposerImage,
+} from "@/components/composer-image-attachments"
 
 function modelValue(model: { provider: string; id: string }) {
   return JSON.stringify([model.provider, model.id])
@@ -33,6 +39,11 @@ export function ConversationComposer({
   actions,
   endActions,
   settings,
+  images = [],
+  imageError,
+  imagesSupported = false,
+  onImagesAdd,
+  onImageRemove,
   onCycleThinkingLevel,
   className,
 }: {
@@ -48,6 +59,11 @@ export function ConversationComposer({
   actions?: ReactNode
   endActions?: ReactNode
   settings?: ReactNode
+  images?: ComposerImage[]
+  imageError?: string | null
+  imagesSupported?: boolean
+  onImagesAdd?: (files: File[]) => void | Promise<void>
+  onImageRemove?: (id: string) => void
   onCycleThinkingLevel?: () => void
   className?: string
 }) {
@@ -73,6 +89,11 @@ export function ConversationComposer({
         className
       )}
     >
+      <ComposerImagePreviews
+        images={images}
+        error={imageError}
+        onRemove={onImageRemove}
+      />
       {editor ?? (
         <Textarea
           value={value}
@@ -93,7 +114,11 @@ export function ConversationComposer({
               type="submit"
               size="icon"
               className="rounded-full"
-              disabled={!value.trim() || submitting || sendDisabled}
+              disabled={
+                (!value.trim() && images.length === 0) ||
+                submitting ||
+                sendDisabled
+              }
               aria-label="发送"
             >
               {submitting ? (
@@ -105,8 +130,15 @@ export function ConversationComposer({
           ) : null}
         </div>
       </div>
-      {settings ? (
+      {settings || editor === undefined ? (
         <div className="flex flex-wrap items-center gap-2 border-t px-1 pt-2">
+          {editor === undefined ? (
+            <ComposerImageAddButton
+              imagesSupported={imagesSupported}
+              disabled={submitting}
+              onImagesAdd={onImagesAdd}
+            />
+          ) : null}
           {settings}
         </div>
       ) : null}
