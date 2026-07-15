@@ -63,7 +63,10 @@ import {
 } from "@workspace/ui/components/sidebar"
 
 import type { WorkspaceProject } from "@/lib/session-types"
-import { WorkspaceNavSession } from "@/components/workspace-nav-session"
+import {
+  WorkspaceNavSession,
+  type ConversationShortcutModifier,
+} from "@/components/workspace-nav-session"
 
 const VISIBLE_PROJECT_SESSIONS = 5
 
@@ -88,9 +91,13 @@ async function responseJson(response: Response) {
 export function WorkspaceNavProject({
   project,
   mutationToken,
+  conversationShortcuts,
+  shortcutModifier,
 }: {
   project: WorkspaceProject
   mutationToken: string
+  conversationShortcuts: ReadonlyMap<string, number>
+  shortcutModifier?: ConversationShortcutModifier
 }) {
   const pathname = usePathname()
   const router = useRouter()
@@ -330,6 +337,10 @@ export function WorkspaceNavProject({
                   session={session}
                   href={`${projectPath}/sessions/${session.id}`}
                   mutationToken={mutationToken}
+                  shortcutNumber={conversationShortcuts.get(
+                    `${projectPath}/sessions/${session.id}`
+                  )}
+                  shortcutModifier={shortcutModifier}
                   nested
                 />
               ))}

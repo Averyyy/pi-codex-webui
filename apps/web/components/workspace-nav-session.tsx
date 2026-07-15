@@ -23,6 +23,8 @@ import { cn } from "@workspace/ui/lib/utils"
 import { displaySessionTitle } from "@/lib/session-display"
 import type { SessionSummary } from "@/lib/session-types"
 
+export type ConversationShortcutModifier = "⌘" | "Ctrl"
+
 async function responseJson(response: Response) {
   const body = (await response.json()) as { error?: string }
   if (!response.ok) {
@@ -36,16 +38,30 @@ export function WorkspaceNavSession({
   href,
   mutationToken,
   nested = false,
+  shortcutNumber,
+  shortcutModifier,
 }: {
   session: SessionSummary
   href: string
   mutationToken: string
   nested?: boolean
+  shortcutNumber?: number
+  shortcutModifier?: ConversationShortcutModifier
 }) {
   const pathname = usePathname()
   const router = useRouter()
   const [working, setWorking] = useState(false)
   const title = displaySessionTitle(session)
+  const shortcutLabel =
+    shortcutNumber === undefined || shortcutModifier === undefined
+      ? null
+      : shortcutModifier === "⌘"
+        ? `⌘${shortcutNumber}`
+        : `Ctrl+${shortcutNumber}`
+  const ariaShortcut =
+    shortcutNumber === undefined || shortcutModifier === undefined
+      ? undefined
+      : `${shortcutModifier === "⌘" ? "Meta" : "Control"}+${shortcutNumber}`
 
   async function mutate(path: string, body?: unknown) {
     setWorking(true)
@@ -72,7 +88,12 @@ export function WorkspaceNavSession({
   }
 
   const actions = (
-    <div className="pointer-events-none absolute top-1 right-1 flex items-center rounded-md bg-sidebar-accent opacity-0 transition-opacity group-focus-within/session:pointer-events-auto group-focus-within/session:opacity-100 group-hover/session:pointer-events-auto group-hover/session:opacity-100">
+    <div
+      className={cn(
+        "pointer-events-none absolute top-1 right-1 flex items-center rounded-md bg-sidebar-accent opacity-0 transition-opacity group-focus-within/session:pointer-events-auto group-focus-within/session:opacity-100 group-hover/session:pointer-events-auto group-hover/session:opacity-100",
+        shortcutLabel && "hidden"
+      )}
+    >
       <Tooltip>
         <TooltipTrigger asChild>
           <Button
@@ -114,6 +135,11 @@ export function WorkspaceNavSession({
       </Tooltip>
     </div>
   )
+  const shortcut = shortcutLabel ? (
+    <kbd className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 rounded-md bg-sidebar-accent px-1.5 py-1 font-sans text-[11px] leading-none text-muted-foreground shadow-xs">
+      {shortcutLabel}
+    </kbd>
+  ) : null
 
   if (nested) {
     return (
@@ -123,10 +149,17 @@ export function WorkspaceNavSession({
           isActive={pathname === href}
           className="pr-12"
         >
-          <Link href={href} prefetch={false} title={title}>
+          <Link
+            href={href}
+            prefetch={false}
+            title={title}
+            data-conversation-shortcut={href}
+            aria-keyshortcuts={ariaShortcut}
+          >
             <span className="min-w-0 truncate">{title}</span>
           </Link>
         </SidebarMenuSubButton>
+        {shortcut}
         {actions}
       </SidebarMenuSubItem>
     )
@@ -140,11 +173,17 @@ export function WorkspaceNavSession({
         tooltip={title}
         className="pr-12"
       >
-        <Link href={href} prefetch={false}>
+        <Link
+          href={href}
+          prefetch={false}
+          data-conversation-shortcut={href}
+          aria-keyshortcuts={ariaShortcut}
+        >
           <MessageSquareTextIcon />
           <span className="min-w-0 flex-1 truncate">{title}</span>
         </Link>
       </SidebarMenuButton>
+      {shortcut}
       {actions}
     </SidebarMenuItem>
   )

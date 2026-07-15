@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import {
@@ -43,6 +43,14 @@ import { WorkspaceNavSession } from "@/components/workspace-nav-session"
 import type { SessionSummary, WorkspaceProject } from "@/lib/session-types"
 
 const COLLAPSED_PROJECT_COUNT = 4
+const MAX_CONVERSATION_SHORTCUTS = 9
+
+type ShortcutModifier = "Meta" | "Control"
+
+interface ConversationShortcutState {
+  modifier: ShortcutModifier
+  hrefs: string[]
+}
 
 function sessionHref(session: SessionSummary) {
   return session.projectId === null
@@ -61,9 +69,12 @@ export function WorkspaceNav({
 }) {
   const pathname = usePathname()
   const router = useRouter()
+  const sidebarContentRef = useRef<HTMLDivElement>(null)
   const [projectsExpanded, setProjectsExpanded] = useState(false)
   const [tasksOpen, setTasksOpen] = useState(pathname.startsWith("/tasks/"))
   const [addProjectOpen, setAddProjectOpen] = useState(false)
+  const [shortcutState, setShortcutState] =
+    useState<ConversationShortcutState | null>(null)
   const pinnedSessions = useMemo(
     () =>
       [...projects.flatMap((project) => project.sessions), ...tasks]
@@ -75,6 +86,81 @@ export function WorkspaceNav({
   const visibleProjects = projectsExpanded
     ? projects
     : projects.slice(0, COLLAPSED_PROJECT_COUNT)
+  const conversationShortcuts = useMemo(
+    () =>
+      new Map(
+        shortcutState?.hrefs.map((href, index) => [href, index + 1]) ?? []
+      ),
+    [shortcutState]
+  )
+  const shortcutModifier =
+    shortcutState?.modifier === "Meta"
+      ? "⌘"
+      : shortcutState?.modifier === "Control"
+        ? "Ctrl"
+        : undefined
+
+  useEffect(() => {
+    function visibleConversationHrefs() {
+      return Array.from(
+        sidebarContentRef.current?.querySelectorAll<HTMLAnchorElement>(
+          "a[data-conversation-shortcut]"
+        ) ?? []
+      )
+        .filter((link) => link.checkVisibility())
+        .slice(0, MAX_CONVERSATION_SHORTCUTS)
+        .map((link) => link.dataset.conversationShortcut!)
+    }
+
+    function showShortcuts(modifier: ShortcutModifier) {
+      setShortcutState({ modifier, hrefs: visibleConversationHrefs() })
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Meta" || event.key === "Control") {
+        if (!event.repeat) showShortcuts(event.key)
+        return
+      }
+
+      if (
+        (!event.metaKey && !event.ctrlKey) ||
+        event.altKey ||
+        event.shiftKey ||
+        !/^[1-9]$/.test(event.key)
+      ) {
+        return
+      }
+
+      const href = visibleConversationHrefs()[Number(event.key) - 1]
+      if (!href) return
+
+      event.preventDefault()
+      router.push(href)
+    }
+
+    function handleKeyUp(event: KeyboardEvent) {
+      if (event.key === "Meta") {
+        if (event.ctrlKey) showShortcuts("Control")
+        else setShortcutState(null)
+      } else if (event.key === "Control") {
+        if (event.metaKey) showShortcuts("Meta")
+        else setShortcutState(null)
+      }
+    }
+
+    function hideShortcuts() {
+      setShortcutState(null)
+    }
+
+    window.addEventListener("keydown", handleKeyDown)
+    window.addEventListener("keyup", handleKeyUp)
+    window.addEventListener("blur", hideShortcuts)
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown)
+      window.removeEventListener("keyup", handleKeyUp)
+      window.removeEventListener("blur", hideShortcuts)
+    }
+  }, [router])
 
   return (
     <>
@@ -95,7 +181,7 @@ export function WorkspaceNav({
           </div>
         </SidebarHeader>
 
-        <SidebarContent>
+        <SidebarContent ref={sidebarContentRef}>
           <SidebarGroup className="pb-1">
             <SidebarGroupContent>
               <SidebarMenu>
@@ -126,6 +212,10 @@ export function WorkspaceNav({
                       session={session}
                       href={sessionHref(session)}
                       mutationToken={mutationToken}
+                      shortcutNumber={conversationShortcuts.get(
+                        sessionHref(session)
+                      )}
+                      shortcutModifier={shortcutModifier}
                     />
                   ))}
                 </SidebarMenu>
@@ -154,6 +244,8 @@ export function WorkspaceNav({
                     key={`${project.id}:${pathname.startsWith(`/projects/${project.id}`) ? "active" : "inactive"}`}
                     project={project}
                     mutationToken={mutationToken}
+                    conversationShortcuts={conversationShortcuts}
+                    shortcutModifier={shortcutModifier}
                   />
                 ))}
                 {projects.length > COLLAPSED_PROJECT_COUNT ? (
@@ -196,6 +288,10 @@ export function WorkspaceNav({
                           session={task}
                           href={`/tasks/${task.id}`}
                           mutationToken={mutationToken}
+                          shortcutNumber={conversationShortcuts.get(
+                            `/tasks/${task.id}`
+                          )}
+                          shortcutModifier={shortcutModifier}
                         />
                       ))}
                     </SidebarMenu>
