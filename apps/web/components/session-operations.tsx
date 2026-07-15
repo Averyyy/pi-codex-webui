@@ -44,6 +44,11 @@ import {
   SelectValue,
 } from "@workspace/ui/components/select"
 import { Switch } from "@workspace/ui/components/switch"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@workspace/ui/components/tooltip"
 import type { SessionStats, SessionTree } from "@workspace/runtime-protocol"
 
 type DialogKind = "rename" | "fork" | "tree" | "stats" | "import" | "runtime"
@@ -305,6 +310,21 @@ export function SessionOperations({
 
   return (
     <>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Session tree"
+            aria-haspopup="dialog"
+            onClick={() => void openTree("tree")}
+          >
+            <GitMergeIcon />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="bottom">Session tree</TooltipContent>
+      </Tooltip>
+
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button variant="ghost" size="icon" aria-label="Session 操作">
@@ -332,9 +352,6 @@ export function SessionOperations({
           ) : null}
           <DropdownMenuItem onSelect={() => void openTree("fork")}>
             <GitForkIcon /> Fork
-          </DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => void openTree("tree")}>
-            <GitMergeIcon /> Session tree
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={() => void exportSession("jsonl")}>
