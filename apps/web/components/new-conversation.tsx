@@ -32,7 +32,6 @@ import {
   type ThinkingLevel,
 } from "@workspace/runtime-protocol"
 
-import { AddProjectDialog } from "@/components/add-project-dialog"
 import {
   promptImages,
   useComposerImages,
@@ -43,6 +42,7 @@ import {
   ConversationComposer,
   nextThinkingLevel,
 } from "@/components/conversation-composer"
+import { pickWorkspaceProject } from "@/lib/project-picker-client"
 
 const NO_PROJECT = "__none__"
 
@@ -130,13 +130,35 @@ export function NewConversation({
   )
   const [message, setMessage] = useState("")
   const [projectSelectOpen, setProjectSelectOpen] = useState(false)
-  const [addProjectOpen, setAddProjectOpen] = useState(false)
+  const [addingProject, setAddingProject] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [loadingModels, setLoadingModels] = useState(false)
   const [error, setError] = useState<ApiError | null>(null)
   const composerImages = useComposerImages()
   const selectedProject = projects.find((project) => project.id === projectId)
   const models = enabledModels(modelSettings)
+
+  async function addProject() {
+    setProjectSelectOpen(false)
+    setAddingProject(true)
+    setError(null)
+    try {
+      const project = await pickWorkspaceProject(mutationToken)
+      if (project) {
+        router.replace(`/new?projectId=${encodeURIComponent(project.id)}`)
+      }
+    } catch (failure) {
+      setError(
+        failure instanceof ApiError
+          ? failure
+          : new ApiError(
+              failure instanceof Error ? failure.message : String(failure)
+            )
+      )
+    } finally {
+      setAddingProject(false)
+    }
+  }
 
   async function selectProject(value: string) {
     const nextProjectId = value === NO_PROJECT ? null : value
@@ -332,7 +354,7 @@ export function NewConversation({
                 onOpenChange={setProjectSelectOpen}
                 value={projectId ?? NO_PROJECT}
                 onValueChange={(value) => void selectProject(value)}
-                disabled={submitting}
+                disabled={submitting || addingProject}
               >
                 <SelectTrigger
                   size="sm"
@@ -354,13 +376,11 @@ export function NewConversation({
                       className="w-full justify-start"
                       size="sm"
                       variant="ghost"
-                      onClick={() => {
-                        setProjectSelectOpen(false)
-                        setAddProjectOpen(true)
-                      }}
+                      disabled={addingProject}
+                      onClick={() => void addProject()}
                     >
                       <PlusIcon />
-                      添加项目
+                      {addingProject ? "正在选择…" : "添加项目"}
                     </Button>
                   }
                 >
@@ -396,14 +416,6 @@ export function NewConversation({
           }
         />
       </div>
-      <AddProjectDialog
-        open={addProjectOpen}
-        onOpenChange={setAddProjectOpen}
-        mutationToken={mutationToken}
-        onAdded={(project) =>
-          router.replace(`/new?projectId=${encodeURIComponent(project.id)}`)
-        }
-      />
     </main>
   )
 }

@@ -16,6 +16,10 @@ import {
   readProjectGitDiff,
   readProjectGitStatus,
 } from "./project-git"
+import {
+  decodeProjectDirectoryPickerOutput,
+  projectDirectoryPicker,
+} from "./project-directory-picker"
 import { projectFileManager } from "./project-reveal"
 import { shellCommand } from "./shell-supervisor"
 
@@ -137,6 +141,27 @@ test("desktop integrations select native macOS and Windows commands", () => {
     label: "在文件资源管理器中打开",
   })
   assert.equal(projectFileManager("linux"), null)
+
+  const macPicker = projectDirectoryPicker("darwin")
+  assert.ok(macPicker)
+  assert.equal(macPicker.command, "/usr/bin/osascript")
+  assert.deepEqual(macPicker.args.slice(0, 1), ["-e"])
+  assert.match(macPicker.args[1] ?? "", /choose folder/)
+  assert.equal(
+    decodeProjectDirectoryPickerOutput(macPicker, "/tmp/project\n"),
+    "/tmp/project"
+  )
+  assert.equal(decodeProjectDirectoryPickerOutput(macPicker, "\n"), null)
+
+  const windowsPicker = projectDirectoryPicker("win32")
+  assert.ok(windowsPicker)
+  assert.equal(windowsPicker.command, "powershell.exe")
+  assert.match(windowsPicker.args.at(-1) ?? "", /FolderBrowserDialog/)
+  assert.equal(
+    decodeProjectDirectoryPickerOutput(windowsPicker, "C:\\project"),
+    "C:\\project"
+  )
+  assert.equal(projectDirectoryPicker("linux"), null)
 
   assert.deepEqual(shellCommand("darwin", { SHELL: "/bin/zsh" }), {
     file: "/bin/zsh",

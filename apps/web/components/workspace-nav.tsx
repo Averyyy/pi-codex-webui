@@ -10,6 +10,7 @@ import {
   SearchIcon,
   SettingsIcon,
 } from "lucide-react"
+import { toast } from "sonner"
 
 import { Button } from "@workspace/ui/components/button"
 import {
@@ -37,10 +38,10 @@ import {
   TooltipTrigger,
 } from "@workspace/ui/components/tooltip"
 
-import { AddProjectDialog } from "@/components/add-project-dialog"
 import { WorkspaceNavProject } from "@/components/workspace-nav-project"
 import { WorkspaceNavSession } from "@/components/workspace-nav-session"
 import { useSessionIndicators } from "@/hooks/use-session-indicators"
+import { pickWorkspaceProject } from "@/lib/project-picker-client"
 import type { SessionSummary, WorkspaceProject } from "@/lib/session-types"
 
 const COLLAPSED_PROJECT_COUNT = 4
@@ -75,7 +76,7 @@ export function WorkspaceNav({
   const sidebarContentRef = useRef<HTMLDivElement>(null)
   const [projectsExpanded, setProjectsExpanded] = useState(false)
   const [tasksOpen, setTasksOpen] = useState(pathname.startsWith("/tasks/"))
-  const [addProjectOpen, setAddProjectOpen] = useState(false)
+  const [addingProject, setAddingProject] = useState(false)
   const [shortcutState, setShortcutState] =
     useState<ConversationShortcutState | null>(null)
   const allSessions = useMemo(
@@ -181,6 +182,17 @@ export function WorkspaceNav({
     }
   }, [router])
 
+  async function addProject() {
+    setAddingProject(true)
+    try {
+      if (await pickWorkspaceProject(mutationToken)) router.refresh()
+    } catch (failure) {
+      toast.error(failure instanceof Error ? failure.message : String(failure))
+    } finally {
+      setAddingProject(false)
+    }
+  }
+
   return (
     <>
       <Sidebar collapsible="offcanvas">
@@ -253,8 +265,9 @@ export function WorkspaceNav({
               <TooltipTrigger asChild>
                 <SidebarGroupAction
                   type="button"
-                  aria-label="添加项目"
-                  onClick={() => setAddProjectOpen(true)}
+                  aria-label={addingProject ? "正在选择项目" : "添加项目"}
+                  disabled={addingProject}
+                  onClick={() => void addProject()}
                 >
                   <PlusIcon />
                 </SidebarGroupAction>
@@ -348,13 +361,6 @@ export function WorkspaceNav({
         </SidebarFooter>
         <SidebarRail />
       </Sidebar>
-
-      <AddProjectDialog
-        open={addProjectOpen}
-        onOpenChange={setAddProjectOpen}
-        mutationToken={mutationToken}
-        onAdded={() => router.refresh()}
-      />
     </>
   )
 }
