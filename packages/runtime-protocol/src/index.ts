@@ -165,6 +165,90 @@ export const sessionStatsSchema = z.object({
     .optional(),
 })
 
+export const subagentStatusSchema = z.enum([
+  "queued",
+  "running",
+  "completed",
+  "steered",
+  "aborted",
+  "stopped",
+  "error",
+])
+
+export const subagentTerminalStatusSchema = z.enum([
+  "completed",
+  "steered",
+  "aborted",
+  "stopped",
+  "error",
+])
+
+export const subagentTokenUsageSchema = z.object({
+  input: z.number().nonnegative(),
+  output: z.number().nonnegative(),
+  total: z.number().nonnegative(),
+})
+
+export const subagentRecordSchema = z.object({
+  id: z.string().min(1),
+  type: z.string().min(1),
+  description: z.string(),
+  status: subagentStatusSchema,
+  isBackground: z.boolean().optional(),
+  createdAt: z.number().int().nonnegative(),
+  startedAt: z.number().int().nonnegative().optional(),
+  completedAt: z.number().int().nonnegative().optional(),
+  durationMs: z.number().nonnegative().optional(),
+  tokens: subagentTokenUsageSchema.optional(),
+  toolUses: z.number().int().nonnegative(),
+  error: z.string().optional(),
+  compactionCount: z.number().int().nonnegative(),
+  lastSteer: z.string().optional(),
+})
+
+export const subagentsSnapshotSchema = z.object({
+  version: z.literal(1),
+  revision: z.number().int().nonnegative(),
+  available: z.boolean(),
+  agents: z.array(subagentRecordSchema),
+})
+
+const subagentEventBaseSchema = z.object({
+  id: z.string().min(1),
+  type: z.string().min(1),
+  description: z.string(),
+})
+
+export const subagentCreatedEventSchema = subagentEventBaseSchema.extend({
+  isBackground: z.boolean(),
+})
+
+export const subagentStartedEventSchema = subagentEventBaseSchema
+
+export const subagentFinishedEventSchema = subagentEventBaseSchema.extend({
+  status: subagentTerminalStatusSchema,
+  toolUses: z.number().int().nonnegative(),
+  durationMs: z.number().nonnegative(),
+  tokens: subagentTokenUsageSchema.optional(),
+  error: z.string().optional(),
+})
+
+export const subagentSteeredEventSchema = z.object({
+  id: z.string().min(1),
+  message: z.string().min(1),
+})
+
+export const subagentCompactedEventSchema = subagentEventBaseSchema.extend({
+  reason: z.string(),
+  tokensBefore: z.number().nonnegative(),
+  compactionCount: z.number().int().nonnegative(),
+})
+
+export const subagentRpcReplySchema = z.discriminatedUnion("success", [
+  z.object({ success: z.literal(true), data: z.unknown().optional() }),
+  z.object({ success: z.literal(false), error: z.string().min(1) }),
+])
+
 export const sessionReplacementSchema = z.object({
   cancelled: z.boolean(),
   snapshot: runtimeSnapshotSchema,
@@ -730,6 +814,19 @@ const tuiSurfaceActionMessageSchema = z.object({
   }),
 })
 
+const subagentsSnapshotMessageSchema = z.object({
+  type: z.literal("subagents.snapshot"),
+  requestId: z.string().min(1),
+  sessionId: z.string().min(1),
+})
+
+const subagentStopMessageSchema = z.object({
+  type: z.literal("subagents.stop"),
+  requestId: z.string().min(1),
+  sessionId: z.string().min(1),
+  payload: z.object({ agentId: z.string().min(1) }),
+})
+
 const webUiViewListMessageSchema = z.object({
   type: z.literal("webui.view.list"),
   requestId: z.string().min(1),
@@ -885,6 +982,8 @@ export const hostToWorkerMessageSchema = z.discriminatedUnion("type", [
   extensionUIResponseMessageSchema,
   tuiSurfaceListMessageSchema,
   tuiSurfaceActionMessageSchema,
+  subagentsSnapshotMessageSchema,
+  subagentStopMessageSchema,
   webUiViewListMessageSchema,
   webUiActionMessageSchema,
   webUiClientStatusMessageSchema,
@@ -1015,6 +1114,9 @@ export type McpServerView = z.infer<typeof mcpServerViewSchema>
 export type McpCatalog = z.infer<typeof mcpCatalogSchema>
 export type PromptAccepted = z.infer<typeof promptAcceptedSchema>
 export type SessionStats = z.infer<typeof sessionStatsSchema>
+export type SubagentStatus = z.infer<typeof subagentStatusSchema>
+export type SubagentRecord = z.infer<typeof subagentRecordSchema>
+export type SubagentsSnapshot = z.infer<typeof subagentsSnapshotSchema>
 export type SessionReplacement = z.infer<typeof sessionReplacementSchema>
 export type SessionTree = z.infer<typeof sessionTreeSchema>
 export type SessionNavigationResult = z.infer<

@@ -1,6 +1,6 @@
-"use client";
+"use client"
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react"
 import {
   Clock3Icon,
   FileDiffIcon,
@@ -10,12 +10,12 @@ import {
   ListFilterIcon,
   SquareTerminalIcon,
   type LucideIcon,
-} from "lucide-react";
+} from "lucide-react"
 
-import type { RuntimeStatus } from "@workspace/runtime-protocol";
-import { Badge } from "@workspace/ui/components/badge";
-import { Button } from "@workspace/ui/components/button";
-import { Separator } from "@workspace/ui/components/separator";
+import type { RuntimeStatus } from "@workspace/runtime-protocol"
+import { Badge } from "@workspace/ui/components/badge"
+import { Button } from "@workspace/ui/components/button"
+import { Separator } from "@workspace/ui/components/separator"
 import {
   Sheet,
   SheetContent,
@@ -23,15 +23,16 @@ import {
   SheetHeader,
   SheetTitle,
   SheetTrigger,
-} from "@workspace/ui/components/sheet";
+} from "@workspace/ui/components/sheet"
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from "@workspace/ui/components/tooltip";
+} from "@workspace/ui/components/tooltip"
 
-import type { ProjectGitStatus } from "@/lib/project-git";
-import { formatTimestamp } from "@/lib/session-display";
+import { SubagentsSummary } from "@/components/subagents"
+import type { ProjectGitStatus } from "@/lib/project-git"
+import { formatTimestamp } from "@/lib/session-display"
 
 const STATUS_LABELS: Record<RuntimeStatus, string> = {
   stopped: "未激活",
@@ -40,7 +41,7 @@ const STATUS_LABELS: Record<RuntimeStatus, string> = {
   busy: "运行中",
   stopping: "停止中",
   crashed: "已崩溃",
-};
+}
 
 const RUNTIME_EVENT_STATUS: Partial<Record<string, RuntimeStatus>> = {
   "runtime.starting": "starting",
@@ -50,16 +51,17 @@ const RUNTIME_EVENT_STATUS: Partial<Record<string, RuntimeStatus>> = {
   "runtime.stopping": "stopping",
   "runtime.stopped": "stopped",
   "runtime.crashed": "crashed",
-};
+}
 
 export interface SessionInspectorProps {
-  cwd: string;
-  projectName: string | null;
-  runtimeKind: "pi" | "pi-client";
-  runtimeStatus: RuntimeStatus;
-  updatedAt: string;
-  git: ProjectGitStatus;
-  workspaceAvailable: boolean;
+  cwd: string
+  projectName: string | null
+  runtimeKind: "pi" | "pi-client"
+  runtimeStatus: RuntimeStatus
+  updatedAt: string
+  git: ProjectGitStatus
+  workspaceAvailable: boolean
+  subagentsInstalled: boolean
 }
 
 function DetailRow({
@@ -67,9 +69,9 @@ function DetailRow({
   label,
   children,
 }: {
-  icon: LucideIcon;
-  label: string;
-  children: ReactNode;
+  icon: LucideIcon
+  label: string
+  children: ReactNode
 }) {
   return (
     <div className="grid min-w-0 grid-cols-[1rem_minmax(0,1fr)] gap-x-3">
@@ -81,7 +83,7 @@ function DetailRow({
         </div>
       </div>
     </div>
-  );
+  )
 }
 
 function InspectorContent({
@@ -92,8 +94,9 @@ function InspectorContent({
   updatedAt,
   git,
   workspaceAvailable,
+  subagentsInstalled,
 }: SessionInspectorProps) {
-  const changedFiles = git.available ? git.files : [];
+  const changedFiles = git.available ? git.files : []
 
   return (
     <div className="flex min-w-0 flex-col gap-4 p-4">
@@ -131,6 +134,13 @@ function InspectorContent({
           <time dateTime={updatedAt}>{formatTimestamp(updatedAt)}</time>
         </DetailRow>
       </div>
+
+      {subagentsInstalled ? (
+        <>
+          <Separator />
+          <SubagentsSummary />
+        </>
+      ) : null}
 
       <Separator />
       <section className="flex min-w-0 flex-col gap-4" aria-label="Git 状态">
@@ -205,29 +215,29 @@ function InspectorContent({
         )}
       </section>
     </div>
-  );
+  )
 }
 
 export function SessionInspector({
   sessionId,
   ...props
 }: SessionInspectorProps & { sessionId: string }) {
-  const [runtimeStatus, setRuntimeStatus] = useState(props.runtimeStatus);
+  const [runtimeStatus, setRuntimeStatus] = useState(props.runtimeStatus)
 
   useEffect(() => {
-    const events = new EventSource(`/api/v1/events?sessionId=${sessionId}`);
+    const events = new EventSource(`/api/v1/events?sessionId=${sessionId}`)
     const update = (source: Event) => {
       const event = JSON.parse((source as MessageEvent<string>).data) as {
-        type: string;
-      };
-      const status = RUNTIME_EVENT_STATUS[event.type];
-      if (status) setRuntimeStatus(status);
-    };
-    for (const type of Object.keys(RUNTIME_EVENT_STATUS)) {
-      events.addEventListener(type, update);
+        type: string
+      }
+      const status = RUNTIME_EVENT_STATUS[event.type]
+      if (status) setRuntimeStatus(status)
     }
-    return () => events.close();
-  }, [sessionId]);
+    for (const type of Object.keys(RUNTIME_EVENT_STATUS)) {
+      events.addEventListener(type, update)
+    }
+    return () => events.close()
+  }, [sessionId])
 
   return (
     <Sheet>
@@ -245,11 +255,11 @@ export function SessionInspector({
         <SheetHeader className="sr-only">
           <SheetTitle>环境信息</SheetTitle>
           <SheetDescription>
-            查看当前项目的运行环境与工作区状态。
+            查看当前项目的运行环境、子智能体与工作区状态。
           </SheetDescription>
         </SheetHeader>
         <InspectorContent {...props} runtimeStatus={runtimeStatus} />
       </SheetContent>
     </Sheet>
-  );
+  )
 }

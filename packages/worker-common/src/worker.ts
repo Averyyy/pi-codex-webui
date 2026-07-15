@@ -33,6 +33,7 @@ import type {
 } from "./coding-agent.js"
 import { createMcpToolDefinitions } from "./mcp.js"
 import { resolveConfiguredScopedModels } from "./model-settings.js"
+import { SubagentBridge } from "./subagents.js"
 import { createFooterData, TuiSurfaceManager } from "./tui-surfaces.js"
 import { createExtensionInstrumentor } from "./extension-instrumentation.js"
 import { WebUiAdapterHost } from "./webui-adapter-host.js"
@@ -47,6 +48,7 @@ let unsubscribe: (() => void) | undefined
 let eventSequence = 0
 let surfaceManager: TuiSurfaceManager | undefined
 let adapterHost: WebUiAdapterHost | undefined
+let subagents: SubagentBridge | undefined
 let editorComponentFactory: Parameters<
   ExtensionUIContext["setEditorComponent"]
 >[0]
@@ -67,6 +69,18 @@ const pendingMcpCalls = new Map<
 function send(message: WorkerToHostMessage) {
   if (!process.send) throw new Error("Pi worker requires a Node IPC channel.")
   process.send(message)
+}
+
+function sendSessionEvent(eventType: string, payload: unknown) {
+  if (!webSessionId) return
+  eventSequence += 1
+  send({
+    type: "session.event",
+    sessionId: webSessionId,
+    seq: eventSequence,
+    eventType,
+    payload,
+  })
 }
 
 function runtimeError(error: unknown): RuntimeError {
@@ -101,6 +115,11 @@ function currentRuntime() {
     throw new Error("Pi runtime has not been initialized.")
   }
   return runtime
+}
+
+function currentSubagents() {
+  if (!subagents) throw new Error("Subagent bridge has not been initialized.")
+  return subagents
 }
 
 function abortError(signal: AbortSignal) {
@@ -481,15 +500,7 @@ async function bindSession(session: AgentSession) {
   })
   unsubscribe?.()
   unsubscribe = session.subscribe((event: AgentSessionEvent) => {
-    if (!webSessionId) return
-    eventSequence += 1
-    send({
-      type: "session.event",
-      sessionId: webSessionId,
-      seq: eventSequence,
-      eventType: event.type,
-      payload: event,
-    })
+    sendSessionEvent(event.type, event)
   })
 }
 
@@ -538,6 +549,11 @@ async function initialize(
       options.cwd,
       options.agentDir,
       projectTrustedForWeb(codingAgent, options.cwd, options.agentDir)
+    )
+    subagents?.dispose()
+    const eventBus = codingAgent.createEventBus()
+    subagents = new SubagentBridge(eventBus, (snapshot) =>
+      sendSessionEvent("subagents_updated", snapshot)
     )
     adapterHost?.dispose()
     adapterHost = new WebUiAdapterHost({
@@ -590,6 +606,7 @@ async function initialize(
       agentDir: options.agentDir,
       settingsManager,
       resourceLoaderOptions: {
+        eventBus,
         extensionsOverride: createExtensionInstrumentor(() =>
           currentAdapterHost()
         ),
@@ -680,6 +697,8 @@ async function shutdown() {
   surfaceManager = undefined
   adapterHost?.dispose()
   adapterHost = undefined
+  subagents?.dispose()
+  subagents = undefined
   for (const resolve of pendingExtensionRequests.values()) {
     resolve({ cancelled: true })
   }
@@ -848,6 +867,14 @@ async function dispatch(message: HostToWorkerMessage) {
       message.payload.surfaceId,
       message.payload.action
     )
+    respond(message.requestId, { success: true })
+  } else if (message.type === "subagents.snapshot") {
+    respond(message.requestId, {
+      success: true,
+      data: currentSubagents().snapshot(),
+    })
+  } else if (message.type === "subagents.stop") {
+    await currentSubagents().stop(message.payload.agentId)
     respond(message.requestId, { success: true })
   } else if (message.type === "webui.view.list") {
     respond(message.requestId, {

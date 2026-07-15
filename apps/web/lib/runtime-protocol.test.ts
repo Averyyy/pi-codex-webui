@@ -8,6 +8,7 @@ import {
   promptAcceptedSchema,
   resourceCatalogSchema,
   runtimeStatusSchema,
+  subagentsSnapshotSchema,
   tuiSurfaceActionSchema,
   tuiSurfaceSnapshotSchema,
   workerToHostMessageSchema,
@@ -65,6 +66,27 @@ test("runtime initialization declares resume, new, or duplicate explicitly", () 
       payload: { ...base.payload, nativeSessionFile: "/tmp/session.jsonl" },
     }).success,
     false
+  )
+})
+
+test("subagent snapshots and stop requests remain protocol validated", () => {
+  assert.equal(
+    subagentsSnapshotSchema.parse({
+      version: 1,
+      revision: 2,
+      available: true,
+      agents: [],
+    }).revision,
+    2
+  )
+  assert.equal(
+    hostToWorkerMessageSchema.parse({
+      type: "subagents.stop",
+      requestId: "request-1",
+      sessionId: "session-1",
+      payload: { agentId: "agent-1" },
+    }).type,
+    "subagents.stop"
   )
 })
 

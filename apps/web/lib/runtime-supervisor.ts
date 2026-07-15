@@ -24,6 +24,7 @@ import {
   sessionReplacementSchema,
   sessionStatsSchema,
   sessionTreeSchema,
+  subagentsSnapshotSchema,
   tuiSurfaceSnapshotsSchema,
   webUiViewSnapshotsSchema,
   runtimeSnapshotSchema,
@@ -33,6 +34,7 @@ import {
   type ResourceCatalog,
   type RuntimeSnapshot,
   type RuntimeStatus,
+  type SubagentsSnapshot,
   type ModelSettingsProviderInput,
   type WebUiExtensionStatus,
   type WorkerToHostMessage,
@@ -78,8 +80,7 @@ export function hasAvailableSelectedModel(
   const selected = snapshot?.model
   if (!selected) return false
   return snapshot.availableModels.some(
-    (model) =>
-      model.provider === selected.provider && model.id === selected.id
+    (model) => model.provider === selected.provider && model.id === selected.id
   )
 }
 
@@ -187,6 +188,7 @@ const DOMAIN_EVENT_TYPES: Record<string, string> = {
   thinking_level_changed: "session.thinking-level.changed",
   auto_retry_start: "retry.start",
   auto_retry_end: "retry.end",
+  subagents_updated: "subagents.updated",
 }
 
 declare global {
@@ -696,6 +698,37 @@ export class RuntimeSupervisor {
         sessionId,
       })
     )
+  }
+
+  async subagents(sessionId: string): Promise<SubagentsSnapshot> {
+    const runtime = this.runtimes.get(sessionId)
+    if (!runtime || runtime.cleaned) {
+      return { version: 1, revision: 0, available: false, agents: [] }
+    }
+    return subagentsSnapshotSchema.parse(
+      await this.request(runtime, {
+        type: "subagents.snapshot",
+        requestId: requestId(),
+        sessionId,
+      })
+    )
+  }
+
+  async stopSubagent(sessionId: string, agentId: string) {
+    const runtime = this.runtimes.get(sessionId)
+    if (!runtime || runtime.cleaned) {
+      throw new RuntimeRequestError(
+        "RuntimeNotActive",
+        "The Pi runtime is not active."
+      )
+    }
+    runtime.lastActivityAt = Date.now()
+    await this.request(runtime, {
+      type: "subagents.stop",
+      requestId: requestId(),
+      sessionId,
+      payload: { agentId },
+    })
   }
 
   async invokeWebUiAction(
