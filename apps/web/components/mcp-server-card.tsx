@@ -29,6 +29,8 @@ import type {
   McpServerView,
 } from "@workspace/runtime-protocol"
 
+import { useI18n } from "@/components/i18n-provider"
+
 const statusLabel: Record<McpConnectionStatus, string> = {
   disabled: "Disabled",
   disconnected: "Disconnected",
@@ -73,12 +75,18 @@ export function McpServerCard({
     enabled: boolean
   ) => void
 }) {
+  const { t } = useI18n()
+
   return (
     <Card>
       <CardHeader>
         <CardTitle className="flex flex-wrap items-center gap-2">
           {server.name}
-          <Badge variant="outline">{server.scope}</Badge>
+          <Badge variant="outline">
+            {server.scope === "global"
+              ? t("settings.resources.global")
+              : t("settings.resources.project")}
+          </Badge>
           <Badge variant={statusVariant(server.status)}>
             {statusLabel[server.status]}
           </Badge>
@@ -88,7 +96,7 @@ export function McpServerCard({
         </CardDescription>
         <CardAction>
           <Switch
-            aria-label={`${server.name} 启用状态`}
+            aria-label={t("settings.mcp.enableServer", { name: server.name })}
             checked={server.enabled}
             disabled={working || projectBlocked}
             onCheckedChange={onToggleServer}
@@ -105,7 +113,7 @@ export function McpServerCard({
             onClick={onEdit}
           >
             <PencilIcon />
-            编辑
+            {t("settings.mcp.edit")}
           </Button>
           <Button
             type="button"
@@ -115,7 +123,7 @@ export function McpServerCard({
             onClick={onTest}
           >
             <StethoscopeIcon />
-            测试连接
+            {t("settings.mcp.testConnection")}
           </Button>
           <Button
             type="button"
@@ -125,7 +133,7 @@ export function McpServerCard({
             onClick={onReconnect}
           >
             <RefreshCwIcon />
-            重连
+            {t("settings.mcp.reconnect")}
           </Button>
           <Button
             type="button"
@@ -135,7 +143,7 @@ export function McpServerCard({
             onClick={onRemove}
           >
             <Trash2Icon />
-            删除
+            {t("settings.mcp.delete")}
           </Button>
         </div>
 
@@ -152,10 +160,14 @@ export function McpServerCard({
 
         <div className="grid gap-2">
           <div className="flex items-baseline justify-between gap-3">
-            <h3 className="text-sm font-medium">Discovered tools</h3>
+            <h3 className="text-sm font-medium">
+              {t("settings.mcp.discoveredTools")}
+            </h3>
             <span className="text-xs text-muted-foreground">
-              {server.tools.filter((tool) => tool.enabled).length}/
-              {server.tools.length} enabled
+              {t("settings.mcp.toolsEnabled", {
+                enabled: server.tools.filter((tool) => tool.enabled).length,
+                total: server.tools.length,
+              })}
             </span>
           </div>
           {server.tools.length ? (
@@ -178,7 +190,9 @@ export function McpServerCard({
                   ) : null}
                 </div>
                 <Switch
-                  aria-label={`${tool.namespacedName} 启用状态`}
+                  aria-label={t("settings.mcp.enableTool", {
+                    name: tool.namespacedName,
+                  })}
                   checked={tool.enabled}
                   disabled={working || !server.enabled || projectBlocked}
                   onCheckedChange={(enabled) =>
@@ -190,8 +204,8 @@ export function McpServerCard({
           ) : (
             <p className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
               {server.enabled
-                ? "连接成功后会显示 server 实际暴露的 tools。"
-                : "启用或测试连接后发现 tools。"}
+                ? t("settings.mcp.toolsAfterConnection")
+                : t("settings.mcp.toolsAfterEnable")}
             </p>
           )}
         </div>
@@ -200,7 +214,7 @@ export function McpServerCard({
           <CollapsibleTrigger asChild>
             <Button type="button" variant="ghost" size="sm">
               <ChevronDownIcon />
-              Logs ({server.logs.length})
+              {t("settings.mcp.logs", { count: server.logs.length })}
             </Button>
           </CollapsibleTrigger>
           <CollapsibleContent className="mt-2 max-h-56 overflow-auto rounded-lg bg-muted/50 p-3 font-mono text-xs">
@@ -214,7 +228,9 @@ export function McpServerCard({
                 </p>
               ))
             ) : (
-              <p className="text-muted-foreground">暂无日志。</p>
+              <p className="text-muted-foreground">
+                {t("settings.mcp.noLogs")}
+              </p>
             )}
           </CollapsibleContent>
         </Collapsible>

@@ -7,8 +7,9 @@ import { Toaster } from "@workspace/ui/components/sonner"
 import { TooltipProvider } from "@workspace/ui/components/tooltip"
 
 import { ThemeProvider } from "@/components/theme-provider"
+import { I18nProvider } from "@/components/i18n-provider"
 import { PwaRegistration } from "@/components/pwa-registration"
-import { loadConfig } from "@/lib/config"
+import { getLocalizedConfig } from "@/lib/i18n-server"
 
 export const metadata = {
   title: "pi-web-codex",
@@ -21,11 +22,11 @@ export default async function RootLayout({
   children: React.ReactNode
 }>) {
   await connection()
-  const config = await loadConfig()
+  const { config } = await getLocalizedConfig()
 
   return (
     <html
-      lang="zh-CN"
+      lang={config.appearance.language}
       suppressHydrationWarning
       style={
         {
@@ -35,11 +36,13 @@ export default async function RootLayout({
       }
     >
       <body>
-        <ThemeProvider defaultTheme={config.appearance.theme}>
-          <TooltipProvider>{children}</TooltipProvider>
-          <Toaster />
-          <PwaRegistration />
-        </ThemeProvider>
+        <I18nProvider initialLocale={config.appearance.language}>
+          <ThemeProvider defaultTheme={config.appearance.theme}>
+            <TooltipProvider>{children}</TooltipProvider>
+            <Toaster />
+            <PwaRegistration />
+          </ThemeProvider>
+        </I18nProvider>
       </body>
     </html>
   )

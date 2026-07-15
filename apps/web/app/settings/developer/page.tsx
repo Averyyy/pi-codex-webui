@@ -1,15 +1,15 @@
 import { RuntimeSettingsForm } from "@/components/runtime-settings-form"
 import { SettingsSection } from "@/components/settings-section"
-import { loadConfig } from "@/lib/config"
+import { getLocalizedConfig } from "@/lib/i18n-server"
 import { getMutationToken } from "@/lib/request-security"
 import { runtimeProfileViews } from "@/lib/runtime-profiles"
 
 export default async function DeveloperSettingsPage() {
-  const config = await loadConfig()
+  const { config, t } = await getLocalizedConfig()
   return (
     <SettingsSection
-      title="Developer"
-      description="配置新 session 使用的 Agent runtime 与 Pi Server 连接。"
+      title={t("settings.page.developer.title")}
+      description={t("settings.page.developer.description")}
     >
       <RuntimeSettingsForm
         initial={{

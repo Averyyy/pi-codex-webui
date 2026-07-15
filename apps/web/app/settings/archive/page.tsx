@@ -1,14 +1,16 @@
 import { ArchivedSessions } from "@/components/archived-sessions"
 import { SettingsSection } from "@/components/settings-section"
 import { listArchivedSessions } from "@/lib/catalog"
+import { getLocalizedConfig } from "@/lib/i18n-server"
 import { getMutationToken } from "@/lib/request-security"
 
 export default async function ArchiveSettingsPage() {
+  const { t } = await getLocalizedConfig()
   const sessions = await listArchivedSessions()
   return (
     <SettingsSection
-      title="归档"
-      description="归档对话不会出现在工作区列表；删除会永久移除对应的 Pi JSONL。"
+      title={t("settings.page.archive.title")}
+      description={t("settings.page.archive.description")}
     >
       <ArchivedSessions initial={sessions} mutationToken={getMutationToken()} />
     </SettingsSection>

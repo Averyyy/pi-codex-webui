@@ -1,13 +1,19 @@
 import { AppearanceSettingsForm } from "@/components/settings-form"
 import { SettingsSection } from "@/components/settings-section"
-import { loadConfig } from "@/lib/config"
+import { getLocalizedConfig } from "@/lib/i18n-server"
 import { getMutationToken } from "@/lib/request-security"
 
 export default async function AppearanceSettingsPage() {
+  const { config, t } = await getLocalizedConfig()
+
   return (
-    <SettingsSection title="外观" description="调整真实应用壳的主题与尺寸。">
+    <SettingsSection
+      title={t("settings.page.appearance.title")}
+      description={t("settings.page.appearance.description")}
+    >
       <AppearanceSettingsForm
-        initial={await loadConfig()}
+        key={config.appearance.language}
+        initial={config}
         mutationToken={getMutationToken()}
       />
     </SettingsSection>

@@ -34,6 +34,8 @@ import {
 } from "@workspace/ui/components/select"
 import { Switch } from "@workspace/ui/components/switch"
 
+import { useI18n } from "@/components/i18n-provider"
+
 interface RuntimeProfileView {
   id: string
   kind: "pi" | "pi-client"
@@ -68,6 +70,7 @@ export function RuntimeSettingsForm({
   initial: RuntimeSettingsView
   mutationToken: string
 }) {
+  const { t } = useI18n()
   const [saved, setSaved] = useState(initial)
   const savedClient = useMemo(() => piClientProfile(saved.profiles), [saved])
 
@@ -125,7 +128,9 @@ export function RuntimeSettingsForm({
         const result = (await response.json()) as RuntimeSettingsView & {
           error?: string
         }
-        if (!response.ok) throw new Error(result.error ?? "保存失败。")
+        if (!response.ok) {
+          throw new Error(result.error ?? t("settings.runtime.saveFailed"))
+        }
 
         setSaved(result)
         const client = piClientProfile(result.profiles)
@@ -136,9 +141,13 @@ export function RuntimeSettingsForm({
         setClearAuthToken(false)
         setDiagnostic(null)
         router.refresh()
-        toast.success("Agent runtime 设置已保存。")
+        toast.success(t("settings.runtime.saved"))
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : "保存失败。")
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : t("settings.runtime.saveFailed")
+        )
       }
     })
   }
@@ -159,11 +168,17 @@ export function RuntimeSettingsForm({
         const result = (await response.json()) as DiagnosticResult & {
           error?: string
         }
-        if (!response.ok) throw new Error(result.error ?? "连接测试失败。")
+        if (!response.ok) {
+          throw new Error(result.error ?? t("settings.runtime.testFailed"))
+        }
         setDiagnostic(result)
-        toast.success("Pi Server 连接正常。")
+        toast.success(t("settings.runtime.connected"))
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : "连接测试失败。")
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : t("settings.runtime.testFailed")
+        )
       }
     })
   }
@@ -171,20 +186,18 @@ export function RuntimeSettingsForm({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Agent Runtime</CardTitle>
-        <CardDescription>
-          默认 runtime 只作用于新 session；已有 session 始终保留原绑定。
-        </CardDescription>
+        <CardTitle>{t("settings.runtime.title")}</CardTitle>
+        <CardDescription>{t("settings.runtime.description")}</CardDescription>
       </CardHeader>
       <CardContent>
         <FieldGroup>
           <Field orientation="responsive">
             <FieldContent>
               <FieldLabel htmlFor="default-runtime">
-                新 session 默认值
+                {t("settings.runtime.default")}
               </FieldLabel>
               <FieldDescription>
-                创建时可显式覆盖；不会根据环境变量、端口或进程自动推断。
+                {t("settings.runtime.defaultDescription")}
               </FieldDescription>
             </FieldContent>
             <Select value={defaultProfileId} onValueChange={updateDefault}>
@@ -202,24 +215,25 @@ export function RuntimeSettingsForm({
 
           <Field orientation="horizontal">
             <FieldContent>
-              <FieldTitle>启用 Pi Client</FieldTitle>
+              <FieldTitle>{t("settings.runtime.enableClient")}</FieldTitle>
               <FieldDescription>
-                使用独立 worker 连接指定的 Pi Server；Pi worker 会清除全部
-                PI_SERVER_* 变量。
+                {t("settings.runtime.clientDescription")}
               </FieldDescription>
             </FieldContent>
             <Switch
               checked={enabled}
               onCheckedChange={updateEnabled}
-              aria-label="启用 Pi Client"
+              aria-label={t("settings.runtime.enableClient")}
             />
           </Field>
 
           <Field orientation="responsive">
             <FieldContent>
-              <FieldLabel htmlFor="pi-server-url">Pi Server URL</FieldLabel>
+              <FieldLabel htmlFor="pi-server-url">
+                {t("settings.runtime.serverUrl")}
+              </FieldLabel>
               <FieldDescription>
-                例如 http://127.0.0.1:4217；启用 Pi Client 时必填。
+                {t("settings.runtime.serverUrlDescription")}
               </FieldDescription>
             </FieldContent>
             <Input
@@ -236,14 +250,16 @@ export function RuntimeSettingsForm({
             <FieldContent>
               <div className="flex items-center gap-2">
                 <FieldLabel htmlFor="pi-server-token">
-                  Authentication token
+                  {t("settings.runtime.authToken")}
                 </FieldLabel>
                 {savedClient.hasAuthToken && !clearAuthToken ? (
-                  <Badge variant="secondary">已安全保存</Badge>
+                  <Badge variant="secondary">
+                    {t("settings.runtime.savedSecurely")}
+                  </Badge>
                 ) : null}
               </div>
               <FieldDescription>
-                Token 只写入权限为 0600 的 secrets 文件，不进入 config.json。
+                {t("settings.runtime.authDescription")}
               </FieldDescription>
             </FieldContent>
             <div className="flex w-full max-w-sm items-center gap-2">
@@ -256,7 +272,9 @@ export function RuntimeSettingsForm({
                   if (event.target.value) setClearAuthToken(false)
                 }}
                 placeholder={
-                  savedClient.hasAuthToken ? "留空以保留已保存 token" : "可选"
+                  savedClient.hasAuthToken
+                    ? t("settings.runtime.keepToken")
+                    : t("settings.provider.optional")
                 }
               />
               {savedClient.hasAuthToken ? (
@@ -268,7 +286,9 @@ export function RuntimeSettingsForm({
                     setAuthToken("")
                   }}
                 >
-                  {clearAuthToken ? "保留" : "移除"}
+                  {clearAuthToken
+                    ? t("settings.runtime.keep")
+                    : t("settings.runtime.removeToken")}
                 </Button>
               ) : null}
             </div>
@@ -277,7 +297,9 @@ export function RuntimeSettingsForm({
           {diagnostic ? (
             <div className="flex items-center gap-2 rounded-lg border bg-muted/40 px-4 py-3 text-sm">
               <CheckCircle2Icon className="size-4 text-emerald-600" />
-              Pi Server 响应正常 · {diagnostic.latencyMs} ms
+              {t("settings.runtime.response", {
+                latency: diagnostic.latencyMs,
+              })}
               {diagnostic.sessionCount === undefined
                 ? null
                 : ` · ${diagnostic.sessionCount} sessions`}
@@ -291,17 +313,17 @@ export function RuntimeSettingsForm({
           variant="outline"
           onClick={testConnection}
           disabled={testing || dirty || !savedClient.serverUrl}
-          title={dirty ? "请先保存当前更改" : undefined}
+          title={dirty ? t("settings.runtime.saveCurrent") : undefined}
         >
           {testing ? (
             <LoaderCircleIcon className="animate-spin" />
           ) : (
             <UnplugIcon />
           )}
-          测试已保存配置
+          {t("settings.runtime.testSaved")}
         </Button>
         <Button type="button" onClick={save} disabled={saving || !dirty}>
-          {saving ? "保存中…" : "保存"}
+          {saving ? t("settings.common.saving") : t("settings.common.save")}
         </Button>
       </CardFooter>
     </Card>

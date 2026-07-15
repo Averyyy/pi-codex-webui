@@ -28,6 +28,8 @@ import type {
   ModelSettingsProviderInput,
 } from "@workspace/runtime-protocol"
 
+import { useI18n } from "@/components/i18n-provider"
+
 type FormModel = Omit<
   ModelSettingsCustomModel,
   "contextWindow" | "maxTokens"
@@ -86,6 +88,7 @@ export function CustomProviderForm({
   onOpenChange: (open: boolean) => void
   onSave: (value: ModelSettingsProviderInput) => void
 }) {
+  const { t } = useI18n()
   const [form, setForm] = useState(() => initialState(provider))
 
   function field<K extends keyof FormState>(key: K, value: FormState[K]) {
@@ -125,16 +128,20 @@ export function CustomProviderForm({
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>
-            {provider ? "编辑自定义 provider" : "添加自定义 provider"}
+            {provider
+              ? t("settings.provider.editTitle")
+              : t("settings.provider.addTitle")}
           </DialogTitle>
           <DialogDescription>
-            配置会写入 Pi 的 models.json。API key 留空会保留已有凭据。
+            {t("settings.provider.description")}
           </DialogDescription>
         </DialogHeader>
         <form className="grid gap-5" onSubmit={submit}>
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="grid gap-2">
-              <Label htmlFor="custom-provider-id">Provider ID</Label>
+              <Label htmlFor="custom-provider-id">
+                {t("settings.provider.providerId")}
+              </Label>
               <Input
                 id="custom-provider-id"
                 required
@@ -146,7 +153,9 @@ export function CustomProviderForm({
               />
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="custom-provider-name">显示名称（可选）</Label>
+              <Label htmlFor="custom-provider-name">
+                {t("settings.provider.displayName")}
+              </Label>
               <Input
                 id="custom-provider-name"
                 value={form.name}
@@ -158,7 +167,7 @@ export function CustomProviderForm({
 
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="grid gap-2">
-              <Label>API</Label>
+              <Label>{t("settings.provider.api")}</Label>
               <Select
                 value={form.api}
                 onValueChange={(value) =>
@@ -185,7 +194,9 @@ export function CustomProviderForm({
               </Select>
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="custom-provider-base-url">Base URL</Label>
+              <Label htmlFor="custom-provider-base-url">
+                {t("settings.provider.baseUrl")}
+              </Label>
               <Input
                 id="custom-provider-base-url"
                 type="url"
@@ -198,14 +209,18 @@ export function CustomProviderForm({
           </div>
 
           <div className="grid gap-2">
-            <Label htmlFor="custom-provider-api-key">API key</Label>
+            <Label htmlFor="custom-provider-api-key">
+              {t("settings.provider.apiKey")}
+            </Label>
             <Input
               id="custom-provider-api-key"
               type="password"
               value={form.apiKey}
               onChange={(event) => field("apiKey", event.target.value)}
               placeholder={
-                provider?.apiKeyConfigured ? "已配置，留空保持不变" : "可选"
+                provider?.apiKeyConfigured
+                  ? t("settings.provider.keepConfigured")
+                  : t("settings.provider.optional")
               }
               autoComplete="new-password"
             />
@@ -214,9 +229,9 @@ export function CustomProviderForm({
           <div className="grid gap-3">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <Label>Models</Label>
+                <Label>{t("settings.provider.models")}</Label>
                 <p className="text-xs text-muted-foreground">
-                  每个 model 使用 provider 的 API 和 Base URL。
+                  {t("settings.provider.modelDescription")}
                 </p>
               </div>
               <Button
@@ -225,7 +240,7 @@ export function CustomProviderForm({
                 size="sm"
                 onClick={() => field("models", [...form.models, emptyModel()])}
               >
-                添加 model
+                {t("settings.provider.addModel")}
               </Button>
             </div>
             <div className="grid gap-3">
@@ -234,7 +249,7 @@ export function CustomProviderForm({
                   <div className="grid gap-3 sm:grid-cols-2">
                     <div className="grid gap-2">
                       <Label htmlFor={`custom-model-id-${index}`}>
-                        Model ID
+                        {t("settings.provider.modelId")}
                       </Label>
                       <Input
                         id={`custom-model-id-${index}`}
@@ -248,7 +263,7 @@ export function CustomProviderForm({
                     </div>
                     <div className="grid gap-2">
                       <Label htmlFor={`custom-model-name-${index}`}>
-                        显示名称（可选）
+                        {t("settings.provider.modelName")}
                       </Label>
                       <Input
                         id={`custom-model-name-${index}`}
@@ -263,7 +278,7 @@ export function CustomProviderForm({
                   <div className="grid gap-3 sm:grid-cols-2">
                     <div className="grid gap-2">
                       <Label htmlFor={`custom-model-context-${index}`}>
-                        Context window
+                        {t("settings.provider.contextWindow")}
                       </Label>
                       <Input
                         id={`custom-model-context-${index}`}
@@ -281,7 +296,7 @@ export function CustomProviderForm({
                     </div>
                     <div className="grid gap-2">
                       <Label htmlFor={`custom-model-max-tokens-${index}`}>
-                        Max output tokens
+                        {t("settings.provider.maxOutputTokens")}
                       </Label>
                       <Input
                         id={`custom-model-max-tokens-${index}`}
@@ -304,7 +319,7 @@ export function CustomProviderForm({
                           modelField(index, { reasoning })
                         }
                       />
-                      支持推理
+                      {t("settings.provider.reasoning")}
                     </label>
                     <label className="flex items-center gap-2">
                       <Switch
@@ -315,7 +330,7 @@ export function CustomProviderForm({
                           })
                         }
                       />
-                      支持图片
+                      {t("settings.provider.images")}
                     </label>
                     {form.models.length > 1 ? (
                       <Button
@@ -332,7 +347,7 @@ export function CustomProviderForm({
                           )
                         }
                       >
-                        删除
+                        {t("settings.provider.delete")}
                       </Button>
                     ) : null}
                   </div>
@@ -348,10 +363,12 @@ export function CustomProviderForm({
               disabled={working}
               onClick={() => onOpenChange(false)}
             >
-              取消
+              {t("settings.provider.cancel")}
             </Button>
             <Button type="submit" disabled={working}>
-              {working ? "保存中…" : "保存 provider"}
+              {working
+                ? t("settings.common.saving")
+                : t("settings.provider.save")}
             </Button>
           </DialogFooter>
         </form>

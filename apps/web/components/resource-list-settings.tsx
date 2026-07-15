@@ -18,6 +18,7 @@ import {
   ResourceProjectControls,
   type ResourceProject,
 } from "@/components/resource-project-controls"
+import { useI18n } from "@/components/i18n-provider"
 import { useResourceCatalog } from "@/lib/use-resource-catalog"
 
 export function ResourceListSettings({
@@ -35,6 +36,7 @@ export function ResourceListSettings({
   initialCatalog: ResourceCatalog
   mutationToken: string
 }) {
+  const { t } = useI18n()
   const [workingId, setWorkingId] = useState<string | null>(null)
   const [trustWorking, setTrustWorking] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -67,7 +69,8 @@ export function ResourceListSettings({
       const result = (await response.json()) as ResourceCatalog & {
         error?: string
       }
-      if (!response.ok) throw new Error(result.error ?? "更新 Pi 资源失败。")
+      if (!response.ok)
+        throw new Error(result.error ?? t("settings.common.saveFailed"))
       setCatalog(result)
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure))
@@ -94,10 +97,12 @@ export function ResourceListSettings({
           <section key={scope} className="grid gap-3">
             <div className="flex items-baseline justify-between gap-4">
               <h2 className="text-lg font-semibold">
-                {scope === "global" ? "Global" : "Current Project"}
+                {scope === "global"
+                  ? t("settings.resources.global")
+                  : t("settings.resources.project")}
               </h2>
               <span className="text-xs text-muted-foreground">
-                {scoped.length} 项
+                {t("settings.resources.count", { count: scoped.length })}
               </span>
             </div>
             {scoped.length ? (
@@ -107,13 +112,19 @@ export function ResourceListSettings({
                     <CardTitle className="flex flex-wrap items-center gap-2">
                       {resource.name}
                       {resource.inherited ? (
-                        <Badge variant="outline">继承 Global</Badge>
+                        <Badge variant="outline">
+                          {t("settings.resources.inherited")}
+                        </Badge>
                       ) : null}
                       {resource.overridden ? (
-                        <Badge variant="secondary">Project override</Badge>
+                        <Badge variant="secondary">
+                          {t("settings.resources.override")}
+                        </Badge>
                       ) : null}
                       {resource.reloadRequired ? (
-                        <Badge variant="outline">等待 runtime reload</Badge>
+                        <Badge variant="outline">
+                          {t("settings.resources.reload")}
+                        </Badge>
                       ) : null}
                     </CardTitle>
                     <CardDescription className="break-all">
@@ -121,7 +132,7 @@ export function ResourceListSettings({
                     </CardDescription>
                     <CardAction>
                       <Switch
-                        aria-label={`${resource.name} 启用状态`}
+                        aria-label={`${resource.name} ${t("settings.resources.enabled")}`}
                         checked={resource.enabled}
                         disabled={
                           workingId !== null ||
@@ -143,8 +154,9 @@ export function ResourceListSettings({
               ))
             ) : (
               <p className="rounded-xl border border-dashed p-5 text-sm text-muted-foreground">
-                没有解析到这个 scope 的{" "}
-                {kind === "skill" ? "skill" : "extension"}。
+                {t("settings.resources.empty", {
+                  kind: kind === "skill" ? "skill" : "extension",
+                })}
               </p>
             )}
           </section>

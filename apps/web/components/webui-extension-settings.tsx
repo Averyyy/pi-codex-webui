@@ -34,6 +34,7 @@ import type {
   WebUiExtensionCatalogView,
   WebUiExtensionGroupView,
 } from "@/lib/webui-extensions/types"
+import { useI18n } from "@/components/i18n-provider"
 
 const STATUS_LABELS = {
   tested: "Tested",
@@ -66,6 +67,7 @@ export function WebUiExtensionSettings({
   initialCatalog: WebUiExtensionCatalogView
   mutationToken: string
 }) {
+  const { t } = useI18n()
   const router = useRouter()
   const pathname = usePathname()
   const [catalog, setCatalog] = useState(initialCatalog)
@@ -111,20 +113,22 @@ export function WebUiExtensionSettings({
       {projects.length > 0 && projectId ? (
         <Card>
           <CardHeader>
-            <CardTitle>Adapter context</CardTitle>
+            <CardTitle>{t("settings.webui.context")}</CardTitle>
             <CardDescription>
-              Project adapters load only after Pi project trust is granted.
+              {t("settings.webui.contextDescription")}
             </CardDescription>
             <CardAction>
               <Badge variant={catalog.projectTrusted ? "secondary" : "outline"}>
-                {catalog.projectTrusted ? "Project trusted" : "Global only"}
+                {catalog.projectTrusted
+                  ? t("settings.webui.projectTrusted")
+                  : t("settings.webui.globalOnly")}
               </Badge>
             </CardAction>
           </CardHeader>
           <CardContent>
             <FieldGroup>
               <Field>
-                <FieldTitle>Current project</FieldTitle>
+                <FieldTitle>{t("settings.webui.currentProject")}</FieldTitle>
                 <Select
                   value={projectId}
                   onValueChange={(value) =>
@@ -135,7 +139,7 @@ export function WebUiExtensionSettings({
                 >
                   <SelectTrigger
                     className="w-full"
-                    aria-label="Current project"
+                    aria-label={t("settings.webui.currentProject")}
                   >
                     <SelectValue />
                   </SelectTrigger>
@@ -176,7 +180,7 @@ export function WebUiExtensionSettings({
                 <Switch
                   checked={group.preference.enabled}
                   disabled={disabled}
-                  aria-label={`${group.name} enabled`}
+                  aria-label={t("settings.webui.enabled", { name: group.name })}
                   onCheckedChange={(enabled) => void update(group, { enabled })}
                 />
               </CardAction>
@@ -185,15 +189,17 @@ export function WebUiExtensionSettings({
               <FieldGroup>
                 <Field orientation="horizontal">
                   <FieldContent>
-                    <FieldTitle>Native Web rendering</FieldTitle>
+                    <FieldTitle>
+                      {t("settings.webui.nativeRendering")}
+                    </FieldTitle>
                     <FieldDescription>
-                      Turn off to run the original Pi UI through Virtual TUI.
+                      {t("settings.webui.nativeDescription")}
                     </FieldDescription>
                   </FieldContent>
                   <Switch
                     checked={group.preference.rendering === "native"}
                     disabled={disabled || !group.preference.enabled}
-                    aria-label={`${group.name} native rendering`}
+                    aria-label={`${group.name} ${t("settings.webui.nativeRendering")}`}
                     onCheckedChange={(native) =>
                       void update(group, {
                         rendering: native ? "native" : "tui",
@@ -204,10 +210,9 @@ export function WebUiExtensionSettings({
 
                 {group.candidates.length > 1 ? (
                   <Field>
-                    <FieldTitle>Conflict selection</FieldTitle>
+                    <FieldTitle>{t("settings.webui.conflict")}</FieldTitle>
                     <FieldDescription>
-                      Automatic selection falls back to TUI when multiple
-                      adapters have equal priority.
+                      {t("settings.webui.conflictDescription")}
                     </FieldDescription>
                     <Select
                       value={group.preference.selectedAdapter ?? "automatic"}
@@ -220,13 +225,15 @@ export function WebUiExtensionSettings({
                     >
                       <SelectTrigger
                         className="w-full"
-                        aria-label="Adapter selection"
+                        aria-label={t("settings.webui.adapterSelection")}
                       >
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectGroup>
-                          <SelectItem value="automatic">Automatic</SelectItem>
+                          <SelectItem value="automatic">
+                            {t("settings.webui.automatic")}
+                          </SelectItem>
                           {group.candidates.map((candidate) => (
                             <SelectItem
                               key={candidate.key}
@@ -243,7 +250,7 @@ export function WebUiExtensionSettings({
                 ) : null}
 
                 <Field>
-                  <FieldTitle>Available adapters</FieldTitle>
+                  <FieldTitle>{t("settings.webui.available")}</FieldTitle>
                   <div className="grid gap-3">
                     {group.candidates.map((candidate) => {
                       const active = status?.adapterKey === candidate.key
@@ -260,15 +267,15 @@ export function WebUiExtensionSettings({
                             {active ? (
                               <Badge variant="secondary">
                                 {group.preference.selectedAdapter
-                                  ? "User-selected"
-                                  : "Active"}
+                                  ? t("settings.webui.userSelected")
+                                  : t("settings.webui.active")}
                               </Badge>
                             ) : null}
                           </div>
                           <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-muted-foreground">
-                            <dt>Adapter</dt>
+                            <dt>{t("settings.webui.adapter")}</dt>
                             <dd>{candidate.packageVersion}</dd>
-                            <dt>Target</dt>
+                            <dt>{t("settings.webui.target")}</dt>
                             <dd>
                               {candidate.target.packageName ??
                                 candidate.target.extensionPath}
@@ -276,16 +283,16 @@ export function WebUiExtensionSettings({
                                 ? ` ${status.targetPackageVersion}`
                                 : ""}
                             </dd>
-                            <dt>Supported</dt>
+                            <dt>{t("settings.webui.supported")}</dt>
                             <dd>
                               {candidate.target.version ?? "Capability probe"}
                             </dd>
-                            <dt>Tested</dt>
+                            <dt>{t("settings.webui.tested")}</dt>
                             <dd>
                               {candidate.target.testedVersions?.join(", ") ??
                                 "No pinned versions"}
                             </dd>
-                            <dt>Probe</dt>
+                            <dt>{t("settings.webui.probe")}</dt>
                             <dd>
                               {active && status?.probePassed
                                 ? "Passed"
@@ -296,7 +303,7 @@ export function WebUiExtensionSettings({
                       )
                     })}
                     <FieldDescription>
-                      Fallback: Pi TUI available.
+                      {t("settings.webui.fallback")}
                     </FieldDescription>
                   </div>
                 </Field>
@@ -309,10 +316,9 @@ export function WebUiExtensionSettings({
       {!catalog.groups.length ? (
         <Card>
           <CardHeader>
-            <CardTitle>No WebUI adapters found</CardTitle>
+            <CardTitle>{t("settings.webui.noAdapters")}</CardTitle>
             <CardDescription>
-              Built-in, external, development, and trusted project locations
-              were checked.
+              {t("settings.webui.noAdaptersDescription")}
             </CardDescription>
           </CardHeader>
         </Card>

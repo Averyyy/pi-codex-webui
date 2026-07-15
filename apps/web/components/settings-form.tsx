@@ -34,16 +34,20 @@ import {
 } from "@workspace/ui/components/select"
 import { Switch } from "@workspace/ui/components/switch"
 
+import { useI18n } from "@/components/i18n-provider"
 import {
+  languageSchema,
   themeSchema,
   type AppConfig,
   type ConfigPatch,
 } from "@/lib/config-schema"
+import { translate } from "@/lib/i18n"
 
 async function persistSettings(
   config: AppConfig,
   mutationToken: string,
-  patch: ConfigPatch
+  patch: ConfigPatch,
+  fallbackError: string
 ) {
   const response = await fetch("/api/v1/settings", {
     method: "PATCH",
@@ -56,15 +60,17 @@ async function persistSettings(
   })
   const result = await response.json()
   if (!response.ok) {
-    throw new Error(result.error ?? "保存失败。")
+    throw new Error(result.error ?? fallbackError)
   }
   return result as AppConfig
 }
 
 function SaveButton({ pending }: { pending: boolean }) {
+  const { t } = useI18n()
+
   return (
     <Button type="submit" disabled={pending}>
-      {pending ? "保存中…" : "保存"}
+      {pending ? t("settings.common.saving") : t("settings.common.save")}
     </Button>
   )
 }
@@ -80,21 +86,31 @@ export function GeneralSettingsForm({
   const [openBrowser, setOpenBrowser] = useState(initial.server.openBrowser)
   const [pending, startTransition] = useTransition()
   const router = useRouter()
+  const { t } = useI18n()
 
   function submit(formData: FormData) {
     startTransition(async () => {
       try {
-        const saved = await persistSettings(config, mutationToken, {
-          server: {
-            port: Number(formData.get("port")),
-            openBrowser,
+        const saved = await persistSettings(
+          config,
+          mutationToken,
+          {
+            server: {
+              port: Number(formData.get("port")),
+              openBrowser,
+            },
           },
-        })
+          t("settings.common.saveFailed")
+        )
         setConfig(saved)
         router.refresh()
-        toast.success("常规设置已保存。")
+        toast.success(t("settings.general.saved"))
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : "保存失败。")
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : t("settings.common.saveFailed")
+        )
       }
     })
   }
@@ -103,18 +119,20 @@ export function GeneralSettingsForm({
     <form action={submit}>
       <Card>
         <CardHeader>
-          <CardTitle>本地服务</CardTitle>
+          <CardTitle>{t("settings.general.localService")}</CardTitle>
           <CardDescription>
-            服务只绑定本机；端口设置在重启后生效。
+            {t("settings.general.localServiceDescription")}
           </CardDescription>
         </CardHeader>
         <CardContent>
           <FieldGroup>
             <Field orientation="responsive">
               <FieldContent>
-                <FieldLabel htmlFor="host">主机</FieldLabel>
+                <FieldLabel htmlFor="host">
+                  {t("settings.general.host")}
+                </FieldLabel>
                 <FieldDescription>
-                  未启用认证时固定为本机回环地址。
+                  {t("settings.general.hostDescription")}
                 </FieldDescription>
               </FieldContent>
               <Input
@@ -126,9 +144,11 @@ export function GeneralSettingsForm({
             </Field>
             <Field orientation="responsive">
               <FieldContent>
-                <FieldLabel htmlFor="port">端口</FieldLabel>
+                <FieldLabel htmlFor="port">
+                  {t("settings.general.port")}
+                </FieldLabel>
                 <FieldDescription>
-                  启动命令与健康检查共用此端口。
+                  {t("settings.general.portDescription")}
                 </FieldDescription>
               </FieldContent>
               <Input
@@ -144,15 +164,15 @@ export function GeneralSettingsForm({
             </Field>
             <Field orientation="horizontal">
               <FieldContent>
-                <FieldTitle>启动后打开浏览器</FieldTitle>
+                <FieldTitle>{t("settings.general.openBrowser")}</FieldTitle>
                 <FieldDescription>
-                  CLI 确认健康检查通过后打开页面。
+                  {t("settings.general.openBrowserDescription")}
                 </FieldDescription>
               </FieldContent>
               <Switch
                 checked={openBrowser}
                 onCheckedChange={setOpenBrowser}
-                aria-label="启动后打开浏览器"
+                aria-label={t("settings.general.openBrowser")}
               />
             </Field>
           </FieldGroup>
@@ -174,23 +194,33 @@ export function AppearanceSettingsForm({
 }) {
   const [config, setConfig] = useState(initial)
   const [theme, setThemeValue] = useState(initial.appearance.theme)
+  const [language, setLanguage] = useState(initial.appearance.language)
   const [pending, startTransition] = useTransition()
   const { setTheme } = useTheme()
   const { setSidebarWidth } = useSidebar()
   const router = useRouter()
+  const { setLocale, t } = useI18n()
 
   function submit(formData: FormData) {
     startTransition(async () => {
       try {
-        const saved = await persistSettings(config, mutationToken, {
-          appearance: {
-            theme,
-            fontSize: Number(formData.get("fontSize")),
-            sidebarWidth: Number(formData.get("sidebarWidth")),
+        const saved = await persistSettings(
+          config,
+          mutationToken,
+          {
+            appearance: {
+              theme,
+              language,
+              fontSize: Number(formData.get("fontSize")),
+              sidebarWidth: Number(formData.get("sidebarWidth")),
+            },
           },
-        })
+          t("settings.common.saveFailed")
+        )
         setConfig(saved)
         setTheme(saved.appearance.theme)
+        setLanguage(saved.appearance.language)
+        setLocale(saved.appearance.language)
         document.documentElement.style.setProperty(
           "--app-font-size",
           `${saved.appearance.fontSize}px`
@@ -201,9 +231,15 @@ export function AppearanceSettingsForm({
         )
         setSidebarWidth(saved.appearance.sidebarWidth)
         router.refresh()
-        toast.success("外观设置已保存。")
+        toast.success(
+          translate(saved.appearance.language, "settings.appearance.saved")
+        )
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : "保存失败。")
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : t("settings.common.saveFailed")
+        )
       }
     })
   }
@@ -212,15 +248,21 @@ export function AppearanceSettingsForm({
     <form action={submit}>
       <Card>
         <CardHeader>
-          <CardTitle>界面</CardTitle>
-          <CardDescription>这些设置会写入本机配置并立即应用。</CardDescription>
+          <CardTitle>{t("settings.appearance.interface")}</CardTitle>
+          <CardDescription>
+            {t("settings.appearance.interfaceDescription")}
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <FieldGroup>
             <Field orientation="responsive">
               <FieldContent>
-                <FieldLabel htmlFor="theme">主题</FieldLabel>
-                <FieldDescription>跟随系统、浅色或深色。</FieldDescription>
+                <FieldLabel htmlFor="theme">
+                  {t("settings.appearance.theme")}
+                </FieldLabel>
+                <FieldDescription>
+                  {t("settings.appearance.themeDescription")}
+                </FieldDescription>
               </FieldContent>
               <Select
                 value={theme}
@@ -233,18 +275,56 @@ export function AppearanceSettingsForm({
                 </SelectTrigger>
                 <SelectContent>
                   <SelectGroup>
-                    <SelectItem value="system">系统</SelectItem>
-                    <SelectItem value="light">浅色</SelectItem>
-                    <SelectItem value="dark">深色</SelectItem>
+                    <SelectItem value="system">
+                      {t("settings.appearance.system")}
+                    </SelectItem>
+                    <SelectItem value="light">
+                      {t("settings.appearance.light")}
+                    </SelectItem>
+                    <SelectItem value="dark">
+                      {t("settings.appearance.dark")}
+                    </SelectItem>
                   </SelectGroup>
                 </SelectContent>
               </Select>
             </Field>
             <Field orientation="responsive">
               <FieldContent>
-                <FieldLabel htmlFor="fontSize">字号</FieldLabel>
+                <FieldLabel htmlFor="language">
+                  {t("settings.appearance.language")}
+                </FieldLabel>
                 <FieldDescription>
-                  界面基础字号，范围 12–18px。
+                  {t("settings.appearance.languageDescription")}
+                </FieldDescription>
+              </FieldContent>
+              <Select
+                value={language}
+                onValueChange={(value) =>
+                  setLanguage(languageSchema.parse(value))
+                }
+              >
+                <SelectTrigger id="language" className="w-40">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    <SelectItem value="zh-CN">
+                      {t("settings.appearance.chinese")}
+                    </SelectItem>
+                    <SelectItem value="en-US">
+                      {t("settings.appearance.english")}
+                    </SelectItem>
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field orientation="responsive">
+              <FieldContent>
+                <FieldLabel htmlFor="fontSize">
+                  {t("settings.appearance.fontSize")}
+                </FieldLabel>
+                <FieldDescription>
+                  {t("settings.appearance.fontSizeDescription")}
                 </FieldDescription>
               </FieldContent>
               <Input
@@ -260,9 +340,11 @@ export function AppearanceSettingsForm({
             </Field>
             <Field orientation="responsive">
               <FieldContent>
-                <FieldLabel htmlFor="sidebarWidth">侧边栏宽度</FieldLabel>
+                <FieldLabel htmlFor="sidebarWidth">
+                  {t("settings.appearance.sidebarWidth")}
+                </FieldLabel>
                 <FieldDescription>
-                  桌面侧边栏宽度，范围 240–360px。
+                  {t("settings.appearance.sidebarWidthDescription")}
                 </FieldDescription>
               </FieldContent>
               <Input

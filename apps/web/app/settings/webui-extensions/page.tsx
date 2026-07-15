@@ -1,5 +1,6 @@
 import { SettingsSection } from "@/components/settings-section"
 import { WebUiExtensionSettings } from "@/components/webui-extension-settings"
+import { getLocalizedConfig } from "@/lib/i18n-server"
 import { loadWebUiExtensionSettings } from "@/lib/webui-extension-settings-data"
 
 export default async function WebUiExtensionsSettingsPage({
@@ -8,11 +9,12 @@ export default async function WebUiExtensionsSettingsPage({
   searchParams: Promise<{ projectId?: string }>
 }) {
   const { projectId } = await searchParams
+  const { t } = await getLocalizedConfig()
   const data = await loadWebUiExtensionSettings(projectId)
   return (
     <SettingsSection
-      title="WebUI Extensions"
-      description="Manage native Web adapters and their permanent Pi TUI fallback."
+      title={t("settings.page.webuiExtensions.title")}
+      description={t("settings.page.webuiExtensions.description")}
     >
       <WebUiExtensionSettings
         projects={data.projects}

@@ -7,6 +7,8 @@ import { Input } from "@workspace/ui/components/input"
 import { Switch } from "@workspace/ui/components/switch"
 import type { McpConfiguredValueView } from "@workspace/runtime-protocol"
 
+import { useI18n } from "@/components/i18n-provider"
+
 export function McpValueEditor({
   label,
   values,
@@ -16,6 +18,8 @@ export function McpValueEditor({
   values: McpConfiguredValueView[]
   onChange: (values: McpConfiguredValueView[]) => void
 }) {
+  const { t } = useI18n()
+
   function update(
     index: number,
     patch: Partial<McpConfiguredValueView>,
@@ -50,7 +54,7 @@ export function McpValueEditor({
           }
         >
           <PlusIcon />
-          添加
+          {t("settings.valueEditor.add")}
         </Button>
       </div>
       {values.map((value, index) => (
@@ -60,7 +64,7 @@ export function McpValueEditor({
         >
           <Input
             aria-label={`${label} key ${index + 1}`}
-            placeholder="Key"
+            placeholder={t("settings.valueEditor.key")}
             value={value.key}
             onChange={(event) =>
               update(index, { key: event.target.value }, true)
@@ -71,8 +75,8 @@ export function McpValueEditor({
             type={value.secret ? "password" : "text"}
             placeholder={
               value.secret && value.configured
-                ? "已保存，留空保持不变"
-                : "Value"
+                ? t("settings.valueEditor.savedKeep")
+                : t("settings.valueEditor.value")
             }
             value={value.value}
             onChange={(event) =>
@@ -93,13 +97,15 @@ export function McpValueEditor({
                 })
               }
             />
-            Secret
+            {t("settings.valueEditor.secret")}
           </label>
           <Button
             type="button"
             variant="ghost"
             size="icon-sm"
-            aria-label={`删除 ${value.key || label}`}
+            aria-label={t("settings.valueEditor.remove", {
+              name: value.key || label,
+            })}
             onClick={() =>
               onChange(values.filter((_, itemIndex) => itemIndex !== index))
             }
@@ -109,7 +115,9 @@ export function McpValueEditor({
         </div>
       ))}
       {values.length === 0 ? (
-        <p className="text-xs text-muted-foreground">未配置。</p>
+        <p className="text-xs text-muted-foreground">
+          {t("settings.valueEditor.empty")}
+        </p>
       ) : null}
     </div>
   )

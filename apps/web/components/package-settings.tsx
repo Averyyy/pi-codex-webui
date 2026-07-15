@@ -32,6 +32,7 @@ import {
   ResourceProjectControls,
   type ResourceProject,
 } from "@/components/resource-project-controls"
+import { useI18n } from "@/components/i18n-provider"
 import { useResourceCatalog } from "@/lib/use-resource-catalog"
 
 export function PackageSettings({
@@ -47,6 +48,7 @@ export function PackageSettings({
   initialCatalog: ResourceCatalog
   mutationToken: string
 }) {
+  const { t } = useI18n()
   const [source, setSource] = useState("")
   const [scope, setScope] = useState<"global" | "project">("global")
   const [working, setWorking] = useState<string | null>(null)
@@ -63,7 +65,8 @@ export function PackageSettings({
     const result = (await response.json()) as ResourceCatalog & {
       error?: string
     }
-    if (!response.ok) throw new Error(result.error ?? "Pi package 操作失败。")
+    if (!response.ok)
+      throw new Error(result.error ?? t("settings.common.saveFailed"))
     setCatalog(result)
   }
 
@@ -136,9 +139,9 @@ export function PackageSettings({
       />
       <Card>
         <CardHeader>
-          <CardTitle>安装 Pi package</CardTitle>
+          <CardTitle>{t("settings.packages.installTitle")}</CardTitle>
           <CardDescription>
-            直接交给 Pi DefaultPackageManager；支持 npm、git 和本地路径 source。
+            {t("settings.packages.installDescription")}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -149,19 +152,23 @@ export function PackageSettings({
             <Input
               value={source}
               onChange={(event) => setSource(event.target.value)}
-              placeholder="npm:@scope/package 或 git:https://…"
-              aria-label="Package source"
+              placeholder={t("settings.packages.sourcePlaceholder")}
+              aria-label={t("settings.packages.source")}
             />
             <Select
               value={scope}
               onValueChange={(value) => setScope(value as "global" | "project")}
             >
-              <SelectTrigger aria-label="Package scope">
+              <SelectTrigger aria-label={t("settings.packages.scope")}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="global">Global</SelectItem>
-                <SelectItem value="project">Current Project</SelectItem>
+                <SelectItem value="global">
+                  {t("settings.packages.global")}
+                </SelectItem>
+                <SelectItem value="project">
+                  {t("settings.packages.currentProject")}
+                </SelectItem>
               </SelectContent>
             </Select>
             <Button
@@ -177,16 +184,18 @@ export function PackageSettings({
               ) : (
                 <PackagePlusIcon />
               )}
-              安装
+              {t("settings.packages.install")}
             </Button>
           </form>
         </CardContent>
       </Card>
       <section className="grid gap-3">
         <div className="flex items-baseline justify-between gap-4">
-          <h2 className="text-lg font-semibold">已配置 Packages</h2>
+          <h2 className="text-lg font-semibold">
+            {t("settings.packages.configured")}
+          </h2>
           <span className="text-xs text-muted-foreground">
-            {catalog.packages.length} 项
+            {t("settings.packages.items", { count: catalog.packages.length })}
           </span>
         </div>
         {catalog.packages.length ? (
@@ -199,18 +208,22 @@ export function PackageSettings({
                     {pkg.scope === "global" ? "Global" : "Project"}
                   </Badge>
                   {pkg.missing ? (
-                    <Badge variant="destructive">未安装</Badge>
+                    <Badge variant="destructive">
+                      {t("settings.packages.missing")}
+                    </Badge>
                   ) : null}
                 </CardTitle>
                 <CardDescription className="break-all">
-                  {pkg.installedPath ?? "Pi settings 中已配置，但本地安装缺失"}
+                  {pkg.installedPath ?? t("settings.packages.missingPath")}
                 </CardDescription>
                 <CardAction className="flex gap-2">
                   <Button
                     type="button"
                     variant="outline"
                     size="icon"
-                    aria-label={`更新 ${pkg.source}`}
+                    aria-label={t("settings.packages.update", {
+                      source: pkg.source,
+                    })}
                     disabled={working !== null}
                     onClick={() => void mutate(pkg.id, "update")}
                   >
@@ -224,7 +237,9 @@ export function PackageSettings({
                     type="button"
                     variant="outline"
                     size="icon"
-                    aria-label={`移除 ${pkg.source}`}
+                    aria-label={t("settings.packages.remove", {
+                      source: pkg.source,
+                    })}
                     disabled={working !== null}
                     onClick={() => void mutate(pkg.id, "remove")}
                   >
@@ -234,14 +249,14 @@ export function PackageSettings({
               </CardHeader>
               {pkg.filtered ? (
                 <CardContent className="text-xs text-muted-foreground">
-                  资源 filter 已配置
+                  {t("settings.packages.filtered")}
                 </CardContent>
               ) : null}
             </Card>
           ))
         ) : (
           <p className="rounded-xl border border-dashed p-5 text-sm text-muted-foreground">
-            Pi settings 中还没有配置 package。
+            {t("settings.packages.empty")}
           </p>
         )}
       </section>

@@ -22,6 +22,8 @@ import {
 } from "@workspace/ui/components/select"
 import type { ResourceCatalog } from "@workspace/runtime-protocol"
 
+import { useI18n } from "@/components/i18n-provider"
+
 export interface ResourceProject {
   id: string
   name: string
@@ -49,6 +51,7 @@ export function ResourceProjectControls({
 }) {
   const router = useRouter()
   const pathname = usePathname()
+  const { t } = useI18n()
 
   async function setTrust(trusted: boolean) {
     onWorkingChange(true)
@@ -65,7 +68,9 @@ export function ResourceProjectControls({
       const result = (await response.json()) as ResourceCatalog & {
         error?: string
       }
-      if (!response.ok) throw new Error(result.error ?? "更新项目信任失败。")
+      if (!response.ok) {
+        throw new Error(result.error ?? t("settings.common.saveFailed"))
+      }
       onCatalogChange(result)
       router.refresh()
     } catch (failure) {
@@ -78,27 +83,33 @@ export function ResourceProjectControls({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>资源上下文</CardTitle>
+        <CardTitle>{t("settings.resources.context")}</CardTitle>
         <CardDescription>
-          Global 设置由 Pi agent 目录管理；Project 设置写入选中项目的
-          .pi/settings.json。
+          {t("settings.resources.contextDescription")}
         </CardDescription>
         <CardAction>
           <Badge variant={catalog.projectTrusted ? "secondary" : "destructive"}>
-            {catalog.projectTrusted ? "已信任" : "未信任"}
+            {catalog.projectTrusted
+              ? t("settings.resources.trusted")
+              : t("settings.resources.untrusted")}
           </Badge>
         </CardAction>
       </CardHeader>
       <CardContent className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
         <div className="grid gap-2">
-          <span className="text-sm font-medium">当前项目</span>
+          <span className="text-sm font-medium">
+            {t("settings.resources.currentProject")}
+          </span>
           <Select
             value={projectId}
             onValueChange={(value) =>
               router.push(`${pathname}?projectId=${encodeURIComponent(value)}`)
             }
           >
-            <SelectTrigger className="w-full" aria-label="当前项目">
+            <SelectTrigger
+              className="w-full"
+              aria-label={t("settings.resources.currentProject")}
+            >
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -118,18 +129,19 @@ export function ResourceProjectControls({
             onClick={() => void setTrust(!catalog.projectTrusted)}
           >
             {catalog.projectTrusted ? <ShieldOffIcon /> : <ShieldCheckIcon />}
-            {catalog.projectTrusted ? "撤销信任" : "信任项目"}
+            {catalog.projectTrusted
+              ? t("settings.resources.revokeTrust")
+              : t("settings.resources.trustProject")}
           </Button>
         ) : (
           <span className="pb-2 text-xs text-muted-foreground">
-            项目没有需要信任的本地资源
+            {t("settings.resources.noLocalResources")}
           </span>
         )}
       </CardContent>
       {catalog.trustRequired && !catalog.projectTrusted ? (
         <div className="border-t bg-destructive/5 px-4 py-3 text-sm text-destructive">
-          项目未受信任；Pi 不会加载项目 settings、packages、skills 或
-          extensions。
+          {t("settings.resources.projectUntrusted")}
         </div>
       ) : null}
     </Card>

@@ -1,5 +1,6 @@
 import { ResourceListSettings } from "@/components/resource-list-settings"
 import { SettingsSection } from "@/components/settings-section"
+import { getLocalizedConfig } from "@/lib/i18n-server"
 import { loadResourceSettings } from "@/lib/resource-settings-data"
 
 export default async function SkillsSettingsPage({
@@ -8,12 +9,13 @@ export default async function SkillsSettingsPage({
   searchParams: Promise<{ projectId?: string }>
 }) {
   const { projectId } = await searchParams
+  const { t } = await getLocalizedConfig()
   const data = await loadResourceSettings(projectId)
 
   return (
     <SettingsSection
-      title="Skills"
-      description="查看并切换 Pi 实际解析到的全局与项目技能。"
+      title={t("settings.page.skills.title")}
+      description={t("settings.page.skills.description")}
     >
       {data.catalog && data.selectedProjectId ? (
         <ResourceListSettings
@@ -26,7 +28,7 @@ export default async function SkillsSettingsPage({
         />
       ) : (
         <p className="rounded-xl border border-dashed p-5 text-sm text-muted-foreground">
-          添加工作区项目后才能管理 Pi skills。
+          {t("settings.page.noProject.skills")}
         </p>
       )}
     </SettingsSection>

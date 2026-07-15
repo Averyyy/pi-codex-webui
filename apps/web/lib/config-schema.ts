@@ -1,8 +1,10 @@
 import { z } from "zod"
 
 import { DEFAULT_HOST, DEFAULT_PORT } from "./app"
+import { DEFAULT_LOCALE, locales } from "./i18n"
 
 export const themeSchema = z.enum(["system", "light", "dark"])
+export const languageSchema = z.enum(locales)
 export const runtimeKindSchema = z.enum(["pi", "pi-client"])
 
 export const secretReferenceSchema = z
@@ -153,6 +155,7 @@ const serverSchema = z.object({
 
 const appearanceSchema = z.object({
   theme: themeSchema,
+  language: languageSchema.default(DEFAULT_LOCALE),
   fontSize: z.number().int().min(12).max(18),
   sidebarWidth: z.number().int().min(240).max(360),
 })
@@ -215,6 +218,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   },
   appearance: {
     theme: "system",
+    language: DEFAULT_LOCALE,
     fontSize: 14,
     sidebarWidth: 296,
   },

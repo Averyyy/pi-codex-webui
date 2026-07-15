@@ -13,6 +13,7 @@ import {
   CardTitle,
 } from "@workspace/ui/components/card"
 
+import { useI18n } from "@/components/i18n-provider"
 import { displaySessionTitle, formatTimestamp } from "@/lib/session-display"
 import type { ArchivedSession } from "@/lib/session-types"
 
@@ -24,11 +25,12 @@ export function ArchivedSessions({
   mutationToken: string
 }) {
   const router = useRouter()
+  const { t } = useI18n()
   const [sessions, setSessions] = useState(initial)
   const [deleting, setDeleting] = useState<string | null>(null)
 
   async function deleteSession(sessionId: string) {
-    if (!window.confirm("永久删除这个归档对话？对应的 Pi JSONL 也会被删除。")) {
+    if (!window.confirm(t("settings.archive.confirmDelete"))) {
       return
     }
     setDeleting(sessionId)
@@ -39,13 +41,13 @@ export function ArchivedSessions({
       })
       const result = (await response.json()) as { error?: string }
       if (!response.ok) {
-        throw new Error(result.error ?? "删除归档对话失败。")
+        throw new Error(result.error ?? t("settings.archive.deleteFailed"))
       }
       setSessions((current) =>
         current.filter((session) => session.id !== sessionId)
       )
       router.refresh()
-      toast.success("归档对话已删除。")
+      toast.success(t("settings.archive.deleted"))
     } catch (failure) {
       toast.error(failure instanceof Error ? failure.message : String(failure))
     } finally {
@@ -56,7 +58,7 @@ export function ArchivedSessions({
   if (!sessions.length) {
     return (
       <div className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">
-        暂无归档对话。
+        {t("settings.archive.empty")}
       </div>
     )
   }
@@ -72,7 +74,8 @@ export function ArchivedSessions({
                 {displaySessionTitle(session)}
               </CardTitle>
               <CardDescription className="mt-1">
-                {session.projectName ?? "独立任务"} · 归档于{" "}
+                {session.projectName ?? t("settings.archive.independentTask")} ·{" "}
+                {t("settings.archive.archivedAt")}{" "}
                 {formatTimestamp(session.archivedAt ?? session.updatedAt)}
               </CardDescription>
             </div>
@@ -87,7 +90,7 @@ export function ArchivedSessions({
               ) : (
                 <Trash2Icon />
               )}
-              删除
+              {t("settings.archive.delete")}
             </Button>
           </CardHeader>
         </Card>

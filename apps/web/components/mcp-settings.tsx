@@ -31,6 +31,7 @@ import {
   McpServerForm,
   type McpServerFormValue,
 } from "@/components/mcp-server-form"
+import { useI18n } from "@/components/i18n-provider"
 
 interface McpProject {
   id: string
@@ -55,6 +56,7 @@ export function McpSettings({
   initialCatalog: McpCatalog
   mutationToken: string
 }) {
+  const { t } = useI18n()
   const router = useRouter()
   const pathname = usePathname()
   const [catalog, setCatalog] = useState(initialCatalog)
@@ -76,7 +78,7 @@ export function McpSettings({
         )
         const body = (await response.json()) as { error?: string }
         if (!response.ok) {
-          throw new Error(body.error ?? "读取 MCP 状态失败。")
+          throw new Error(body.error ?? t("settings.mcp.readFailed"))
         }
         if (active) {
           setCatalog(mcpCatalogSchema.parse(body))
@@ -95,7 +97,7 @@ export function McpSettings({
       active = false
       events.close()
     }
-  }, [catalog.projectId])
+  }, [catalog.projectId, t])
 
   function mutationHeaders(includeRevision = true) {
     return {
@@ -109,7 +111,8 @@ export function McpSettings({
 
   async function readCatalog(response: Response) {
     const body = (await response.json()) as { error?: string }
-    if (!response.ok) throw new Error(body.error ?? "MCP 请求失败。")
+    if (!response.ok)
+      throw new Error(body.error ?? t("settings.mcp.requestFailed"))
     const next = mcpCatalogSchema.parse(body)
     setCatalog(next)
     return next
@@ -137,7 +140,7 @@ export function McpSettings({
       await readCatalog(response)
       setFormOpen(false)
       setEditing(null)
-      setNotice(`${server.name} 已保存并应用。`)
+      setNotice(t("settings.mcp.saved", { name: server.name }))
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure))
     } finally {
@@ -187,10 +190,16 @@ export function McpSettings({
         toolCount?: number
         catalog?: unknown
       }
-      if (!response.ok) throw new Error(result.error ?? "MCP 测试失败。")
+      if (!response.ok) {
+        throw new Error(result.error ?? t("settings.mcp.testFailed"))
+      }
       setCatalog(mcpCatalogSchema.parse(result.catalog))
       setNotice(
-        `${server.name} 连接正常 · ${result.latencyMs} ms · ${result.toolCount} tools`
+        t("settings.mcp.connected", {
+          name: server.name,
+          latency: result.latencyMs ?? 0,
+          tools: result.toolCount ?? 0,
+        })
       )
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure))
@@ -212,7 +221,7 @@ export function McpSettings({
         { method: "POST", headers: mutationHeaders(false) }
       )
       await readCatalog(response)
-      setNotice(`${server.name} 已重新连接。`)
+      setNotice(t("settings.mcp.reconnected", { name: server.name }))
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure))
     } finally {
@@ -221,7 +230,11 @@ export function McpSettings({
   }
 
   async function remove(server: McpServerView) {
-    if (!window.confirm(`删除 MCP server “${server.name}”？`)) return
+    if (
+      !window.confirm(t("settings.mcp.deleteConfirm", { name: server.name }))
+    ) {
+      return
+    }
     setWorking(`delete:${server.id}`)
     setError(null)
     setNotice(null)
@@ -231,7 +244,7 @@ export function McpSettings({
         { method: "DELETE", headers: mutationHeaders() }
       )
       await readCatalog(response)
-      setNotice(`${server.name} 已删除。`)
+      setNotice(t("settings.mcp.deleted", { name: server.name }))
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure))
     } finally {
@@ -243,10 +256,8 @@ export function McpSettings({
     <div className="grid gap-6">
       <Card>
         <CardHeader>
-          <CardTitle>MCP context</CardTitle>
-          <CardDescription>
-            Global server 对所有 runtime 生效；Project server 仅注入选中项目。
-          </CardDescription>
+          <CardTitle>{t("settings.mcp.context")}</CardTitle>
+          <CardDescription>{t("settings.mcp.description")}</CardDescription>
           <CardAction>
             <Button
               type="button"
@@ -256,14 +267,16 @@ export function McpSettings({
               }}
             >
               <PlusIcon />
-              添加 server
+              {t("settings.mcp.addServer")}
             </Button>
           </CardAction>
         </CardHeader>
         <CardContent className="grid gap-3">
           {projects.length ? (
             <div className="grid max-w-xl gap-2">
-              <span className="text-sm font-medium">Current Project</span>
+              <span className="text-sm font-medium">
+                {t("settings.resources.currentProject")}
+              </span>
               <Select
                 value={catalog.projectId ?? undefined}
                 onValueChange={(value) =>
@@ -272,7 +285,10 @@ export function McpSettings({
                   )
                 }
               >
-                <SelectTrigger className="w-full" aria-label="Current Project">
+                <SelectTrigger
+                  className="w-full"
+                  aria-label={t("settings.resources.currentProject")}
+                >
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -286,13 +302,12 @@ export function McpSettings({
             </div>
           ) : (
             <p className="text-sm text-muted-foreground">
-              尚无工作区项目；仍可配置 Global MCP server。
+              {t("settings.mcp.noProject")}
             </p>
           )}
           {selectedProject && !catalog.projectTrusted ? (
             <p className="rounded-lg bg-destructive/5 p-3 text-sm text-destructive">
-              当前项目未受信任；Project MCP server 不会连接或注入 runtime。请在
-              Extensions / Skills 页面完成项目信任。
+              {t("settings.mcp.untrusted")}
             </p>
           ) : null}
         </CardContent>
@@ -307,10 +322,12 @@ export function McpSettings({
           <section key={scope} className="grid gap-3">
             <div className="flex items-baseline justify-between gap-4">
               <h2 className="text-lg font-semibold">
-                {scope === "global" ? "Global servers" : "Project servers"}
+                {scope === "global"
+                  ? t("settings.mcp.globalServers")
+                  : t("settings.mcp.projectServers")}
               </h2>
               <span className="text-xs text-muted-foreground">
-                {servers.length} 项
+                {t("settings.mcp.serverCount", { count: servers.length })}
               </span>
             </div>
             {servers.length ? (
@@ -334,7 +351,9 @@ export function McpSettings({
                       server,
                       `enabled:${server.id}`,
                       { type: "enabled", enabled },
-                      `${server.name} 已${enabled ? "启用" : "停用"}。`
+                      enabled
+                        ? t("settings.mcp.enabled", { name: server.name })
+                        : t("settings.mcp.disabled", { name: server.name })
                     )
                   }
                   onToggleTool={(toolName, namespacedName, enabled) =>
@@ -342,14 +361,22 @@ export function McpSettings({
                       server,
                       `tool:${server.id}:${toolName}`,
                       { type: "tool", toolName, enabled },
-                      `${namespacedName} 已${enabled ? "启用" : "停用"}。`
+                      enabled
+                        ? t("settings.mcp.toolEnabled", {
+                            name: namespacedName,
+                          })
+                        : t("settings.mcp.toolDisabled", {
+                            name: namespacedName,
+                          })
                     )
                   }
                 />
               ))
             ) : (
               <p className="rounded-xl border border-dashed p-5 text-sm text-muted-foreground">
-                尚未配置 {scope} MCP server。
+                {t("settings.mcp.scopeEmpty", {
+                  scope: scope === "global" ? "Global" : "Project",
+                })}
               </p>
             )}
           </section>

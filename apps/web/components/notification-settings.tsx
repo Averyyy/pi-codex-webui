@@ -20,6 +20,7 @@ import {
 } from "@workspace/ui/components/field"
 import { Switch } from "@workspace/ui/components/switch"
 
+import { useI18n } from "@/components/i18n-provider"
 import { BROWSER_NOTIFICATIONS_KEY } from "@/lib/browser-notifications"
 
 type PermissionState = NotificationPermission | "unsupported"
@@ -43,6 +44,7 @@ function subscribe(listener: () => void) {
 }
 
 export function NotificationSettings() {
+  const { t } = useI18n()
   const snapshot = useSyncExternalStore(
     subscribe,
     notificationSnapshot,
@@ -68,46 +70,48 @@ export function NotificationSettings() {
         : Notification.permission
     if (nextPermission !== "granted") {
       settingsChanged()
-      toast.error("浏览器没有授予通知权限。")
+      toast.error(t("settings.notifications.permissionDenied"))
       return
     }
     window.localStorage.setItem(BROWSER_NOTIFICATIONS_KEY, "1")
     settingsChanged()
     new Notification("pi-web-codex", {
-      body: "桌面通知已启用。",
+      body: t("settings.notifications.testBody"),
       icon: "/pwa-icon.svg",
     })
   }
 
   const description =
     permission === "unsupported"
-      ? "当前浏览器不支持系统通知。"
+      ? t("settings.notifications.unsupported")
       : permission === "denied"
-        ? "权限已被浏览器阻止；请在站点设置中重新授权。"
-        : "页面位于后台时，在 Agent 完成或 Runtime 崩溃后发送系统通知。"
+        ? t("settings.notifications.denied")
+        : t("settings.notifications.enabledDescription")
 
   return (
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
-          <BellIcon className="size-4" /> 浏览器通知
+          <BellIcon className="size-4" /> {t("settings.notifications.title")}
         </CardTitle>
         <CardDescription>
-          通知权限和开关由当前浏览器保存，不写入项目。
+          {t("settings.notifications.description")}
         </CardDescription>
       </CardHeader>
       <CardContent>
         <FieldGroup>
           <Field orientation="horizontal">
             <FieldContent>
-              <FieldTitle>Agent 完成通知</FieldTitle>
+              <FieldTitle>
+                {t("settings.notifications.agentComplete")}
+              </FieldTitle>
               <FieldDescription>{description}</FieldDescription>
             </FieldContent>
             <Switch
               checked={enabled}
               onCheckedChange={(next) => void setNotifications(next)}
               disabled={permission === "unsupported" || permission === "denied"}
-              aria-label="Agent 完成通知"
+              aria-label={t("settings.notifications.agentComplete")}
             />
           </Field>
         </FieldGroup>

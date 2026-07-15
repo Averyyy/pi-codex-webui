@@ -29,6 +29,8 @@ import {
 import { Switch } from "@workspace/ui/components/switch"
 
 import { CustomProviderForm } from "@/components/custom-provider-form"
+import { useI18n } from "@/components/i18n-provider"
+import type { Translator } from "@/lib/i18n"
 
 function modelKey(model: Pick<ModelSettingsModel, "provider" | "id">) {
   return `${model.provider}/${model.id}`
@@ -38,18 +40,25 @@ function query(sessionId: string | null) {
   return sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : ""
 }
 
-function authLabel(auth: ModelSettings["providers"][number]["auth"]) {
-  if (auth === "oauth") return "OAuth"
-  if (auth === "api-key") return "API key"
-  return "环境变量"
+function authLabel(
+  auth: ModelSettings["providers"][number]["auth"],
+  t: Translator
+) {
+  if (auth === "oauth") return t("settings.models.auth.oauth")
+  if (auth === "api-key") return t("settings.models.auth.apiKey")
+  return t("settings.models.auth.environment")
 }
 
-function providerDescription(provider: ModelSettingsProvider) {
-  if (provider.modelCount > 0) return `${provider.modelCount} 个可用模型`
-  if (provider.customModels.length > 0) {
-    return `${provider.customModels.length} 个模型，尚未配置认证`
+function providerDescription(provider: ModelSettingsProvider, t: Translator) {
+  if (provider.modelCount > 0) {
+    return t("settings.models.availableModels", { count: provider.modelCount })
   }
-  return "没有可用模型"
+  if (provider.customModels.length > 0) {
+    return t("settings.models.modelsWithoutAuth", {
+      count: provider.customModels.length,
+    })
+  }
+  return t("settings.models.noAvailableModels")
 }
 
 export function ModelSettings({
@@ -61,6 +70,7 @@ export function ModelSettings({
   mutationToken: string
   sessionId: string | null
 }) {
+  const { t } = useI18n()
   const [settings, setSettings] = useState(initial)
   const [working, setWorking] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -73,7 +83,9 @@ export function ModelSettings({
 
   async function readSettings(response: Response) {
     const body = (await response.json()) as { error?: string }
-    if (!response.ok) throw new Error(body.error ?? "模型设置操作失败。")
+    if (!response.ok) {
+      throw new Error(body.error ?? t("settings.models.operationFailed"))
+    }
     return modelSettingsSchema.parse(body)
   }
 
@@ -137,8 +149,10 @@ export function ModelSettings({
     const providerView = settings.providers.find(
       (entry) => entry.provider === provider
     )
-    const suffix = providerView?.custom ? "及其自定义配置" : "的本地认证"
-    if (!window.confirm(`删除 provider “${provider}”${suffix}？`)) return
+    const confirmKey = providerView?.custom
+      ? "settings.models.deleteCustomProvider"
+      : "settings.models.deleteProviderAuth"
+    if (!window.confirm(t(confirmKey, { provider }))) return
 
     setWorking(provider)
     setError(null)
@@ -181,10 +195,9 @@ export function ModelSettings({
     <div className="grid gap-6">
       <Card>
         <CardHeader>
-          <CardTitle>Provider / Model scope</CardTitle>
+          <CardTitle>{t("settings.models.cardTitle")}</CardTitle>
           <CardDescription>
-            模型 scope 只作用于当前 Pi 已配置认证的模型；自定义 provider
-            也可以在这里添加和编辑。
+            {t("settings.models.cardDescription")}
           </CardDescription>
           <CardAction className="flex flex-wrap items-center justify-end gap-2">
             <Button
@@ -194,16 +207,20 @@ export function ModelSettings({
               onClick={openAddProvider}
             >
               <PlusIcon />
-              添加自定义 provider
+              {t("settings.models.addProvider")}
             </Button>
             <Badge variant={hasScope ? "default" : "outline"}>
-              {hasScope ? "已启用 scope" : "全部可用模型"}
+              {hasScope
+                ? t("settings.models.scopeEnabled")
+                : t("settings.models.allAvailableModels")}
             </Badge>
           </CardAction>
         </CardHeader>
         <CardContent className="text-sm text-muted-foreground">
-          已启用 {enabledCount} / {settings.models.length} 个模型；切换模型后，
-          thinking level 会由 Pi 按该模型能力自动调整。
+          {t("settings.models.enabledSummary", {
+            enabled: enabledCount,
+            total: settings.models.length,
+          })}
         </CardContent>
       </Card>
 
@@ -245,20 +262,24 @@ export function ModelSettings({
                       </span>
                     ) : null}
                     <span className="block text-xs text-muted-foreground">
-                      {providerDescription(provider)}
+                      {providerDescription(provider, t)}
                     </span>
                   </span>
                   <span
                     className="flex shrink-0 items-center gap-2"
                     onClick={(event) => event.stopPropagation()}
                   >
-                    <Badge variant="outline">{authLabel(provider.auth)}</Badge>
+                    <Badge variant="outline">
+                      {authLabel(provider.auth, t)}
+                    </Badge>
                     {provider.custom ? (
                       <Button
                         type="button"
                         variant="ghost"
                         size="icon"
-                        aria-label={`编辑 ${provider.provider}`}
+                        aria-label={t("settings.models.editProvider", {
+                          provider: provider.provider,
+                        })}
                         disabled={working !== null}
                         onClick={(event) => {
                           event.preventDefault()
@@ -273,7 +294,9 @@ export function ModelSettings({
                         type="button"
                         variant="ghost"
                         size="icon"
-                        aria-label={`删除 ${provider.provider}`}
+                        aria-label={t("settings.models.deleteProvider", {
+                          provider: provider.provider,
+                        })}
                         disabled={working !== null}
                         onClick={(event) => {
                           event.preventDefault()
@@ -309,7 +332,9 @@ export function ModelSettings({
                           <Switch
                             checked={model.enabled}
                             disabled={working !== null}
-                            aria-label={`启用 ${model.name}`}
+                            aria-label={t("settings.models.enableModel", {
+                              model: model.name,
+                            })}
                             onCheckedChange={(enabled) =>
                               void setModelEnabled(model, enabled)
                             }
@@ -320,8 +345,8 @@ export function ModelSettings({
                   ) : (
                     <p className="px-4 py-3 text-sm text-muted-foreground">
                       {provider.customModels.length
-                        ? "已保存模型，但当前没有可用认证。"
-                        : "没有当前可用模型。"}
+                        ? t("settings.models.savedModelsNoAuth")
+                        : t("settings.models.noCurrentModels")}
                     </p>
                   )}
                 </CardContent>
@@ -331,7 +356,7 @@ export function ModelSettings({
         })
       ) : (
         <p className="rounded-xl border border-dashed p-5 text-sm text-muted-foreground">
-          当前没有已配置的 provider/model。
+          {t("settings.models.noConfigured")}
         </p>
       )}
 

@@ -28,6 +28,7 @@ import type {
 } from "@workspace/runtime-protocol"
 
 import { McpValueEditor } from "@/components/mcp-value-editor"
+import { useI18n } from "@/components/i18n-provider"
 
 export interface McpServerFormValue {
   id: string
@@ -101,6 +102,7 @@ export function McpServerForm({
   onOpenChange: (open: boolean) => void
   onSave: (server: McpServerFormValue) => Promise<void>
 }) {
+  const { t } = useI18n()
   const [form, setForm] = useState(() => initialState(server))
   const [error, setError] = useState<string | null>(null)
 
@@ -115,19 +117,19 @@ export function McpServerForm({
     try {
       args = JSON.parse(form.argsJson)
     } catch {
-      setError("Arguments 必须是合法的 JSON 字符串数组。")
+      setError(t("settings.mcpForm.argumentsError"))
       return
     }
     if (
       !Array.isArray(args) ||
       args.some((value) => typeof value !== "string")
     ) {
-      setError("Arguments 必须是 JSON 字符串数组。")
+      setError(t("settings.mcpForm.argumentsTypeError"))
       return
     }
     const timeoutMs = Number(form.timeoutMs)
     if (!Number.isInteger(timeoutMs)) {
-      setError("Timeout 必须是整数毫秒。")
+      setError(t("settings.mcpForm.timeoutError"))
       return
     }
 
@@ -156,16 +158,18 @@ export function McpServerForm({
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>
-            {server ? "编辑 MCP server" : "添加 MCP server"}
+            {server
+              ? t("settings.mcpForm.editTitle")
+              : t("settings.mcpForm.addTitle")}
           </DialogTitle>
           <DialogDescription>
-            Secret 字段只写入 SecretStore；保存后 API 不会返回明文。
+            {t("settings.mcpForm.description")}
           </DialogDescription>
         </DialogHeader>
         <form className="grid gap-5" onSubmit={submit}>
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="grid gap-2">
-              <Label htmlFor="mcp-name">名称</Label>
+              <Label htmlFor="mcp-name">{t("settings.mcpForm.name")}</Label>
               <Input
                 id="mcp-name"
                 required
@@ -175,7 +179,7 @@ export function McpServerForm({
               />
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="mcp-id">Namespace</Label>
+              <Label htmlFor="mcp-id">{t("settings.mcpForm.namespace")}</Label>
               <Input
                 id="mcp-id"
                 required
@@ -186,14 +190,16 @@ export function McpServerForm({
                 pattern="[a-z0-9]+(?:-[a-z0-9]+)*"
               />
               <p className="text-xs text-muted-foreground">
-                工具前缀：mcp__{form.id.replaceAll("-", "_") || "namespace"}__
+                {t("settings.mcpForm.toolPrefix", {
+                  namespace: form.id.replaceAll("-", "_") || "namespace",
+                })}
               </p>
             </div>
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="grid gap-2">
-              <Label>Scope</Label>
+              <Label>{t("settings.mcpForm.scope")}</Label>
               <Select
                 value={form.scope}
                 onValueChange={(value) =>
@@ -212,12 +218,12 @@ export function McpServerForm({
               </Select>
               {form.scope === "project" ? (
                 <p className="text-xs text-muted-foreground">
-                  {selectedProjectName ?? "未选择项目"}
+                  {selectedProjectName ?? t("settings.mcpForm.projectMissing")}
                 </p>
               ) : null}
             </div>
             <div className="grid gap-2">
-              <Label>Transport</Label>
+              <Label>{t("settings.mcpForm.transport")}</Label>
               <Select
                 value={form.transportType}
                 onValueChange={(value) =>
@@ -238,7 +244,9 @@ export function McpServerForm({
           {form.transportType === "stdio" ? (
             <div className="grid gap-4">
               <div className="grid gap-2">
-                <Label htmlFor="mcp-command">Command</Label>
+                <Label htmlFor="mcp-command">
+                  {t("settings.mcpForm.command")}
+                </Label>
                 <Input
                   id="mcp-command"
                   required
@@ -248,7 +256,9 @@ export function McpServerForm({
                 />
               </div>
               <div className="grid gap-2">
-                <Label htmlFor="mcp-args">Arguments (JSON string array)</Label>
+                <Label htmlFor="mcp-args">
+                  {t("settings.mcpForm.arguments")}
+                </Label>
                 <Textarea
                   id="mcp-args"
                   className="min-h-24 font-mono text-xs"
@@ -257,16 +267,16 @@ export function McpServerForm({
                 />
               </div>
               <div className="grid gap-2">
-                <Label htmlFor="mcp-cwd">Working directory（可选）</Label>
+                <Label htmlFor="mcp-cwd">{t("settings.mcpForm.cwd")}</Label>
                 <Input
                   id="mcp-cwd"
                   value={form.cwd}
                   onChange={(event) => field("cwd", event.target.value)}
-                  placeholder="项目级 server 默认使用当前项目目录"
+                  placeholder={t("settings.mcpForm.cwdPlaceholder")}
                 />
               </div>
               <McpValueEditor
-                label="Environment"
+                label={t("settings.mcpForm.environment")}
                 values={form.env}
                 onChange={(values) => field("env", values)}
               />
@@ -285,7 +295,7 @@ export function McpServerForm({
                 />
               </div>
               <McpValueEditor
-                label="HTTP headers"
+                label={t("settings.mcpForm.headers")}
                 values={form.headers}
                 onChange={(values) => field("headers", values)}
               />
@@ -294,7 +304,9 @@ export function McpServerForm({
 
           <div className="grid gap-4 sm:grid-cols-2 sm:items-end">
             <div className="grid gap-2">
-              <Label htmlFor="mcp-timeout">Timeout (ms)</Label>
+              <Label htmlFor="mcp-timeout">
+                {t("settings.mcpForm.timeout")}
+              </Label>
               <Input
                 id="mcp-timeout"
                 type="number"
@@ -310,7 +322,7 @@ export function McpServerForm({
                 checked={form.enabled}
                 onCheckedChange={(enabled) => field("enabled", enabled)}
               />
-              保存后启用
+              {t("settings.mcpForm.enableAfterSave")}
             </label>
           </div>
 
@@ -322,10 +334,12 @@ export function McpServerForm({
               disabled={working}
               onClick={() => onOpenChange(false)}
             >
-              取消
+              {t("settings.mcpForm.cancel")}
             </Button>
             <Button type="submit" disabled={working}>
-              {working ? "保存中…" : "保存并连接"}
+              {working
+                ? t("settings.common.saving")
+                : t("settings.mcpForm.saveConnecting")}
             </Button>
           </DialogFooter>
         </form>
