@@ -45,6 +45,25 @@ test("replays retained events after Last-Event-ID", async () => {
   assert.equal((await reader.read()).done, true)
 })
 
+test("replays events published after a server-render cursor", async () => {
+  const hub = new EventHub()
+  const cursor = hub.cursor()
+  hub.publish({
+    type: "session.completed",
+    sessionId: "session-a",
+    payload: {},
+  })
+  const reader = hub
+    .stream(["session-a"], cursor, new AbortController().signal)
+    .getReader()
+
+  await reader.read()
+  const replay = decoder.decode((await reader.read()).value)
+  assert.match(replay, /id: event-1/)
+  assert.match(replay, /event: session\.completed/)
+  await reader.cancel()
+})
+
 test("requests an authoritative resync when replay history expired", async () => {
   const hub = new EventHub()
   for (let index = 0; index < 1_001; index += 1) {

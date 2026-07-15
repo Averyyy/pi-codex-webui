@@ -116,6 +116,7 @@ const EVENT_TYPES = [
   "retry.end",
   "extension.ui.request",
   "tui.surface",
+  "session.completed",
   "resync.required",
 ]
 
@@ -233,11 +234,13 @@ function retryDescription(payload: unknown) {
 export function SessionRuntime({
   sessionId,
   mutationToken,
+  initialEventCursor,
   initialStatus,
   initialSnapshot,
 }: {
   sessionId: string
   mutationToken: string
+  initialEventCursor: string
   initialStatus: RuntimeStatus
   initialSnapshot: RuntimeSnapshot | null
 }) {
@@ -380,7 +383,11 @@ export function SessionRuntime({
   }
 
   useEffect(() => {
-    const events = new EventSource(`/api/v1/events?sessionId=${sessionId}`)
+    const search = new URLSearchParams({
+      sessionId,
+      after: initialEventCursor,
+    })
+    const events = new EventSource(`/api/v1/events?${search}`)
     void loadTuiSurfaces().catch((failure: unknown) =>
       setError(failure instanceof Error ? failure.message : String(failure))
     )
@@ -449,6 +456,13 @@ export function SessionRuntime({
         }
       }
       if (event.type === "session.entry.appended") router.refresh()
+      if (event.type === "session.completed") {
+        setStatus("ready")
+        setStreaming({ text: "", thinking: "" })
+        setActiveTool(null)
+        setRetrying(null)
+        router.refresh()
+      }
       if (event.type === "session.leaf.changed") {
         if (
           typeof event.payload !== "object" ||
@@ -602,7 +616,7 @@ export function SessionRuntime({
     }
     events.onopen = () => setError(null)
     return () => events.close()
-  }, [router, sessionId])
+  }, [initialEventCursor, router, sessionId])
 
   useEffect(() => {
     if (!extensionRequest || !("timeout" in extensionRequest)) return

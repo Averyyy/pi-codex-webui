@@ -6,6 +6,7 @@ import {
   LoaderCircleIcon,
   PencilIcon,
   PlusIcon,
+  SearchIcon,
   Trash2Icon,
 } from "lucide-react"
 
@@ -26,6 +27,20 @@ import {
   CardHeader,
   CardTitle,
 } from "@workspace/ui/components/card"
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@workspace/ui/components/empty"
+import {
+  Field,
+  FieldDescription,
+  FieldGroup,
+  FieldLabel,
+} from "@workspace/ui/components/field"
+import { Input } from "@workspace/ui/components/input"
 import { Switch } from "@workspace/ui/components/switch"
 
 import { CustomProviderForm } from "@/components/custom-provider-form"
@@ -80,6 +95,7 @@ export function ModelSettings({
   const [providerDialogOpen, setProviderDialogOpen] = useState(false)
   const [editingProvider, setEditingProvider] =
     useState<ModelSettingsProvider | null>(null)
+  const [modelSearch, setModelSearch] = useState("")
 
   async function readSettings(response: Response) {
     const body = (await response.json()) as { error?: string }
@@ -190,6 +206,32 @@ export function ModelSettings({
 
   const enabledCount = settings.models.filter((model) => model.enabled).length
   const hasScope = Boolean(settings.enabledModels?.length)
+  const normalizedSearch = modelSearch.trim().toLocaleLowerCase()
+  const visibleProviders = settings.providers.flatMap((provider) => {
+    const models = settings.models.filter(
+      (model) => model.provider === provider.provider
+    )
+    if (!normalizedSearch) return [{ provider, models }]
+
+    const providerMatches = [provider.provider, provider.name].some((value) =>
+      value?.toLocaleLowerCase().includes(normalizedSearch)
+    )
+    const matchingModels = providerMatches
+      ? models
+      : models.filter((model) =>
+          [model.name, model.id].some((value) =>
+            value.toLocaleLowerCase().includes(normalizedSearch)
+          )
+        )
+
+    return providerMatches || matchingModels.length
+      ? [{ provider, models: matchingModels }]
+      : []
+  })
+  const visibleModelCount = visibleProviders.reduce(
+    (count, provider) => count + provider.models.length,
+    0
+  )
 
   return (
     <div className="grid gap-6">
@@ -216,11 +258,36 @@ export function ModelSettings({
             </Badge>
           </CardAction>
         </CardHeader>
-        <CardContent className="text-sm text-muted-foreground">
-          {t("settings.models.enabledSummary", {
-            enabled: enabledCount,
-            total: settings.models.length,
-          })}
+        <CardContent className="flex flex-col gap-4">
+          <p className="text-sm text-muted-foreground">
+            {t("settings.models.enabledSummary", {
+              enabled: enabledCount,
+              total: settings.models.length,
+            })}
+          </p>
+          <FieldGroup>
+            <Field>
+              <FieldLabel htmlFor="model-search" className="sr-only">
+                {t("settings.models.searchLabel")}
+              </FieldLabel>
+              <Input
+                id="model-search"
+                type="search"
+                value={modelSearch}
+                autoComplete="off"
+                placeholder={t("settings.models.searchPlaceholder")}
+                onChange={(event) => setModelSearch(event.target.value)}
+              />
+              {normalizedSearch ? (
+                <FieldDescription aria-live="polite">
+                  {t("settings.models.filteredSummary", {
+                    visible: visibleModelCount,
+                    total: settings.models.length,
+                  })}
+                </FieldDescription>
+              ) : null}
+            </Field>
+          </FieldGroup>
         </CardContent>
       </Card>
 
@@ -230,17 +297,18 @@ export function ModelSettings({
         </p>
       ) : null}
 
-      {settings.providers.length ? (
-        settings.providers.map((provider) => {
-          const models = settings.models.filter(
-            (model) => model.provider === provider.provider
-          )
+      {visibleProviders.length ? (
+        visibleProviders.map(({ provider, models }) => {
           return (
             <Card key={provider.provider} className="overflow-hidden">
               <details
-                open={!collapsedProviders.has(provider.provider)}
+                open={
+                  Boolean(normalizedSearch) ||
+                  !collapsedProviders.has(provider.provider)
+                }
                 className="group"
                 onToggle={(event) => {
+                  if (normalizedSearch) return
                   const isOpen = event.currentTarget.open
                   setCollapsedProviders((current) => {
                     const next = new Set(current)
@@ -354,6 +422,18 @@ export function ModelSettings({
             </Card>
           )
         })
+      ) : normalizedSearch ? (
+        <Empty className="min-h-48 border">
+          <EmptyHeader>
+            <EmptyMedia variant="icon">
+              <SearchIcon />
+            </EmptyMedia>
+            <EmptyTitle>{t("settings.models.noMatchesTitle")}</EmptyTitle>
+            <EmptyDescription>
+              {t("settings.models.noMatchesDescription")}
+            </EmptyDescription>
+          </EmptyHeader>
+        </Empty>
       ) : (
         <p className="rounded-xl border border-dashed p-5 text-sm text-muted-foreground">
           {t("settings.models.noConfigured")}

@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { useState, type FormEvent } from "react"
+import { useRef, useState, type FormEvent } from "react"
 import { useRouter } from "next/navigation"
 import {
   BugIcon,
@@ -150,9 +150,15 @@ export function NewConversation({
   const [submitting, setSubmitting] = useState(false)
   const [loadingModels, setLoadingModels] = useState(false)
   const [error, setError] = useState<ApiError | null>(null)
+  const messageInputRef = useRef<HTMLTextAreaElement>(null)
   const composerImages = useComposerImages()
   const selectedProject = projects.find((project) => project.id === projectId)
   const models = enabledModels(modelSettings)
+
+  function chooseStarter(message: string) {
+    setMessage(message)
+    messageInputRef.current?.focus()
+  }
 
   async function addProject() {
     setProjectSelectOpen(false)
@@ -296,7 +302,7 @@ export function NewConversation({
               type="button"
               variant="secondary"
               className="h-24 items-start justify-between rounded-2xl border bg-card p-4 text-left whitespace-normal shadow-sm shadow-foreground/5 hover:bg-accent sm:h-28 sm:flex-col"
-              onClick={() => setMessage(label)}
+              onClick={() => chooseStarter(label)}
             >
               <span
                 className={`flex size-9 items-center justify-center rounded-xl ${iconClassName}`}
@@ -358,10 +364,24 @@ export function NewConversation({
                   )
               : undefined
           }
+          textareaRef={messageInputRef}
           className="shadow-lg shadow-foreground/5"
           actions={
-            loadingModels ? (
-              <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            submitting ? (
+              <span
+                role="status"
+                aria-live="polite"
+                className="flex items-center gap-1.5 text-xs text-muted-foreground"
+              >
+                <LoaderCircleIcon className="size-3 animate-spin" />
+                正在创建任务…
+              </span>
+            ) : loadingModels ? (
+              <span
+                role="status"
+                aria-live="polite"
+                className="flex items-center gap-1.5 text-xs text-muted-foreground"
+              >
                 <LoaderCircleIcon className="size-3 animate-spin" />
                 正在加载模型
               </span>

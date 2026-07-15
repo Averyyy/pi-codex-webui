@@ -2,12 +2,23 @@ import Link from "next/link"
 import { SearchIcon } from "lucide-react"
 
 import { Badge } from "@workspace/ui/components/badge"
+import { Button } from "@workspace/ui/components/button"
 import {
   Card,
   CardContent,
+  CardDescription,
   CardHeader,
   CardTitle,
 } from "@workspace/ui/components/card"
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@workspace/ui/components/empty"
+import { Field, FieldGroup, FieldLabel } from "@workspace/ui/components/field"
+import { Input } from "@workspace/ui/components/input"
 
 import { searchSessions } from "@/lib/catalog"
 import { formatTimestamp } from "@/lib/session-display"
@@ -30,12 +41,35 @@ export default async function SearchPage({
           <p className="mt-1 text-muted-foreground">
             {query
               ? `“${query}” 找到 ${results.length} 个匹配结果`
-              : "在左侧输入要查找的内容"}
+              : "搜索对话标题、消息与工具记录"}
           </p>
         </div>
       </header>
 
-      <section className="grid gap-3">
+      <form action="/search">
+        <FieldGroup>
+          <Field orientation="horizontal">
+            <FieldLabel htmlFor="conversation-search" className="sr-only">
+              搜索对话
+            </FieldLabel>
+            <Input
+              id="conversation-search"
+              name="q"
+              type="search"
+              defaultValue={query}
+              placeholder="输入关键词"
+              enterKeyHint="search"
+              autoFocus
+            />
+            <Button type="submit">
+              <SearchIcon data-icon="inline-start" />
+              搜索
+            </Button>
+          </Field>
+        </FieldGroup>
+      </form>
+
+      <section className="grid gap-3" aria-label="搜索结果">
         {results.map((result) => (
           <Link
             key={`${result.sessionId}:${result.entryId}`}
@@ -54,10 +88,10 @@ export default async function SearchPage({
                       result.sessionFirstMessage ||
                       result.sessionId}
                   </CardTitle>
-                  <p className="mt-1 text-sm text-muted-foreground">
+                  <CardDescription className="mt-1">
                     {result.projectName ?? "独立任务"} ·{" "}
                     {formatTimestamp(result.timestamp)}
-                  </p>
+                  </CardDescription>
                 </div>
                 <Badge variant="secondary">{result.entryType}</Badge>
               </CardHeader>
@@ -67,10 +101,30 @@ export default async function SearchPage({
             </Card>
           </Link>
         ))}
-        {query && results.length === 0 ? (
-          <p className="py-12 text-center text-muted-foreground">
-            没有匹配的已索引消息。
-          </p>
+        {!query ? (
+          <Empty className="min-h-64 border">
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <SearchIcon />
+              </EmptyMedia>
+              <EmptyTitle>查找过去的对话</EmptyTitle>
+              <EmptyDescription>
+                输入关键词后，会搜索已索引的标题、消息和工具记录。
+              </EmptyDescription>
+            </EmptyHeader>
+          </Empty>
+        ) : results.length === 0 ? (
+          <Empty className="min-h-64 border">
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <SearchIcon />
+              </EmptyMedia>
+              <EmptyTitle>没有匹配结果</EmptyTitle>
+              <EmptyDescription>
+                尝试更短的关键词，或检查对话是否已归档。
+              </EmptyDescription>
+            </EmptyHeader>
+          </Empty>
         ) : null}
       </section>
     </main>

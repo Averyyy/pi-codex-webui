@@ -296,6 +296,26 @@ const messages = {
     "en-US":
       "{enabled} / {total} models enabled; Pi adjusts the thinking level to match the selected model.",
   },
+  "settings.models.searchLabel": {
+    "zh-CN": "搜索模型",
+    "en-US": "Search models",
+  },
+  "settings.models.searchPlaceholder": {
+    "zh-CN": "按模型名称、ID 或 Provider 搜索",
+    "en-US": "Search by model name, ID, or provider",
+  },
+  "settings.models.filteredSummary": {
+    "zh-CN": "显示 {visible} / {total} 个模型",
+    "en-US": "Showing {visible} of {total} models",
+  },
+  "settings.models.noMatchesTitle": {
+    "zh-CN": "没有匹配项",
+    "en-US": "No matches",
+  },
+  "settings.models.noMatchesDescription": {
+    "zh-CN": "换一个模型名称、ID 或 Provider 试试。",
+    "en-US": "Try another model name, ID, or provider.",
+  },
   "settings.models.editProvider": {
     "zh-CN": "编辑 {provider}",
     "en-US": "Edit {provider}",

@@ -12,6 +12,7 @@ import { SubagentsProvider } from "@/components/subagents"
 import { SessionTranscript } from "@/components/transcript"
 import { getSessionSnapshot } from "@/lib/catalog"
 import { loadConfig } from "@/lib/config"
+import { getEventHub } from "@/lib/event-hub"
 import { readProjectGitStatus } from "@/lib/project-git"
 import { projectFileManager } from "@/lib/project-reveal"
 import { getMutationToken } from "@/lib/request-security"
@@ -36,6 +37,7 @@ export async function SessionScreen({
   sessionId: string
   projectId: string | null
 }) {
+  const eventCursor = getEventHub().cursor()
   const [snapshot, config] = await Promise.all([
     getSessionSnapshot(sessionId),
     loadConfig(),
@@ -166,6 +168,7 @@ export async function SessionScreen({
                 key="session-runtime"
                 sessionId={sessionId}
                 mutationToken={mutationToken}
+                initialEventCursor={eventCursor}
                 initialStatus={runtime.status}
                 initialSnapshot={runtime.snapshot}
               />

@@ -31,6 +31,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarRail,
+  useSidebar,
 } from "@workspace/ui/components/sidebar"
 import {
   Tooltip,
@@ -73,6 +74,7 @@ export function WorkspaceNav({
 }) {
   const pathname = usePathname()
   const router = useRouter()
+  const { isMobile, setOpenMobile } = useSidebar()
   const sidebarContentRef = useRef<HTMLDivElement>(null)
   const [projectsExpanded, setProjectsExpanded] = useState(false)
   const [tasksOpen, setTasksOpen] = useState(pathname.startsWith("/tasks/"))
@@ -119,6 +121,10 @@ export function WorkspaceNav({
       : shortcutState?.modifier === "Control"
         ? "Ctrl"
         : undefined
+
+  useEffect(() => {
+    if (isMobile) setOpenMobile(false)
+  }, [isMobile, pathname, setOpenMobile])
 
   useEffect(() => {
     function visibleConversationHrefs() {

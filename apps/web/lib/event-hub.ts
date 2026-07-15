@@ -38,6 +38,10 @@ export class EventHub {
   private readonly events: WebEvent[] = []
   private readonly subscribers = new Set<Subscriber>()
 
+  cursor() {
+    return `event-${this.sequence}`
+  }
+
   publish(input: EventInput) {
     this.sequence += 1
     const event: WebEvent = {

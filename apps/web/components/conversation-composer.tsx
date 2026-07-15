@@ -1,7 +1,13 @@
 "use client"
 
 import Link from "next/link"
-import type { ClipboardEvent, FormEvent, KeyboardEvent, ReactNode } from "react"
+import type {
+  ClipboardEvent,
+  FormEvent,
+  KeyboardEvent,
+  ReactNode,
+  Ref,
+} from "react"
 import { ArrowUpIcon, LoaderCircleIcon, Settings2Icon } from "lucide-react"
 import { toast } from "sonner"
 
@@ -46,6 +52,7 @@ export function ConversationComposer({
   onImagesAdd,
   onImageRemove,
   onCycleThinkingLevel,
+  textareaRef,
   className,
 }: {
   value: string
@@ -66,6 +73,7 @@ export function ConversationComposer({
   onImagesAdd?: (files: File[]) => void | Promise<void>
   onImageRemove?: (id: string) => void
   onCycleThinkingLevel?: () => void
+  textareaRef?: Ref<HTMLTextAreaElement>
   className?: string
 }) {
   function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
@@ -120,6 +128,7 @@ export function ConversationComposer({
       />
       {editor ?? (
         <Textarea
+          ref={textareaRef}
           value={value}
           onChange={(event) => onValueChange(event.target.value)}
           onKeyDown={handleKeyDown}
