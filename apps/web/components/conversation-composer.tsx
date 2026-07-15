@@ -1,8 +1,9 @@
 "use client"
 
 import Link from "next/link"
-import type { FormEvent, KeyboardEvent, ReactNode } from "react"
+import type { ClipboardEvent, FormEvent, KeyboardEvent, ReactNode } from "react"
 import { ArrowUpIcon, LoaderCircleIcon, Settings2Icon } from "lucide-react"
+import { toast } from "sonner"
 
 import { Button } from "@workspace/ui/components/button"
 import {
@@ -81,6 +82,20 @@ export function ConversationComposer({
     }
   }
 
+  function handlePaste(event: ClipboardEvent<HTMLTextAreaElement>) {
+    const files = Array.from(event.clipboardData.files).filter((file) =>
+      file.type.startsWith("image/")
+    )
+    if (files.length === 0 || !onImagesAdd) return
+
+    event.preventDefault()
+    if (!imagesSupported) {
+      toast.error("当前模型不支持图片。")
+      return
+    }
+    void onImagesAdd(files)
+  }
+
   return (
     <form
       onSubmit={onSubmit}
@@ -99,6 +114,7 @@ export function ConversationComposer({
           value={value}
           onChange={(event) => onValueChange(event.target.value)}
           onKeyDown={handleKeyDown}
+          onPaste={handlePaste}
           placeholder={placeholder}
           aria-label={ariaLabel}
           autoFocus={autoFocus}
