@@ -285,6 +285,15 @@ async function readModelSettings(
     state.settingsManager,
     state.modelRegistry
   )
+  const defaultProvider = state.settingsManager.getDefaultProvider()
+  const defaultModelId = state.settingsManager.getDefaultModel()
+  const defaultModel =
+    defaultProvider && defaultModelId
+      ? availableModels.find(
+          (model) =>
+            model.provider === defaultProvider && model.id === defaultModelId
+        )
+      : undefined
   const enabledIds = new Set(
     patterns && patterns.length > 0
       ? scopedModels.map(({ model }) => modelKey(model))
@@ -344,6 +353,13 @@ async function readModelSettings(
         }
       }),
     enabledModels: patterns ?? null,
+    defaultModel: defaultModel
+      ? {
+          provider: defaultModel.provider,
+          id: defaultModel.id,
+          name: defaultModel.name,
+        }
+      : null,
   }
 }
 

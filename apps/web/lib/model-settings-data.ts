@@ -1,6 +1,13 @@
 import "server-only"
 
-import { getSessionSnapshot, listWorkspaceProjects } from "@/lib/catalog"
+import { mkdir } from "node:fs/promises"
+
+import {
+  getProjectRuntimeTarget,
+  getSessionSnapshot,
+  listWorkspaceProjects,
+} from "@/lib/catalog"
+import { getAppPaths } from "@/lib/app-paths"
 import { getMutationToken } from "@/lib/request-security"
 import { getRuntimeSupervisor } from "@/lib/runtime-supervisor"
 
@@ -23,4 +30,23 @@ export async function loadModelSettings(sessionId?: string) {
     sessionId: sessionId ?? null,
     mutationToken: getMutationToken(),
   }
+}
+
+export async function resolveNewConversationModelSettingsCwd(
+  projectId: string | null
+) {
+  if (projectId) {
+    return (await getProjectRuntimeTarget(projectId))?.cwd ?? null
+  }
+
+  const cwd = getAppPaths().taskWorkspace
+  await mkdir(cwd, { recursive: true, mode: 0o700 })
+  return cwd
+}
+
+export async function loadNewConversationModelSettings(
+  projectId: string | null
+) {
+  const cwd = await resolveNewConversationModelSettingsCwd(projectId)
+  return cwd ? getRuntimeSupervisor().modelSettings(cwd) : null
 }

@@ -1,7 +1,10 @@
 import { z } from "zod"
 import type { ModelSettings } from "@workspace/runtime-protocol"
 
-import { resolveModelSettingsCwd } from "@/lib/model-settings-data"
+import {
+  resolveModelSettingsCwd,
+  resolveNewConversationModelSettingsCwd,
+} from "@/lib/model-settings-data"
 import { validateLocalMutation } from "@/lib/request-security"
 import { readJsonBody, runtimeErrorResponse } from "@/lib/runtime-api"
 import { getRuntimeSupervisor } from "@/lib/runtime-supervisor"
@@ -19,9 +22,14 @@ function response(settings: ModelSettings) {
 
 export async function GET(request: Request) {
   try {
-    const sessionId =
-      new URL(request.url).searchParams.get("sessionId") ?? undefined
-    const cwd = await resolveModelSettingsCwd(sessionId)
+    const searchParams = new URL(request.url).searchParams
+    const sessionId = searchParams.get("sessionId") ?? undefined
+    const projectId = searchParams.get("projectId")
+    const newTask = searchParams.get("newTask") === "1"
+    const cwd =
+      projectId !== null || newTask
+        ? await resolveNewConversationModelSettingsCwd(projectId)
+        : await resolveModelSettingsCwd(sessionId)
     if (!cwd)
       return Response.json({ error: "Session not found." }, { status: 404 })
     return response(await getRuntimeSupervisor().modelSettings(cwd))

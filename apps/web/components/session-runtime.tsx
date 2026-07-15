@@ -7,14 +7,11 @@ import {
   useState,
   type FormEvent,
 } from "react"
-import Link from "next/link"
 import { useRouter } from "next/navigation"
 import {
   LoaderCircleIcon,
   Minimize2Icon,
   RefreshCwIcon,
-  Settings2Icon,
-  SendIcon,
   SquareIcon,
 } from "lucide-react"
 import { toast } from "sonner"
@@ -56,6 +53,11 @@ import {
 import { Markdown } from "@/components/markdown"
 import { PiTuiSurface } from "@/components/pi-tui-surface"
 import { ExtensionSlot } from "@/components/extension-slot"
+import {
+  ComposerModelSelect,
+  ComposerThinkingSelect,
+  ConversationComposer,
+} from "@/components/conversation-composer"
 import { stripAnsi } from "@/lib/ansi"
 import { notifyWhenHidden } from "@/lib/browser-notifications"
 
@@ -218,10 +220,6 @@ function retryDescription(payload: unknown) {
     throw new Error("Runtime emitted an invalid retry event.")
   }
   return `重试 ${payload.attempt}/${payload.maxAttempts}`
-}
-
-function modelValue(model: { provider: string; id: string }) {
-  return JSON.stringify([model.provider, model.id])
 }
 
 export function SessionRuntime({
@@ -627,14 +625,7 @@ export function SessionRuntime({
     }
   }
 
-  async function setModel(value: string) {
-    const model = snapshot?.availableModels.find(
-      (available) => modelValue(available) === value
-    )
-    if (!model) {
-      setError("选择的模型不再可用。")
-      return
-    }
+  async function setModel(model: RuntimeSnapshot["availableModels"][number]) {
     setUpdating(true)
     setError(null)
     try {
@@ -670,17 +661,6 @@ export function SessionRuntime({
     } finally {
       setUpdating(false)
     }
-  }
-
-  function selectThinkingLevel(value: string) {
-    const level = snapshot?.availableThinkingLevels.find(
-      (available) => available === value
-    )
-    if (!level) {
-      setError("选择的 thinking level 不再可用。")
-      return
-    }
-    void setThinkingLevel(level)
   }
 
   function selectStreamingBehavior(value: string) {
@@ -798,51 +778,55 @@ export function SessionRuntime({
             </pre>
           ))}
         <ExtensionSlot name="composer.above" />
-        <form
+        <ConversationComposer
+          value={draft}
+          onValueChange={setDraft}
           onSubmit={submit}
-          className="rounded-2xl border bg-background p-2 shadow-sm"
-        >
-          {editorSurface ? (
-            <PiTuiSurface
-              surface={editorSurface}
-              onAction={(action) =>
-                actOnTuiSurface(editorSurface.surfaceId, action)
-              }
-              onError={(failure) => setError(failure.message)}
-            />
-          ) : (
-            <Textarea
-              value={draft}
-              onChange={(event) => setDraft(event.target.value)}
-              placeholder="向 Pi 发送消息"
-              aria-label="向 Pi 发送消息"
-              className="min-h-24 resize-none border-0 bg-transparent shadow-none focus-visible:ring-0 sm:min-h-20"
-            />
-          )}
-          <div className="flex flex-wrap items-center gap-2 px-1 pb-1">
-            <Badge variant={status === "crashed" ? "destructive" : "secondary"}>
-              {STATUS_LABELS[status]}
-            </Badge>
-            {activeTool ? (
-              <span className="text-xs text-muted-foreground">
-                正在执行 {activeTool}
-              </span>
-            ) : null}
-            {queuedMessages ? (
-              <span className="text-xs text-muted-foreground">
-                队列 {queuedMessages}
-              </span>
-            ) : null}
-            {retrying ? (
-              <span className="text-xs text-muted-foreground">{retrying}</span>
-            ) : null}
-            {Object.entries(extensionStatuses).map(([key, text]) => (
-              <span key={key} className="text-xs text-muted-foreground">
-                {stripAnsi(text)}
-              </span>
-            ))}
-            <ExtensionSlot name="composer.actions" />
-            <div className="ml-auto flex items-center gap-2">
+          submitting={submitting}
+          sendDisabled={status === "crashed"}
+          editor={
+            editorSurface ? (
+              <PiTuiSurface
+                surface={editorSurface}
+                onAction={(action) =>
+                  actOnTuiSurface(editorSurface.surfaceId, action)
+                }
+                onError={(failure) => setError(failure.message)}
+              />
+            ) : undefined
+          }
+          actions={
+            <>
+              <Badge
+                variant={status === "crashed" ? "destructive" : "secondary"}
+              >
+                {STATUS_LABELS[status]}
+              </Badge>
+              {activeTool ? (
+                <span className="text-xs text-muted-foreground">
+                  正在执行 {activeTool}
+                </span>
+              ) : null}
+              {queuedMessages ? (
+                <span className="text-xs text-muted-foreground">
+                  队列 {queuedMessages}
+                </span>
+              ) : null}
+              {retrying ? (
+                <span className="text-xs text-muted-foreground">
+                  {retrying}
+                </span>
+              ) : null}
+              {Object.entries(extensionStatuses).map(([key, text]) => (
+                <span key={key} className="text-xs text-muted-foreground">
+                  {stripAnsi(text)}
+                </span>
+              ))}
+              <ExtensionSlot name="composer.actions" />
+            </>
+          }
+          endActions={
+            <>
               {isBusy ? (
                 <Select
                   value={streamingBehavior}
@@ -868,108 +852,50 @@ export function SessionRuntime({
                   <SquareIcon />
                 </Button>
               ) : null}
-              {!editorSurface ? (
+            </>
+          }
+          settings={
+            snapshot ? (
+              <>
+                {snapshot.model && snapshot.availableModels.length ? (
+                  <ComposerModelSelect
+                    model={snapshot.model}
+                    models={snapshot.availableModels}
+                    onModelChange={(model) => void setModel(model)}
+                    disabled={
+                      isBusy || updating || compacting || status === "crashed"
+                    }
+                    settingsHref={`/settings/models?sessionId=${encodeURIComponent(sessionId)}`}
+                  />
+                ) : null}
+                <ComposerThinkingSelect
+                  level={snapshot.thinkingLevel}
+                  levels={snapshot.availableThinkingLevels}
+                  onLevelChange={(level) => void setThinkingLevel(level)}
+                  disabled={
+                    isBusy || updating || compacting || status === "crashed"
+                  }
+                />
                 <Button
-                  type="submit"
-                  size="icon"
-                  disabled={!draft.trim() || submitting || status === "crashed"}
-                  aria-label="发送"
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={compact}
+                  disabled={
+                    isBusy || updating || compacting || status === "crashed"
+                  }
                 >
-                  {submitting ? (
+                  {compacting ? (
                     <LoaderCircleIcon className="animate-spin" />
                   ) : (
-                    <SendIcon />
+                    <Minimize2Icon />
                   )}
+                  压缩上下文
                 </Button>
-              ) : null}
-            </div>
-          </div>
-          {snapshot ? (
-            <div className="flex flex-wrap items-center gap-2 border-t px-1 pt-2">
-              {snapshot.model && snapshot.availableModels.length ? (
-                <Select
-                  value={modelValue(snapshot.model)}
-                  onValueChange={setModel}
-                  disabled={
-                    isBusy || updating || compacting || status === "crashed"
-                  }
-                >
-                  <SelectTrigger
-                    size="sm"
-                    className="max-w-56"
-                    aria-label="模型"
-                  >
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent
-                    position="popper"
-                    side="top"
-                    footer={
-                      <Button
-                        asChild
-                        className="w-full justify-start"
-                        size="sm"
-                        variant="ghost"
-                      >
-                        <Link
-                          href={`/settings/models?sessionId=${encodeURIComponent(sessionId)}`}
-                        >
-                          <Settings2Icon />
-                          管理 Provider / Model scope
-                        </Link>
-                      </Button>
-                    }
-                  >
-                    {snapshot.availableModels.map((model) => (
-                      <SelectItem
-                        key={modelValue(model)}
-                        value={modelValue(model)}
-                      >
-                        {model.provider} / {model.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              ) : null}
-              {snapshot.availableThinkingLevels.length > 1 ? (
-                <Select
-                  value={snapshot.thinkingLevel}
-                  onValueChange={selectThinkingLevel}
-                  disabled={
-                    isBusy || updating || compacting || status === "crashed"
-                  }
-                >
-                  <SelectTrigger size="sm" aria-label="Thinking level">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {snapshot.availableThinkingLevels.map((level) => (
-                      <SelectItem key={level} value={level}>
-                        Thinking: {level}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              ) : null}
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={compact}
-                disabled={
-                  isBusy || updating || compacting || status === "crashed"
-                }
-              >
-                {compacting ? (
-                  <LoaderCircleIcon className="animate-spin" />
-                ) : (
-                  <Minimize2Icon />
-                )}
-                压缩上下文
-              </Button>
-            </div>
-          ) : null}
-        </form>
+              </>
+            ) : null
+          }
+        />
         <ExtensionSlot name="composer.below" />
         {widgets
           .filter(([, widget]) => widget.placement === "belowEditor")

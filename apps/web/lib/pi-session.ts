@@ -1,6 +1,6 @@
 import "server-only"
 
-import { readFile, stat } from "node:fs/promises"
+import { open } from "node:fs/promises"
 import path from "node:path"
 import { z } from "zod"
 
@@ -53,13 +53,29 @@ export class PiSessionFormatError extends Error {
 }
 
 export async function readStablePiSessionFile(file: string) {
-  const before = await stat(file, { bigint: true })
-  const content = await readFile(file)
-  const after = await stat(file, { bigint: true })
-  if (before.size !== after.size || before.mtimeNs !== after.mtimeNs) {
-    throw new Error(`Session changed while it was being read: ${file}`)
+  const handle = await open(file, "r")
+  try {
+    const snapshot = await handle.stat({ bigint: true })
+    const content = Buffer.alloc(Number(snapshot.size))
+    let offset = 0
+    while (offset < content.length) {
+      const { bytesRead } = await handle.read(
+        content,
+        offset,
+        content.length - offset,
+        offset
+      )
+      if (bytesRead === 0) {
+        throw new Error(
+          `Session was truncated while it was being read: ${file}`
+        )
+      }
+      offset += bytesRead
+    }
+    return { content, mtimeNs: snapshot.mtimeNs.toString() }
+  } finally {
+    await handle.close()
   }
-  return { content, mtimeNs: after.mtimeNs.toString() }
 }
 
 function parseLine(file: string, line: string, lineNumber: number) {

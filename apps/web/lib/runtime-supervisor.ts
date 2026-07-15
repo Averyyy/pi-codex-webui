@@ -71,6 +71,17 @@ export interface RuntimeState {
   snapshot: RuntimeSnapshot | null
 }
 
+export function hasAvailableSelectedModel(
+  snapshot: Pick<RuntimeSnapshot, "model" | "availableModels"> | null
+) {
+  const selected = snapshot?.model
+  if (!selected) return false
+  return snapshot.availableModels.some(
+    (model) =>
+      model.provider === selected.provider && model.id === selected.id
+  )
+}
+
 interface PendingRequest {
   resolve: (data: unknown) => void
   reject: (error: Error) => void
@@ -105,6 +116,12 @@ interface ManagedRuntime {
   mcpCalls: Map<string, AbortController>
   cleanupPromise: Promise<void> | null
   webUiStatuses: Map<string, WebUiExtensionStatus>
+}
+
+interface NewRuntimeOptions {
+  runtimeProfileId?: string
+  initialMessage?: string
+  model?: { provider: string; modelId: string }
 }
 
 interface SessionLock {
@@ -294,6 +311,12 @@ export class RuntimeSupervisor {
     }
   ) {
     const runtime = await this.activate(sessionId)
+    if (!hasAvailableSelectedModel(runtime.snapshot)) {
+      throw new RuntimeRequestError(
+        "ModelUnavailable",
+        "The selected model is unavailable. Configure its Provider credentials or choose an available model."
+      )
+    }
     runtime.lastActivityAt = Date.now()
     const operationId = randomUUID()
     const accepted = promptAcceptedSchema.parse(
@@ -485,17 +508,50 @@ export class RuntimeSupervisor {
     return result
   }
 
-  async createSession(projectId: string, explicitRuntimeProfileId?: string) {
+  async createSession(projectId: string, options: NewRuntimeOptions = {}) {
     const target = await resolveNewSessionRuntime(
       projectId,
-      explicitRuntimeProfileId
+      options.runtimeProfileId
     )
-    return this.launchUnboundRuntime(target, { mode: "new" }, null)
+    return this.configureNewRuntime(
+      await this.launchUnboundRuntime(target, { mode: "new" }, null),
+      options
+    )
   }
 
-  async createTask(explicitRuntimeProfileId?: string) {
-    const target = await resolveNewTaskRuntime(explicitRuntimeProfileId)
-    return this.launchUnboundRuntime(target, { mode: "new" }, null)
+  async createTask(options: NewRuntimeOptions = {}) {
+    const target = await resolveNewTaskRuntime(options.runtimeProfileId)
+    return this.configureNewRuntime(
+      await this.launchUnboundRuntime(target, { mode: "new" }, null),
+      options
+    )
+  }
+
+  private async configureNewRuntime<
+    T extends { sessionId: string; snapshot: RuntimeSnapshot },
+  >(created: T, options: NewRuntimeOptions) {
+    let snapshot = created.snapshot
+    try {
+      if (options.model) {
+        snapshot = await this.setModel(
+          created.sessionId,
+          options.model.provider,
+          options.model.modelId
+        )
+      }
+      if (options.initialMessage) {
+        await this.prompt(created.sessionId, {
+          message: options.initialMessage,
+          images: [],
+          streamingBehavior: "followUp",
+        })
+      }
+      return { ...created, snapshot }
+    } catch (error) {
+      await this.archiveSession(created.sessionId)
+      await this.deleteArchivedSession(created.sessionId)
+      throw error
+    }
   }
 
   async duplicateIntoRuntime(sessionId: string, runtimeProfileId: string) {

@@ -15,6 +15,7 @@ import {
 
 import { runtimeErrorResponse } from "./runtime-api"
 import { isRuntimeRequestError } from "./runtime-error"
+import { hasAvailableSelectedModel } from "./runtime-supervisor"
 
 test("runtime status accepts only supervisor states", () => {
   assert.equal(runtimeStatusSchema.parse("busy"), "busy")
@@ -130,6 +131,23 @@ test("runtime errors survive server bundle boundaries", async () => {
     error: "The Pi runtime is not active.",
     code: "RuntimeNotActive",
   })
+})
+
+test("a selected runtime model must still be available", () => {
+  const model = {
+    provider: "provider-a",
+    id: "model-a",
+    name: "Model A",
+    reasoning: false,
+    input: ["text" as const],
+    contextWindow: 128_000,
+    maxTokens: 8_192,
+  }
+  assert.equal(
+    hasAvailableSelectedModel({ model, availableModels: [model] }),
+    true
+  )
+  assert.equal(hasAvailableSelectedModel({ model, availableModels: [] }), false)
 })
 
 test("extension UI protocol distinguishes dialogs from notifications", () => {

@@ -9,6 +9,13 @@ export const runtime = "nodejs"
 
 const createSchema = z.object({
   runtimeProfileId: z.string().min(1).optional(),
+  message: z.string().trim().min(1).max(100_000).optional(),
+  model: z
+    .object({
+      provider: z.string().min(1),
+      modelId: z.string().min(1),
+    })
+    .optional(),
 })
 
 export async function GET(
@@ -49,10 +56,11 @@ export async function POST(
       )
     }
     return Response.json(
-      await getRuntimeSupervisor().createSession(
-        projectId,
-        parsed.data.runtimeProfileId
-      ),
+      await getRuntimeSupervisor().createSession(projectId, {
+        runtimeProfileId: parsed.data.runtimeProfileId,
+        initialMessage: parsed.data.message,
+        model: parsed.data.model,
+      }),
       {
         status: 201,
         headers: { "Cache-Control": "no-store" },

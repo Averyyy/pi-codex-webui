@@ -5,19 +5,18 @@ import { usePathname } from "next/navigation"
 import {
   ChevronRightIcon,
   FolderGit2Icon,
-  HomeIcon,
   ListTodoIcon,
   PlusIcon,
   SearchIcon,
   SettingsIcon,
 } from "lucide-react"
 
+import { Button } from "@workspace/ui/components/button"
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@workspace/ui/components/collapsible"
-import { Input } from "@workspace/ui/components/input"
 import {
   Sidebar,
   SidebarContent,
@@ -51,29 +50,20 @@ export function WorkspaceNav({
 
   return (
     <Sidebar collapsible="offcanvas">
-      <SidebarHeader className="gap-3 px-3 pt-3">
-        <Link
-          href="/"
-          className="flex h-9 items-center px-1 text-base font-semibold tracking-tight"
-        >
-          pi-web-codex
-        </Link>
-        <form action="/search" className="relative">
-          <Input
-            name="q"
-            type="search"
-            placeholder="搜索对话"
-            aria-label="搜索对话"
-            className="h-8 bg-background pr-8 shadow-none"
-          />
-          <button
-            type="submit"
-            aria-label="提交搜索"
-            className="absolute top-1/2 right-1.5 grid size-6 -translate-y-1/2 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+      <SidebarHeader className="px-3 pt-3">
+        <div className="flex h-9 items-center justify-between">
+          <Link
+            href="/"
+            className="px-1 text-base font-semibold tracking-tight"
           >
-            <SearchIcon className="size-4" />
-          </button>
-        </form>
+            pi-web-codex
+          </Link>
+          <Button asChild variant="ghost" size="icon-sm">
+            <Link href="/search" aria-label="搜索对话">
+              <SearchIcon />
+            </Link>
+          </Button>
+        </div>
       </SidebarHeader>
 
       <SidebarContent>
@@ -81,18 +71,14 @@ export function WorkspaceNav({
           <SidebarGroupContent>
             <SidebarMenu>
               <SidebarMenuItem>
-                <SidebarMenuButton asChild className="font-medium">
-                  <Link href="/new">
+                <SidebarMenuButton
+                  asChild
+                  className="font-medium"
+                  isActive={pathname === "/" || pathname === "/new"}
+                >
+                  <Link href="/">
                     <PlusIcon />
                     <span>新对话</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={pathname === "/"}>
-                  <Link href="/">
-                    <HomeIcon />
-                    <span>概览</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>

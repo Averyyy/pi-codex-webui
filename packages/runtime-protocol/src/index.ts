@@ -549,6 +549,9 @@ export const modelSettingsSchema = z.object({
   models: z.array(modelSettingsModelSchema),
   providers: z.array(modelSettingsProviderSchema),
   enabledModels: z.array(z.string().min(1)).nullable(),
+  defaultModel: runtimeModelSchema
+    .pick({ provider: true, id: true, name: true })
+    .nullable(),
 })
 
 const initializeMessageSchema = z.object({

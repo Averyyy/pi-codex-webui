@@ -53,6 +53,7 @@ test("custom provider settings persist, edit, and remove through Pi files", asyn
     )
     assert.equal(savedProvider?.custom, true)
     assert.equal(savedProvider?.customModels[0]?.id, "local-model")
+    assert.equal(saved.defaultModel, null)
     assert.equal(
       saved.models.some(
         ({ provider, id }) =>
