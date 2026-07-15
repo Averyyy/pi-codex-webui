@@ -87,7 +87,7 @@ test("database v1 migration preserves sessions and adds runtime bindings", async
   legacy.close()
 
   const migrated = await getDatabase()
-  assert.equal(migrated.prepare("PRAGMA user_version").get()?.user_version, 5)
+  assert.equal(migrated.prepare("PRAGMA user_version").get()?.user_version, 6)
   assert.deepEqual(
     {
       ...migrated
@@ -113,6 +113,12 @@ test("database v1 migration preserves sessions and adds runtime bindings", async
   assert.equal(columns.find(({ name }) => name === "project_id")?.notnull, 0)
   assert.equal(columns.find(({ name }) => name === "cwd")?.notnull, 1)
   assert.equal(columns.find(({ name }) => name === "pinned_at")?.notnull, 0)
+  assert.equal(
+    migrated
+      .prepare("SELECT count(*) AS count FROM project_registrations")
+      .get()?.count,
+    0
+  )
   assert.equal(
     migrated
       .prepare(
@@ -221,7 +227,7 @@ test("database v2 migration backfills cwd and permits standalone sessions", asyn
   legacy.close()
 
   const migrated = await getDatabase()
-  assert.equal(migrated.prepare("PRAGMA user_version").get()?.user_version, 5)
+  assert.equal(migrated.prepare("PRAGMA user_version").get()?.user_version, 6)
   assert.deepEqual(
     {
       ...migrated
@@ -257,6 +263,12 @@ test("database v2 migration backfills cwd and permits standalone sessions", asyn
       )
       .get()?.count,
     1
+  )
+  assert.equal(
+    migrated
+      .prepare("SELECT count(*) AS count FROM project_registrations")
+      .get()?.count,
+    0
   )
   migrated
     .prepare(

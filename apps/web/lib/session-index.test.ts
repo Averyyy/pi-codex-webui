@@ -120,6 +120,63 @@ test("standalone sessions survive reindexing and remain outside projects", async
     assert.ok(taskSession)
     const projectId = projectSession.projectId
     assert.ok(projectId)
+
+    const database = await getDatabase()
+    const sessionRowsBeforeRemoval = database
+      .prepare("SELECT count(*) AS count FROM sessions WHERE project_id = ?")
+      .get(projectId)?.count
+    const searchRowsBeforeRemoval = database
+      .prepare(
+        `SELECT count(*) AS count FROM session_search
+         WHERE session_id = ?`
+      )
+      .get(projectSession.id)?.count
+    assert.equal(await removeWorkspaceProject(projectId), true)
+    assert.equal(await removeWorkspaceProject(projectId), false)
+    assert.deepEqual(await listWorkspaceProjects(), [])
+    assert.equal(await getProject(projectId), null)
+    assert.equal(
+      database
+        .prepare("SELECT count(*) AS count FROM sessions WHERE project_id = ?")
+        .get(projectId)?.count,
+      sessionRowsBeforeRemoval
+    )
+    assert.equal(
+      database
+        .prepare(
+          `SELECT count(*) AS count FROM session_search
+           WHERE session_id = ?`
+        )
+        .get(projectSession.id)?.count,
+      searchRowsBeforeRemoval
+    )
+    assert.equal((await stat(projectFile)).isFile(), true)
+
+    await writeFile(
+      projectFile,
+      sessionJsonl(
+        "native-project",
+        projectCwd,
+        "project updated while unregistered"
+      )
+    )
+    await syncPiSessionIndex()
+    assert.equal(
+      (await getSessionRuntimeTarget(projectSession.id))?.projectId,
+      projectId
+    )
+    assert.equal(
+      (await searchSessions("project updated while unregistered"))[0]
+        ?.sessionId,
+      projectSession.id
+    )
+
+    const reRegistered = await addWorkspaceProject(projectCwd)
+    assert.equal(reRegistered.id, projectId)
+    assert.equal(
+      (await listWorkspaceProjects())[0]?.sessions[0]?.id,
+      projectSession.id
+    )
     assert.equal(await setProjectPinned(projectId, true), true)
     assert.equal((await listWorkspaceProjects())[0]?.isPinned, true)
     assert.equal(await setSessionPinned(projectSession.id, true), true)
@@ -183,7 +240,6 @@ test("standalone sessions survive reindexing and remain outside projects", async
       task.id
     )
 
-    const database = await getDatabase()
     database
       .prepare("DELETE FROM session_entries WHERE session_id = ?")
       .run(task.id)

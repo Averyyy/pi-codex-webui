@@ -446,8 +446,8 @@ export function WorkspaceNavProject({
               <DialogHeader>
                 <DialogTitle>移除 {project.name}？</DialogTitle>
                 <DialogDescription>
-                  项目和其对话会从此应用的索引中移除，磁盘目录及 Pi session
-                  文件不会被删除。
+                  只会从项目列表中移除。已有对话、磁盘目录和 Pi session
+                  文件都不会改变。
                 </DialogDescription>
               </DialogHeader>
               {error ? <p className="text-destructive">{error}</p> : null}

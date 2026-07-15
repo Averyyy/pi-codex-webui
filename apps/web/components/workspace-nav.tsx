@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState, type FormEvent } from "react"
+import { useMemo, useState } from "react"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import {
@@ -17,17 +17,6 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@workspace/ui/components/collapsible"
-import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@workspace/ui/components/dialog"
-import { Input } from "@workspace/ui/components/input"
-import { Label } from "@workspace/ui/components/label"
 import {
   Sidebar,
   SidebarContent,
@@ -48,19 +37,12 @@ import {
   TooltipTrigger,
 } from "@workspace/ui/components/tooltip"
 
+import { AddProjectDialog } from "@/components/add-project-dialog"
 import { WorkspaceNavProject } from "@/components/workspace-nav-project"
 import { WorkspaceNavSession } from "@/components/workspace-nav-session"
 import type { SessionSummary, WorkspaceProject } from "@/lib/session-types"
 
 const COLLAPSED_PROJECT_COUNT = 4
-
-async function responseJson(response: Response) {
-  const body = (await response.json()) as { error?: string }
-  if (!response.ok) {
-    throw new Error(body.error ?? `操作失败（HTTP ${response.status}）。`)
-  }
-  return body
-}
 
 function sessionHref(session: SessionSummary) {
   return session.projectId === null
@@ -82,9 +64,6 @@ export function WorkspaceNav({
   const [projectsExpanded, setProjectsExpanded] = useState(false)
   const [tasksOpen, setTasksOpen] = useState(pathname.startsWith("/tasks/"))
   const [addProjectOpen, setAddProjectOpen] = useState(false)
-  const [projectPath, setProjectPath] = useState("")
-  const [working, setWorking] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   const pinnedSessions = useMemo(
     () =>
       [...projects.flatMap((project) => project.sessions), ...tasks]
@@ -96,31 +75,6 @@ export function WorkspaceNav({
   const visibleProjects = projectsExpanded
     ? projects
     : projects.slice(0, COLLAPSED_PROJECT_COUNT)
-
-  async function addProject(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    setWorking(true)
-    setError(null)
-    try {
-      await responseJson(
-        await fetch("/api/v1/projects", {
-          method: "POST",
-          headers: {
-            "X-Pi-Web-Codex-Mutation-Token": mutationToken,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ path: projectPath }),
-        })
-      )
-      setAddProjectOpen(false)
-      setProjectPath("")
-      router.refresh()
-    } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure))
-    } finally {
-      setWorking(false)
-    }
-  }
 
   return (
     <>
@@ -267,46 +221,12 @@ export function WorkspaceNav({
         <SidebarRail />
       </Sidebar>
 
-      <Dialog
+      <AddProjectDialog
         open={addProjectOpen}
-        onOpenChange={(open) => {
-          setAddProjectOpen(open)
-          if (!open) setError(null)
-        }}
-      >
-        <DialogContent>
-          <form onSubmit={addProject} className="contents">
-            <DialogHeader>
-              <DialogTitle>添加项目</DialogTitle>
-              <DialogDescription>
-                添加本机目录后，才会扫描并导入该目录下的 Pi 对话。
-              </DialogDescription>
-            </DialogHeader>
-            <div className="grid gap-2">
-              <Label htmlFor="new-project-path">项目目录</Label>
-              <Input
-                id="new-project-path"
-                value={projectPath}
-                onChange={(event) => setProjectPath(event.target.value)}
-                placeholder="/Users/me/Documents/project"
-                autoFocus
-                required
-              />
-            </div>
-            {error ? <p className="text-destructive">{error}</p> : null}
-            <DialogFooter>
-              <DialogClose asChild>
-                <Button type="button" variant="outline">
-                  取消
-                </Button>
-              </DialogClose>
-              <Button type="submit" disabled={working || !projectPath.trim()}>
-                {working ? "正在扫描…" : "添加项目"}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+        onOpenChange={setAddProjectOpen}
+        mutationToken={mutationToken}
+        onAdded={() => router.refresh()}
+      />
     </>
   )
 }

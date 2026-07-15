@@ -126,7 +126,11 @@ function insertEntries(
 function registeredProjectId(database: DatabaseSync, canonicalPath: string) {
   return (
     database
-      .prepare("SELECT id FROM projects WHERE canonical_path = ?")
+      .prepare(
+        `SELECT projects.id FROM project_registrations
+         JOIN projects ON projects.id = project_registrations.project_id
+         WHERE projects.canonical_path = ?`
+      )
       .get(canonicalPath) as { id: string } | undefined
   )?.id
 }
@@ -176,8 +180,8 @@ async function replaceSession(
     }
 
     const projectId =
-      existing?.project_id === null
-        ? null
+      existing && sameNativeSession
+        ? existing.project_id
         : (registeredProjectId(database, canonicalPath) ?? null)
     database
       .prepare(
@@ -350,9 +354,12 @@ async function performSync() {
   ])
   const registeredPaths = new Set(
     (
-      database.prepare("SELECT canonical_path FROM projects").all() as {
-        canonical_path: string
-      }[]
+      database
+        .prepare(
+          `SELECT projects.canonical_path FROM project_registrations
+           JOIN projects ON projects.id = project_registrations.project_id`
+        )
+        .all() as { canonical_path: string }[]
     ).map(({ canonical_path }) => canonical_path)
   )
   for (const file of files) {
@@ -391,7 +398,11 @@ export async function syncPiProjectSessions(projectId: string) {
   await syncPiSessionIndex()
   const database = await getDatabase()
   const project = database
-    .prepare("SELECT canonical_path FROM projects WHERE id = ?")
+    .prepare(
+      `SELECT projects.canonical_path FROM project_registrations
+       JOIN projects ON projects.id = project_registrations.project_id
+       WHERE projects.id = ?`
+    )
     .get(projectId) as { canonical_path: string } | undefined
   if (!project) throw new Error(`Project not found: ${projectId}`)
 

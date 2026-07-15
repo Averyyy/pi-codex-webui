@@ -10,6 +10,7 @@ import {
   GitPullRequestIcon,
   HammerIcon,
   LoaderCircleIcon,
+  PlusIcon,
   SearchCodeIcon,
   SparklesIcon,
 } from "lucide-react"
@@ -29,6 +30,7 @@ import {
   type RuntimeModel,
 } from "@workspace/runtime-protocol"
 
+import { AddProjectDialog } from "@/components/add-project-dialog"
 import {
   ComposerModelSelect,
   ConversationComposer,
@@ -116,6 +118,8 @@ export function NewConversation({
     initialModel(initialModelSettings)
   )
   const [message, setMessage] = useState("")
+  const [projectSelectOpen, setProjectSelectOpen] = useState(false)
+  const [addProjectOpen, setAddProjectOpen] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [loadingModels, setLoadingModels] = useState(false)
   const [error, setError] = useState<ApiError | null>(null)
@@ -281,6 +285,8 @@ export function NewConversation({
           settings={
             <>
               <Select
+                open={projectSelectOpen}
+                onOpenChange={setProjectSelectOpen}
                 value={projectId ?? NO_PROJECT}
                 onValueChange={(value) => void selectProject(value)}
                 disabled={submitting}
@@ -299,6 +305,21 @@ export function NewConversation({
                   position="popper"
                   side="top"
                   className="max-w-[min(32rem,calc(100vw-2rem))]"
+                  footer={
+                    <Button
+                      type="button"
+                      className="w-full justify-start"
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => {
+                        setProjectSelectOpen(false)
+                        setAddProjectOpen(true)
+                      }}
+                    >
+                      <PlusIcon />
+                      添加项目
+                    </Button>
+                  }
                 >
                   <SelectGroup>
                     <SelectItem value={NO_PROJECT}>独立任务</SelectItem>
@@ -321,6 +342,14 @@ export function NewConversation({
           }
         />
       </div>
+      <AddProjectDialog
+        open={addProjectOpen}
+        onOpenChange={setAddProjectOpen}
+        mutationToken={mutationToken}
+        onAdded={(project) =>
+          router.replace(`/new?projectId=${encodeURIComponent(project.id)}`)
+        }
+      />
     </main>
   )
 }

@@ -1,14 +1,12 @@
 import { z } from "zod"
 
 import {
-  listProjectSessions,
   removeWorkspaceProject,
   renameWorkspaceProject,
   setProjectPinned,
 } from "@/lib/catalog"
 import { validateLocalMutation } from "@/lib/request-security"
 import { readJsonBody } from "@/lib/runtime-api"
-import { getRuntimeSupervisor } from "@/lib/runtime-supervisor"
 
 export const runtime = "nodejs"
 
@@ -51,11 +49,6 @@ export async function DELETE(
   }
 
   const { projectId } = await context.params
-  const sessions = await listProjectSessions(projectId)
-  const supervisor = getRuntimeSupervisor()
-  for (const session of sessions) {
-    await supervisor.stop(session.id)
-  }
   if (!(await removeWorkspaceProject(projectId))) {
     return Response.json({ error: "Project not found." }, { status: 404 })
   }

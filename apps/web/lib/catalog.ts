@@ -167,16 +167,24 @@ export async function addWorkspaceProject(inputPath: string) {
     .prepare("SELECT id FROM projects WHERE canonical_path = ?")
     .get(canonicalPath) as { id: string } | undefined
   const projectId = existing?.id ?? randomUUID()
-  if (!existing) {
-    const now = new Date().toISOString()
+  const now = new Date().toISOString()
+  inTransaction(database, () => {
+    if (!existing) {
+      database
+        .prepare(
+          `INSERT INTO projects(
+             id, canonical_path, display_name, created_at, updated_at
+           ) VALUES (?, ?, ?, ?, ?)`
+        )
+        .run(projectId, canonicalPath, path.basename(canonicalPath), now, now)
+    }
     database
       .prepare(
-        `INSERT INTO projects(
-           id, canonical_path, display_name, created_at, updated_at
-         ) VALUES (?, ?, ?, ?, ?)`
+        `INSERT INTO project_registrations(project_id, registered_at)
+         VALUES (?, ?) ON CONFLICT(project_id) DO NOTHING`
       )
-      .run(projectId, canonicalPath, path.basename(canonicalPath), now, now)
-  }
+      .run(projectId, now)
+  })
 
   await syncPiProjectSessions(projectId)
   const project = await getProject(projectId)
@@ -187,7 +195,13 @@ export async function addWorkspaceProject(inputPath: string) {
 export async function renameWorkspaceProject(projectId: string, name: string) {
   const database = await getDatabase()
   const result = database
-    .prepare("UPDATE projects SET display_name = ? WHERE id = ?")
+    .prepare(
+      `UPDATE projects SET display_name = ?
+       WHERE id = ? AND EXISTS (
+         SELECT 1 FROM project_registrations
+         WHERE project_id = projects.id
+       )`
+    )
     .run(name, projectId)
   return result.changes === 1
 }
@@ -195,7 +209,13 @@ export async function renameWorkspaceProject(projectId: string, name: string) {
 export async function setProjectPinned(projectId: string, pinned: boolean) {
   const database = await getDatabase()
   const result = database
-    .prepare("UPDATE projects SET pinned_at = ? WHERE id = ?")
+    .prepare(
+      `UPDATE projects SET pinned_at = ?
+       WHERE id = ? AND EXISTS (
+         SELECT 1 FROM project_registrations
+         WHERE project_id = projects.id
+       )`
+    )
     .run(pinned ? new Date().toISOString() : null, projectId)
   return result.changes === 1
 }
@@ -213,22 +233,11 @@ export async function setSessionPinned(sessionId: string, pinned: boolean) {
 
 export async function removeWorkspaceProject(projectId: string) {
   const database = await getDatabase()
-  return inTransaction(database, () => {
-    const exists = database
-      .prepare("SELECT 1 FROM projects WHERE id = ?")
-      .get(projectId)
-    if (!exists) return false
-
+  return (
     database
-      .prepare(
-        `DELETE FROM session_search WHERE session_id IN (
-           SELECT id FROM sessions WHERE project_id = ?
-         )`
-      )
-      .run(projectId)
-    database.prepare("DELETE FROM projects WHERE id = ?").run(projectId)
-    return true
-  })
+      .prepare("DELETE FROM project_registrations WHERE project_id = ?")
+      .run(projectId).changes === 1
+  )
 }
 
 export async function listWorkspaceProjects(): Promise<WorkspaceProject[]> {
@@ -239,7 +248,8 @@ export async function listWorkspaceProjects(): Promise<WorkspaceProject[]> {
       `SELECT projects.id, canonical_path, display_name,
               count(sessions.id) AS session_count,
               projects.updated_at, projects.pinned_at
-       FROM projects
+       FROM project_registrations
+       JOIN projects ON projects.id = project_registrations.project_id
        LEFT JOIN sessions
          ON sessions.project_id = projects.id
         AND sessions.archived_at IS NULL
@@ -290,7 +300,8 @@ export async function getProject(projectId: string) {
       `SELECT projects.id, canonical_path, display_name,
               count(sessions.id) AS session_count,
               projects.updated_at, projects.pinned_at
-       FROM projects
+       FROM project_registrations
+       JOIN projects ON projects.id = project_registrations.project_id
        LEFT JOIN sessions
          ON sessions.project_id = projects.id
         AND sessions.archived_at IS NULL
@@ -485,8 +496,10 @@ export async function getProjectRuntimeTarget(projectId: string) {
   const database = await getDatabase()
   const row = database
     .prepare(
-      `SELECT id, canonical_path, default_runtime_profile_id
-       FROM projects WHERE id = ?`
+      `SELECT projects.id, canonical_path, default_runtime_profile_id
+       FROM project_registrations
+       JOIN projects ON projects.id = project_registrations.project_id
+       WHERE projects.id = ?`
     )
     .get(projectId) as unknown as ProjectRuntimeRow | undefined
   return row
