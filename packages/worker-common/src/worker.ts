@@ -33,6 +33,7 @@ import type {
 } from "./coding-agent.js"
 import { createMcpToolDefinitions } from "./mcp.js"
 import { resolveConfiguredScopedModels } from "./model-settings.js"
+import { sessionTreeEntryText } from "./session-tree.js"
 import { SubagentBridge } from "./subagents.js"
 import { createFooterData, TuiSurfaceManager } from "./tui-surfaces.js"
 import { createExtensionInstrumentor } from "./extension-instrumentation.js"
@@ -956,11 +957,6 @@ async function dispatch(message: HostToWorkerMessage) {
     })
   } else if (message.type === "session.tree") {
     const manager = session.sessionManager
-    const userMessages = new Map(
-      session
-        .getUserMessagesForForking()
-        .map((entry) => [entry.entryId, entry.text])
-    )
     respond(message.requestId, {
       success: true,
       data: {
@@ -974,7 +970,7 @@ async function dispatch(message: HostToWorkerMessage) {
             entry.type === "message" && "role" in entry.message
               ? entry.message.role
               : undefined,
-          text: userMessages.get(entry.id),
+          text: sessionTreeEntryText(entry),
         })),
         leafId: manager.getLeafId(),
       },

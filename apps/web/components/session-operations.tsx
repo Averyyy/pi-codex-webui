@@ -35,7 +35,6 @@ import {
   DropdownMenuTrigger,
 } from "@workspace/ui/components/dropdown-menu"
 import { Input } from "@workspace/ui/components/input"
-import { Label } from "@workspace/ui/components/label"
 import {
   Select,
   SelectContent,
@@ -43,13 +42,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@workspace/ui/components/select"
-import { Switch } from "@workspace/ui/components/switch"
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@workspace/ui/components/tooltip"
 import type { SessionStats, SessionTree } from "@workspace/runtime-protocol"
+
+import { SessionTreeDialog } from "@/components/session-tree-dialog"
+import { sessionTreeCurrentEntryId } from "@/lib/session-tree"
 
 type DialogKind = "rename" | "fork" | "tree" | "stats" | "import" | "runtime"
 
@@ -151,6 +152,9 @@ export function SessionOperations({
 
   async function openTree(kind: "fork" | "tree") {
     setDialog(kind)
+    setTree(null)
+    setSelectedEntryId("")
+    if (kind === "tree") setSummarize(false)
     setWorking(true)
     setError(null)
     try {
@@ -160,11 +164,12 @@ export function SessionOperations({
         })
       )
       setTree(result)
-      const entries =
+      setSelectedEntryId(
         kind === "fork"
-          ? result.entries.filter((entry) => entry.role === "user")
-          : result.entries
-      setSelectedEntryId(entries.at(-1)?.id ?? "")
+          ? (result.entries.filter((entry) => entry.role === "user").at(-1)
+              ?.id ?? "")
+          : (sessionTreeCurrentEntryId(result) ?? "")
+      )
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure))
     } finally {
@@ -303,10 +308,7 @@ export function SessionOperations({
     })
   }
 
-  const selectableEntries =
-    dialog === "fork"
-      ? tree?.entries.filter((entry) => entry.role === "user")
-      : tree?.entries
+  const forkEntries = tree?.entries.filter((entry) => entry.role === "user")
 
   return (
     <>
@@ -377,7 +379,13 @@ export function SessionOperations({
         open={dialog !== null}
         onOpenChange={(open) => !open && setDialog(null)}
       >
-        <DialogContent>
+        <DialogContent
+          className={
+            dialog === "tree"
+              ? "flex h-[calc(100svh-1rem)] w-[calc(100vw-1rem)] max-w-[56rem] flex-col gap-0 overflow-hidden p-0 sm:h-[min(44rem,calc(100svh-2rem))] sm:max-w-[56rem]"
+              : undefined
+          }
+        >
           {dialog === "rename" ? (
             <form className="grid gap-5" onSubmit={rename}>
               <DialogHeader>
@@ -399,19 +407,15 @@ export function SessionOperations({
             </form>
           ) : null}
 
-          {dialog === "fork" || dialog === "tree" ? (
+          {dialog === "fork" ? (
             <div className="grid gap-5">
               <DialogHeader>
-                <DialogTitle>
-                  {dialog === "fork" ? "Fork session" : "Session tree"}
-                </DialogTitle>
+                <DialogTitle>Fork session</DialogTitle>
                 <DialogDescription>
-                  {dialog === "fork"
-                    ? "从一条真实的用户消息创建新的 Pi session。"
-                    : "把当前 JSONL 的 leaf 切换到选中的 entry。"}
+                  从一条真实的用户消息创建新的 Pi session。
                 </DialogDescription>
               </DialogHeader>
-              {selectableEntries?.length ? (
+              {forkEntries?.length ? (
                 <Select
                   value={selectedEntryId}
                   onValueChange={setSelectedEntryId}
@@ -420,7 +424,7 @@ export function SessionOperations({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {selectableEntries.map((entry) => (
+                    {forkEntries.map((entry) => (
                       <SelectItem key={entry.id} value={entry.id}>
                         {treeLabel(entry)}
                         {entry.id === tree?.leafId ? " · 当前" : ""}
@@ -429,28 +433,29 @@ export function SessionOperations({
                   </SelectContent>
                 </Select>
               ) : null}
-              {dialog === "tree" ? (
-                <div className="flex items-center justify-between gap-4 rounded-lg border p-3">
-                  <Label htmlFor="summarize-branch">总结放弃的分支</Label>
-                  <Switch
-                    id="summarize-branch"
-                    checked={summarize}
-                    onCheckedChange={setSummarize}
-                  />
-                </div>
-              ) : null}
               <DialogFooter>
-                <Button
-                  onClick={dialog === "fork" ? fork : navigateTree}
-                  disabled={working || !selectedEntryId}
-                >
+                <Button onClick={fork} disabled={working || !selectedEntryId}>
                   {working ? (
                     <LoaderCircleIcon className="animate-spin" />
                   ) : null}
-                  {dialog === "fork" ? "创建 fork" : "切换 leaf"}
+                  创建 fork
                 </Button>
               </DialogFooter>
             </div>
+          ) : null}
+
+          {dialog === "tree" ? (
+            <SessionTreeDialog
+              tree={tree}
+              selectedEntryId={selectedEntryId}
+              onSelectedEntryIdChange={setSelectedEntryId}
+              summarize={summarize}
+              onSummarizeChange={setSummarize}
+              working={working}
+              error={error}
+              onCancel={() => setDialog(null)}
+              onNavigate={navigateTree}
+            />
           ) : null}
 
           {dialog === "stats" ? (
@@ -565,7 +570,9 @@ export function SessionOperations({
             </form>
           ) : null}
 
-          {error ? <p className="text-sm text-destructive">{error}</p> : null}
+          {error && dialog !== "tree" ? (
+            <p className="text-sm text-destructive">{error}</p>
+          ) : null}
         </DialogContent>
       </Dialog>
     </>
