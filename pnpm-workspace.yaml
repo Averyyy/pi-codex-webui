@@ -9,6 +9,7 @@ injectWorkspacePackages: true
 allowBuilds:
   '@google/genai': true
   esbuild: true
+  node-pty: true
   protobufjs: true
   sharp: true
 

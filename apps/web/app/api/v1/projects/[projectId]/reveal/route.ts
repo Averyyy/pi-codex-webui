@@ -2,6 +2,7 @@ import { execFile } from "node:child_process"
 import { promisify } from "node:util"
 
 import { getProject } from "@/lib/catalog"
+import { projectFileManager } from "@/lib/project-reveal"
 import { validateLocalMutation } from "@/lib/request-security"
 
 export const runtime = "nodejs"
@@ -22,6 +23,15 @@ export async function POST(
   if (!project) {
     return Response.json({ error: "Project not found." }, { status: 404 })
   }
-  await execFileAsync("/usr/bin/open", [project.path])
+  const fileManager = projectFileManager(process.platform)
+  if (!fileManager) {
+    return Response.json(
+      {
+        error: `Opening project folders is not supported on ${process.platform}.`,
+      },
+      { status: 501 }
+    )
+  }
+  await execFileAsync(fileManager.command, [project.path])
   return Response.json({ projectId })
 }

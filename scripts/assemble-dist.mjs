@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process"
 import {
   access,
+  chmod,
   cp,
   lstat,
   mkdir,
@@ -151,9 +152,18 @@ await Promise.all(
     })
 )
 
-const leakedSource = (await sourceFiles(path.join(root, "dist"))).find((file) =>
-  /\.tsx?$/.test(file)
+const productionFiles = await sourceFiles(path.join(root, "dist"))
+await Promise.all(
+  productionFiles
+    .filter((file) =>
+      /\/node-pty\/prebuilds\/darwin-[^/]+\/spawn-helper$/.test(
+        file.split(path.sep).join("/")
+      )
+    )
+    .map((file) => chmod(file, 0o755))
 )
+
+const leakedSource = productionFiles.find((file) => /\.tsx?$/.test(file))
 if (leakedSource) {
   throw new Error(`Production package contains source: ${leakedSource}`)
 }

@@ -1,5 +1,16 @@
 import type { NextConfig } from "next"
+import { realpathSync } from "node:fs"
 import path from "node:path"
+
+const nodePtyPrebuilds = path
+  .relative(
+    import.meta.dirname,
+    realpathSync(
+      path.join(import.meta.dirname, "node_modules/node-pty/prebuilds")
+    )
+  )
+  .split(path.sep)
+  .join("/")
 
 const nextConfig: NextConfig = {
   output: "standalone",
@@ -16,6 +27,9 @@ const nextConfig: NextConfig = {
       "./tsconfig.json",
       "../../webui-extensions/**/*",
     ],
+  },
+  outputFileTracingIncludes: {
+    "/api/v1/sessions/*/terminal": [`${nodePtyPrebuilds}/**/*`],
   },
   poweredByHeader: false,
   reactStrictMode: true,

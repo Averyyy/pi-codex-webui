@@ -1,6 +1,9 @@
 import "server-only"
 
 import { spawn } from "node:child_process"
+import { mkdtemp, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import path from "node:path"
 
 export type GitFileStatus = {
   index: string
@@ -24,6 +27,12 @@ export type ProjectGitStatus =
       behind: number
       files: GitFileStatus[]
     }
+
+export type ProjectGitDiff = {
+  path: string
+  originalPath: string | null
+  hunks: string[]
+}
 
 type GitResult = { code: number; stdout: string; stderr: string }
 
@@ -51,6 +60,30 @@ function runGit(cwd: string, args: string[]) {
 
 function commandValue(result: GitResult) {
   return result.code === 0 ? result.stdout.trim() || null : null
+}
+
+async function diffAgainstEmpty(projectPath: string, filePath: string) {
+  const directory = await mkdtemp(path.join(tmpdir(), "pi-web-codex-diff-"))
+  const empty = path.join(directory, "empty")
+  await writeFile(empty, "")
+  try {
+    const result = await runGit(projectPath, [
+      "diff",
+      "--no-index",
+      "--no-ext-diff",
+      "--no-color",
+      "--unified=3",
+      "--",
+      empty,
+      filePath,
+    ])
+    if (result.code > 1) {
+      throw new ProjectGitError(result.stderr.trim() || "Git diff failed.")
+    }
+    return result.stdout
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
 }
 
 export async function createProjectWorktree(
@@ -164,5 +197,49 @@ export async function readProjectGitStatus(
     ahead,
     behind,
     files: parseStatus(status.stdout),
+  }
+}
+
+export async function readProjectGitDiff(
+  projectPath: string,
+  requestedPath: string
+): Promise<ProjectGitDiff> {
+  const status = await readProjectGitStatus(projectPath)
+  if (!status.available) throw new ProjectGitError(status.error)
+
+  const file = status.files.find((entry) => entry.path === requestedPath)
+  if (!file) {
+    throw new ProjectGitError("The requested path has no working tree changes.")
+  }
+
+  const hasHead = commandValue(
+    await runGit(projectPath, ["rev-parse", "--verify", "HEAD"])
+  )
+  let patch: string
+  if (file.index === "?" || !hasHead) {
+    patch = await diffAgainstEmpty(
+      projectPath,
+      path.join(status.root, file.path)
+    )
+  } else {
+    const result = await runGit(projectPath, [
+      "diff",
+      "--no-ext-diff",
+      "--no-color",
+      "--unified=3",
+      "HEAD",
+      "--",
+      file.path,
+    ])
+    if (result.code !== 0) {
+      throw new ProjectGitError(result.stderr.trim() || "Git diff failed.")
+    }
+    patch = result.stdout
+  }
+
+  return {
+    path: file.path,
+    originalPath: file.originalPath,
+    hunks: patch ? [patch] : [],
   }
 }

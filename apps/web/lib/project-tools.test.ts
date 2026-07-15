@@ -11,7 +11,13 @@ import {
   readProjectEntry,
   readProjectFile,
 } from "./project-files"
-import { createProjectWorktree, readProjectGitStatus } from "./project-git"
+import {
+  createProjectWorktree,
+  readProjectGitDiff,
+  readProjectGitStatus,
+} from "./project-git"
+import { projectFileManager } from "./project-reveal"
+import { shellCommand } from "./shell-supervisor"
 
 const run = promisify(execFile)
 
@@ -107,8 +113,37 @@ test("project Git integration reports the real branch and working tree", async (
       ]
     )
   }
+  const trackedDiff = await readProjectGitDiff(project, "tracked.txt")
+  assert.match(trackedDiff.hunks[0] ?? "", /^diff --git/m)
+  assert.match(trackedDiff.hunks[0] ?? "", /^--- /m)
+  assert.match(trackedDiff.hunks[0] ?? "", /^\+\+\+ /m)
+  assert.match(trackedDiff.hunks.join("\n"), /-first\n\+changed/)
+  const untrackedDiff = await readProjectGitDiff(project, "untracked.txt")
+  assert.match(untrackedDiff.hunks[0] ?? "", /^diff --git/m)
+  assert.match(untrackedDiff.hunks.join("\n"), /\+new/)
   await Promise.all([
     rm(project, { recursive: true, force: true }),
     rm(worktree, { recursive: true, force: true }),
   ])
+})
+
+test("desktop integrations select native macOS and Windows commands", () => {
+  assert.deepEqual(projectFileManager("darwin"), {
+    command: "/usr/bin/open",
+    label: "在 Finder 中打开",
+  })
+  assert.deepEqual(projectFileManager("win32"), {
+    command: "explorer.exe",
+    label: "在文件资源管理器中打开",
+  })
+  assert.equal(projectFileManager("linux"), null)
+
+  assert.deepEqual(shellCommand("darwin", { SHELL: "/bin/zsh" }), {
+    file: "/bin/zsh",
+    args: ["-l"],
+  })
+  assert.deepEqual(shellCommand("win32", { ComSpec: "cmd.exe" }), {
+    file: "cmd.exe",
+    args: [],
+  })
 })

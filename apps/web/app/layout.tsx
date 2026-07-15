@@ -2,6 +2,7 @@ import type { CSSProperties } from "react"
 import { connection } from "next/server"
 
 import "@workspace/ui/globals.css"
+import "@git-diff-view/react/styles/diff-view-pure.css"
 import "@xterm/xterm/css/xterm.css"
 import { Toaster } from "@workspace/ui/components/sonner"
 import { TooltipProvider } from "@workspace/ui/components/tooltip"
