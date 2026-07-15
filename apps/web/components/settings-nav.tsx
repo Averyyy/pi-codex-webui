@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { usePathname } from "next/navigation"
+import { usePathname, useRouter } from "next/navigation"
 import {
   ArchiveIcon,
   BlocksIcon,
@@ -48,6 +48,7 @@ const sections = [
 
 export function SettingsNav() {
   const pathname = usePathname()
+  const router = useRouter()
 
   return (
     <Sidebar collapsible="offcanvas">
@@ -83,10 +84,10 @@ export function SettingsNav() {
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton asChild isActive tooltip="设置">
-              <Link href="/settings/general" replace>
+              <button type="button" onClick={() => router.back()}>
                 <SettingsIcon />
                 <span>设置</span>
-              </Link>
+              </button>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
