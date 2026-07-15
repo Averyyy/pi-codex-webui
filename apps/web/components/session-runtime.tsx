@@ -58,6 +58,7 @@ import {
   ComposerModelSelect,
   ComposerThinkingSelect,
   ConversationComposer,
+  nextThinkingLevel,
 } from "@/components/conversation-composer"
 import { stripAnsi } from "@/lib/ansi"
 import { notifyWhenHidden } from "@/lib/browser-notifications"
@@ -714,6 +715,8 @@ export function SessionRuntime({
   }
 
   const isBusy = status === "busy"
+  const settingsDisabled =
+    isBusy || updating || compacting || status === "crashed"
   const hasStreamingContent = streaming.text || streaming.thinking
   const widgets = Object.entries(extensionWidgets)
   const surfaces = Object.values(tuiSurfaces)
@@ -787,6 +790,19 @@ export function SessionRuntime({
           onSubmit={submit}
           submitting={submitting}
           sendDisabled={status === "crashed"}
+          onCycleThinkingLevel={
+            snapshot &&
+            snapshot.availableThinkingLevels.length > 1 &&
+            !settingsDisabled
+              ? () =>
+                  void setThinkingLevel(
+                    nextThinkingLevel(
+                      snapshot.thinkingLevel,
+                      snapshot.availableThinkingLevels
+                    )
+                  )
+              : undefined
+          }
           editor={
             editorSurface ? (
               <PiTuiSurface
@@ -865,9 +881,7 @@ export function SessionRuntime({
                     model={snapshot.model}
                     models={snapshot.availableModels}
                     onModelChange={(model) => void setModel(model)}
-                    disabled={
-                      isBusy || updating || compacting || status === "crashed"
-                    }
+                    disabled={settingsDisabled}
                     settingsHref={`/settings/models?sessionId=${encodeURIComponent(sessionId)}`}
                   />
                 ) : null}
@@ -875,18 +889,14 @@ export function SessionRuntime({
                   level={snapshot.thinkingLevel}
                   levels={snapshot.availableThinkingLevels}
                   onLevelChange={(level) => void setThinkingLevel(level)}
-                  disabled={
-                    isBusy || updating || compacting || status === "crashed"
-                  }
+                  disabled={settingsDisabled}
                 />
                 <Button
                   type="button"
                   variant="outline"
                   size="sm"
                   onClick={compact}
-                  disabled={
-                    isBusy || updating || compacting || status === "crashed"
-                  }
+                  disabled={settingsDisabled}
                 >
                   {compacting ? (
                     <LoaderCircleIcon className="animate-spin" />

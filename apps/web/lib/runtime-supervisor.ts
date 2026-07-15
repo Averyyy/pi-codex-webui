@@ -122,6 +122,7 @@ interface NewRuntimeOptions {
   runtimeProfileId?: string
   initialMessage?: string
   model?: { provider: string; modelId: string }
+  thinkingLevel?: RuntimeSnapshot["thinkingLevel"]
 }
 
 interface SessionLock {
@@ -537,6 +538,12 @@ export class RuntimeSupervisor {
           created.sessionId,
           options.model.provider,
           options.model.modelId
+        )
+      }
+      if (options.thinkingLevel) {
+        snapshot = await this.setThinkingLevel(
+          created.sessionId,
+          options.thinkingLevel
         )
       }
       if (options.initialMessage) {

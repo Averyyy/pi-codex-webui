@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { thinkingLevelSchema } from "@workspace/runtime-protocol"
 
 import { getProject, listProjectSessions } from "@/lib/catalog"
 import { validateLocalMutation } from "@/lib/request-security"
@@ -10,6 +11,7 @@ export const runtime = "nodejs"
 const createSchema = z.object({
   runtimeProfileId: z.string().min(1).optional(),
   message: z.string().trim().min(1).max(100_000).optional(),
+  thinkingLevel: thinkingLevelSchema.optional(),
   model: z
     .object({
       provider: z.string().min(1),
@@ -60,6 +62,7 @@ export async function POST(
         runtimeProfileId: parsed.data.runtimeProfileId,
         initialMessage: parsed.data.message,
         model: parsed.data.model,
+        thinkingLevel: parsed.data.thinkingLevel,
       }),
       {
         status: 201,

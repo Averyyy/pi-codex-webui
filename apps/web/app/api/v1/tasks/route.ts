@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { thinkingLevelSchema } from "@workspace/runtime-protocol"
 
 import { listWorkspaceTasks } from "@/lib/catalog"
 import { validateLocalMutation } from "@/lib/request-security"
@@ -11,6 +12,7 @@ export const dynamic = "force-dynamic"
 const createSchema = z.object({
   runtimeProfileId: z.string().min(1).optional(),
   message: z.string().trim().min(1).max(100_000).optional(),
+  thinkingLevel: thinkingLevelSchema.optional(),
   model: z
     .object({
       provider: z.string().min(1),
@@ -45,6 +47,7 @@ export async function POST(request: Request) {
         runtimeProfileId: parsed.data.runtimeProfileId,
         initialMessage: parsed.data.message,
         model: parsed.data.model,
+        thinkingLevel: parsed.data.thinkingLevel,
       }),
       {
         status: 201,

@@ -342,6 +342,9 @@ importers:
 
   packages/worker-pi:
     dependencies:
+      '@earendil-works/pi-ai':
+        specifier: 0.80.6
+        version: 0.80.6(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)
       '@earendil-works/pi-coding-agent':
         specifier: 0.80.6
         version: 0.80.6(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)
@@ -382,6 +385,9 @@ importers:
 
   packages/worker-pi-client:
     dependencies:
+      '@earendil-works/pi-ai':
+        specifier: npm:@averyyy/pi-ai@0.80.6-piclient.7
+        version: '@averyyy/pi-ai@0.80.6-piclient.7(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)'
       '@earendil-works/pi-coding-agent':
         specifier: npm:@averyyy/pi-coding-agent@0.80.6-piclient.7
         version: '@averyyy/pi-coding-agent@0.80.6-piclient.7(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)'

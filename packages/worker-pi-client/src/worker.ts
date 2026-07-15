@@ -1,4 +1,5 @@
 import * as codingAgent from "@earendil-works/pi-coding-agent"
+import * as modelThinking from "@earendil-works/pi-ai"
 import * as tui from "@earendil-works/pi-tui"
 import {
   startWorker,
@@ -13,5 +14,6 @@ process.env.PI_SERVER_MODE = "true"
 
 startWorker(
   codingAgent as unknown as CodingAgentModule,
-  tui as unknown as TuiModule
+  tui as unknown as TuiModule,
+  modelThinking
 )

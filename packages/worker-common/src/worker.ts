@@ -26,7 +26,11 @@ import {
   projectTrustedForWeb,
 } from "./resources.js"
 import { createSettingsManager } from "./settings.js"
-import type { CodingAgentModule, TuiModule } from "./coding-agent.js"
+import type {
+  CodingAgentModule,
+  ModelThinkingModule,
+  TuiModule,
+} from "./coding-agent.js"
 import { createMcpToolDefinitions } from "./mcp.js"
 import { resolveConfiguredScopedModels } from "./model-settings.js"
 import { createFooterData, TuiSurfaceManager } from "./tui-surfaces.js"
@@ -34,6 +38,7 @@ import { createExtensionInstrumentor } from "./extension-instrumentation.js"
 import { WebUiAdapterHost } from "./webui-adapter-host.js"
 
 let codingAgent: CodingAgentModule
+let modelThinking: ModelThinkingModule
 let tuiModule: TuiModule
 let runtime: AgentSessionRuntime | undefined
 let webSessionId: string | undefined
@@ -793,7 +798,7 @@ async function dispatch(message: HostToWorkerMessage) {
   if (isResourceMessage(message)) {
     respond(message.requestId, {
       success: true,
-      data: await handleResourceMessage(codingAgent, message),
+      data: await handleResourceMessage(codingAgent, modelThinking, message),
     })
     return
   }
@@ -969,10 +974,12 @@ async function dispatch(message: HostToWorkerMessage) {
 
 export function startWorker(
   agentModule: CodingAgentModule,
-  terminalModule: TuiModule
+  terminalModule: TuiModule,
+  thinkingModule: ModelThinkingModule
 ) {
   codingAgent = agentModule
   tuiModule = terminalModule
+  modelThinking = thinkingModule
 
   process.on("message", (raw: unknown) => {
     const parsed = hostToWorkerMessageSchema.safeParse(raw)

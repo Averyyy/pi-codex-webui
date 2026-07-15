@@ -29,7 +29,7 @@ import type {
 } from "@workspace/runtime-protocol"
 
 import { createSettingsManager } from "./settings.js"
-import type { CodingAgentModule } from "./coding-agent.js"
+import type { CodingAgentModule, ModelThinkingModule } from "./coding-agent.js"
 
 type ModelSettingsMessage = Extract<
   HostToWorkerMessage,
@@ -50,6 +50,7 @@ interface ModelsConfig {
 
 interface ModelSettingsState {
   codingAgent: CodingAgentModule
+  modelThinking: ModelThinkingModule
   authStorage: AuthStorage
   modelRegistry: ModelRegistry
   settingsManager: SettingsManager
@@ -225,6 +226,7 @@ function writeModelsConfig(
 
 function createModelSettingsState(
   codingAgent: CodingAgentModule,
+  modelThinking: ModelThinkingModule,
   cwd: string,
   agentDir: string
 ): ModelSettingsState {
@@ -235,6 +237,7 @@ function createModelSettingsState(
   )
   return {
     codingAgent,
+    modelThinking,
     authStorage,
     modelRegistry: codingAgent.ModelRegistry.create(authStorage, modelsPath),
     settingsManager: createSettingsManager(codingAgent, cwd, agentDir, false),
@@ -305,11 +308,25 @@ async function readModelSettings(
     ...Object.keys(config.providers),
   ])
   const builtIns = builtinProviders(state.codingAgent, state.authStorage)
+  const defaultThinkingLevel =
+    state.settingsManager.getDefaultThinkingLevel() ?? "medium"
+  const scopedThinkingLevels = new Map(
+    scopedModels.map(({ model, thinkingLevel }) => [
+      modelKey(model),
+      thinkingLevel,
+    ])
+  )
 
   return {
     models: availableModels.map((model) => ({
       ...toRuntimeModel(model),
       enabled: enabledIds.has(modelKey(model)),
+      availableThinkingLevels:
+        state.modelThinking.getSupportedThinkingLevels(model),
+      defaultThinkingLevel: state.modelThinking.clampThinkingLevel(
+        model,
+        scopedThinkingLevels.get(modelKey(model)) ?? defaultThinkingLevel
+      ),
     })),
     providers: [...providers]
       .sort((left, right) => left.localeCompare(right))
@@ -491,10 +508,16 @@ async function saveCustomProvider(
 
 export function handleModelSettingsMessage(
   codingAgent: CodingAgentModule,
+  modelThinking: ModelThinkingModule,
   message: ModelSettingsMessage
 ) {
   const { cwd, agentDir } = message.payload
-  const state = createModelSettingsState(codingAgent, cwd, agentDir)
+  const state = createModelSettingsState(
+    codingAgent,
+    modelThinking,
+    cwd,
+    agentDir
+  )
   if (message.type === "models.catalog") return readModelSettings(state)
   if (message.type === "models.set-scope") {
     return setModelScope(state, message.payload.enabledModelIds)

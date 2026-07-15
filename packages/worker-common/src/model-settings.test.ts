@@ -7,12 +7,22 @@ import test from "node:test"
 import * as codingAgent from "@earendil-works/pi-coding-agent"
 import type { HostToWorkerMessage } from "@workspace/runtime-protocol"
 
+import type { ModelThinkingModule } from "./coding-agent.js"
 import { handleModelSettingsMessage } from "./model-settings.js"
 
 type ProviderMessage = Extract<
   HostToWorkerMessage,
   { type: "providers.save" | "providers.remove" }
 >
+
+const modelThinking: ModelThinkingModule = {
+  getSupportedThinkingLevels: (model) =>
+    model.reasoning ? ["off", "minimal", "low", "medium", "high"] : ["off"],
+  clampThinkingLevel(model, level) {
+    const levels = this.getSupportedThinkingLevels(model)
+    return levels.includes(level) ? level : levels.at(-1)!
+  },
+}
 
 test("custom provider settings persist, edit, and remove through Pi files", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "pi-model-settings-"))
@@ -29,6 +39,7 @@ test("custom provider settings persist, edit, and remove through Pi files", asyn
 
     const saved = await handleModelSettingsMessage(
       codingAgent,
+      modelThinking,
       message("providers.save", {
         cwd: root,
         agentDir: root,
@@ -54,6 +65,24 @@ test("custom provider settings persist, edit, and remove through Pi files", asyn
     assert.equal(savedProvider?.custom, true)
     assert.equal(savedProvider?.customModels[0]?.id, "local-model")
     assert.equal(saved.defaultModel, null)
+    assert.deepEqual(
+      saved.models.find(
+        ({ provider, id }) =>
+          provider === "local-provider" && id === "local-model"
+      ),
+      {
+        provider: "local-provider",
+        id: "local-model",
+        name: "Local model",
+        reasoning: true,
+        input: ["text"],
+        contextWindow: 32_000,
+        maxTokens: 4_000,
+        enabled: true,
+        availableThinkingLevels: ["off", "minimal", "low", "medium", "high"],
+        defaultThinkingLevel: "medium",
+      }
+    )
     assert.equal(
       saved.models.some(
         ({ provider, id }) =>
@@ -64,6 +93,7 @@ test("custom provider settings persist, edit, and remove through Pi files", asyn
 
     const edited = await handleModelSettingsMessage(
       codingAgent,
+      modelThinking,
       message("providers.save", {
         cwd: root,
         agentDir: root,
@@ -106,6 +136,7 @@ test("custom provider settings persist, edit, and remove through Pi files", asyn
 
     const removed = await handleModelSettingsMessage(
       codingAgent,
+      modelThinking,
       message("providers.remove", {
         cwd: root,
         agentDir: root,

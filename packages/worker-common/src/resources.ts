@@ -17,7 +17,7 @@ import {
 } from "@workspace/runtime-protocol"
 
 import { createSettingsManager } from "./settings.js"
-import type { CodingAgentModule } from "./coding-agent.js"
+import type { CodingAgentModule, ModelThinkingModule } from "./coding-agent.js"
 import { handleModelSettingsMessage } from "./model-settings.js"
 
 type ResourceMessage = Extract<
@@ -475,6 +475,7 @@ async function mutatePackage(
 
 export async function handleResourceMessage(
   codingAgent: CodingAgentModule,
+  modelThinking: ModelThinkingModule,
   message: ResourceMessage
 ) {
   const { cwd, agentDir } = message.payload
@@ -484,7 +485,7 @@ export async function handleResourceMessage(
     message.type === "providers.remove" ||
     message.type === "providers.save"
   ) {
-    return handleModelSettingsMessage(codingAgent, message)
+    return handleModelSettingsMessage(codingAgent, modelThinking, message)
   }
   if (message.type === "resources.catalog") {
     return (await resolveState(codingAgent, cwd, agentDir)).catalog

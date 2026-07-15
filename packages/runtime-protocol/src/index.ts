@@ -507,6 +507,8 @@ export const resourceCatalogSchema = z.object({
 
 export const modelSettingsModelSchema = runtimeModelSchema.extend({
   enabled: z.boolean(),
+  availableThinkingLevels: z.array(thinkingLevelSchema).min(1),
+  defaultThinkingLevel: thinkingLevelSchema,
 })
 
 export const modelSettingsCustomModelSchema = z.object({

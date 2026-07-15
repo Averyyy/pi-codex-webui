@@ -1,6 +1,6 @@
 "use client"
 
-import type { FormEvent, ReactNode } from "react"
+import type { FormEvent, KeyboardEvent, ReactNode } from "react"
 import Link from "next/link"
 import { ArrowUpIcon, LoaderCircleIcon, Settings2Icon } from "lucide-react"
 
@@ -33,6 +33,7 @@ export function ConversationComposer({
   actions,
   endActions,
   settings,
+  onCycleThinkingLevel,
   className,
 }: {
   value: string
@@ -47,8 +48,23 @@ export function ConversationComposer({
   actions?: ReactNode
   endActions?: ReactNode
   settings?: ReactNode
+  onCycleThinkingLevel?: () => void
   className?: string
 }) {
+  function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (
+      event.key === "Tab" &&
+      event.shiftKey &&
+      !event.altKey &&
+      !event.ctrlKey &&
+      !event.metaKey &&
+      onCycleThinkingLevel
+    ) {
+      event.preventDefault()
+      onCycleThinkingLevel()
+    }
+  }
+
   return (
     <form
       onSubmit={onSubmit}
@@ -61,6 +77,7 @@ export function ConversationComposer({
         <Textarea
           value={value}
           onChange={(event) => onValueChange(event.target.value)}
+          onKeyDown={handleKeyDown}
           placeholder={placeholder}
           aria-label={ariaLabel}
           autoFocus={autoFocus}
@@ -97,7 +114,7 @@ export function ConversationComposer({
   )
 }
 
-export function ComposerModelSelect({
+export function ComposerModelSelect<T extends RuntimeModel>({
   model,
   models,
   onModelChange,
@@ -105,8 +122,8 @@ export function ComposerModelSelect({
   settingsHref,
 }: {
   model: Pick<RuntimeModel, "provider" | "id"> | null
-  models: RuntimeModel[]
-  onModelChange: (model: RuntimeModel) => void
+  models: T[]
+  onModelChange: (model: T) => void
   disabled?: boolean
   settingsHref: string
 }) {
@@ -176,7 +193,7 @@ export function ComposerThinkingSelect({
   onLevelChange: (level: ThinkingLevel) => void
   disabled?: boolean
 }) {
-  if (levels.length < 2) return null
+  if (levels.length === 0) return null
 
   return (
     <Select
@@ -186,18 +203,36 @@ export function ComposerThinkingSelect({
         if (!next) throw new Error("选择的 thinking level 不再可用。")
         onLevelChange(next)
       }}
-      disabled={disabled}
+      disabled={disabled || levels.length < 2}
     >
-      <SelectTrigger size="sm" aria-label="Thinking level">
+      <SelectTrigger
+        size="sm"
+        aria-label="Reasoning effort"
+        aria-keyshortcuts="Shift+Tab"
+        title="Shift+Tab 切换 reasoning effort"
+      >
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
         {levels.map((available) => (
           <SelectItem key={available} value={available}>
-            Thinking: {available}
+            Reasoning: {available}
           </SelectItem>
         ))}
       </SelectContent>
     </Select>
   )
+}
+
+export function nextThinkingLevel(
+  level: ThinkingLevel,
+  levels: ThinkingLevel[]
+) {
+  const currentIndex = levels.indexOf(level)
+  if (currentIndex === -1) {
+    throw new Error(`当前 reasoning effort ${level} 不在可选档位中。`)
+  }
+  const next = levels[(currentIndex + 1) % levels.length]
+  if (!next) throw new Error("当前模型没有可切换的 reasoning effort。")
+  return next
 }

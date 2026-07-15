@@ -27,13 +27,17 @@ import {
 import {
   modelSettingsSchema,
   type ModelSettings,
+  type ModelSettingsModel,
   type RuntimeModel,
+  type ThinkingLevel,
 } from "@workspace/runtime-protocol"
 
 import { AddProjectDialog } from "@/components/add-project-dialog"
 import {
   ComposerModelSelect,
+  ComposerThinkingSelect,
   ConversationComposer,
+  nextThinkingLevel,
 } from "@/components/conversation-composer"
 
 const NO_PROJECT = "__none__"
@@ -114,8 +118,11 @@ export function NewConversation({
   const router = useRouter()
   const [projectId, setProjectId] = useState(initialProjectId)
   const [modelSettings, setModelSettings] = useState(initialModelSettings)
-  const [model, setModel] = useState<RuntimeModel | null>(() =>
+  const [model, setModel] = useState<ModelSettingsModel | null>(() =>
     initialModel(initialModelSettings)
+  )
+  const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel | null>(
+    () => initialModel(initialModelSettings)?.defaultThinkingLevel ?? null
   )
   const [message, setMessage] = useState("")
   const [projectSelectOpen, setProjectSelectOpen] = useState(false)
@@ -143,9 +150,12 @@ export function NewConversation({
         )
       )
       setModelSettings(nextSettings)
-      setModel(initialModel(nextSettings))
+      const nextModel = initialModel(nextSettings)
+      setModel(nextModel)
+      setThinkingLevel(nextModel?.defaultThinkingLevel ?? null)
     } catch (failure) {
       setModel(null)
+      setThinkingLevel(null)
       setError(
         failure instanceof ApiError
           ? failure
@@ -182,6 +192,7 @@ export function NewConversation({
               ...(model
                 ? { model: { provider: model.provider, modelId: model.id } }
                 : {}),
+              ...(thinkingLevel ? { thinkingLevel } : {}),
             }),
           }
         )
@@ -273,6 +284,21 @@ export function NewConversation({
           autoFocus
           submitting={submitting}
           sendDisabled={loadingModels}
+          onCycleThinkingLevel={
+            model &&
+            thinkingLevel &&
+            model.availableThinkingLevels.length > 1 &&
+            !loadingModels &&
+            !submitting
+              ? () =>
+                  setThinkingLevel(
+                    nextThinkingLevel(
+                      thinkingLevel,
+                      model.availableThinkingLevels
+                    )
+                  )
+              : undefined
+          }
           className="shadow-lg shadow-foreground/5"
           actions={
             loadingModels ? (
@@ -334,10 +360,21 @@ export function NewConversation({
               <ComposerModelSelect
                 model={model}
                 models={models}
-                onModelChange={setModel}
+                onModelChange={(nextModel) => {
+                  setModel(nextModel)
+                  setThinkingLevel(nextModel.defaultThinkingLevel)
+                }}
                 disabled={loadingModels || submitting}
                 settingsHref="/settings/models"
               />
+              {model && thinkingLevel ? (
+                <ComposerThinkingSelect
+                  level={thinkingLevel}
+                  levels={model.availableThinkingLevels}
+                  onLevelChange={setThinkingLevel}
+                  disabled={loadingModels || submitting}
+                />
+              ) : null}
             </>
           }
         />
