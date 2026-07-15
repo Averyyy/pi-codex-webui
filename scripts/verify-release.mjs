@@ -60,6 +60,8 @@ async function inspectTarball(tarball) {
     "package/dist/webui-extensions/codex-conversion/dist/worker.mjs",
     "package/dist/webui-extensions/conversation/dist/client.mjs",
     "package/dist/webui-extensions/conversation/dist/worker.mjs",
+    "package/dist/webui-extensions/web-access/dist/client.mjs",
+    "package/dist/webui-extensions/web-access/dist/worker.mjs",
     "package/dist/workers/pi/dist/worker.mjs",
     "package/dist/workers/pi-client/dist/worker.mjs",
   ])

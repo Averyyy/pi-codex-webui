@@ -1,7 +1,10 @@
 import {
   BrainIcon,
   CircleAlertIcon,
+  FileDownIcon,
+  FileSearchIcon,
   FileTextIcon,
+  SearchIcon,
   Settings2Icon,
   TerminalIcon,
 } from "lucide-react"
@@ -15,6 +18,11 @@ import type {
   TranscriptEntry,
   TranscriptPart,
 } from "@/lib/session-types"
+import {
+  isWebAccessToolName,
+  webAccessToolPresentation,
+  type WebAccessToolName,
+} from "@/lib/web-access-tool"
 
 type MessageEntry = Extract<TranscriptEntry, { kind: "message" }>
 
@@ -116,6 +124,9 @@ function ToolCallCard({
   part: Extract<TranscriptPart, { type: "toolCall" }>
   result?: MessageEntry
 }) {
+  if (isWebAccessToolName(part.name)) {
+    return <WebAccessToolCard name={part.name} part={part} result={result} />
+  }
   const summary = toolSummary(part.name, part.arguments)
   return (
     <ConversationDisclosure
@@ -145,6 +156,81 @@ function ToolCallCard({
               <TextParts parts={result.parts} literal />
             </div>
           </div>
+        ) : null}
+      </div>
+    </ConversationDisclosure>
+  )
+}
+
+const WEB_ACCESS_ICONS: Record<WebAccessToolName, React.ReactNode> = {
+  web_search: <SearchIcon />,
+  fetch_content: <FileDownIcon />,
+  get_search_content: <FileSearchIcon />,
+}
+
+function WebAccessToolCard({
+  name,
+  part,
+  result,
+}: {
+  name: WebAccessToolName
+  part: Extract<TranscriptPart, { type: "toolCall" }>
+  result?: MessageEntry
+}) {
+  const presentation = webAccessToolPresentation(
+    name,
+    part.arguments,
+    result?.details
+  )
+  const failed = result?.isError === true || presentation.error !== undefined
+  return (
+    <ConversationDisclosure
+      defaultOpen={failed}
+      label={presentation.label}
+      preview={presentation.preview}
+      icon={WEB_ACCESS_ICONS[name]}
+      status={failed ? "失败" : result ? "完成" : "运行中"}
+      statusTone={failed ? "destructive" : "muted"}
+      ariaLabel={`展开${presentation.label}详情`}
+      contentClassName="max-w-full"
+    >
+      <div className="flex min-w-0 flex-col gap-4">
+        {presentation.inputs.length ? (
+          <section>
+            <p className="mb-1.5 text-xs font-medium text-muted-foreground">
+              {name === "web_search" ? "查询" : "目标"}
+            </p>
+            <ul className="flex min-w-0 flex-col gap-1.5 text-sm">
+              {presentation.inputs.map((input) => (
+                <li
+                  key={input}
+                  className="min-w-0 rounded-lg bg-muted/50 px-3 py-2 break-words"
+                >
+                  {input}
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
+        {presentation.facts.length ? (
+          <dl className="flex flex-wrap gap-x-5 gap-y-2 text-xs">
+            {presentation.facts.map((fact) => (
+              <div key={fact.label} className="flex min-w-0 gap-1.5">
+                <dt className="shrink-0 text-muted-foreground">{fact.label}</dt>
+                <dd className="min-w-0 break-all">{fact.value}</dd>
+              </div>
+            ))}
+          </dl>
+        ) : null}
+        {result ? (
+          <section className="min-w-0">
+            <p className="mb-1.5 text-xs font-medium text-muted-foreground">
+              结果
+            </p>
+            <div className="flex min-w-0 flex-col gap-2 text-sm">
+              <TextParts parts={result.parts} />
+            </div>
+          </section>
         ) : null}
       </div>
     </ConversationDisclosure>

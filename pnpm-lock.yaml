@@ -476,6 +476,31 @@ importers:
         specifier: ^5.9.3
         version: 5.9.3
 
+  webui-extensions/builtin/web-access:
+    dependencies:
+      '@pi-web-codex/extension-sdk':
+        specifier: workspace:*
+        version: link:../../../packages/extension-sdk
+    devDependencies:
+      '@types/node':
+        specifier: ^26.1.1
+        version: 26.1.1
+      '@workspace/eslint-config':
+        specifier: workspace:*
+        version: link:../../../packages/eslint-config
+      '@workspace/typescript-config':
+        specifier: workspace:*
+        version: link:../../../packages/typescript-config
+      eslint:
+        specifier: ^9
+        version: 9.39.5(jiti@2.7.0)
+      tsup:
+        specifier: ^8.5.1
+        version: 8.5.1(jiti@2.7.0)(postcss@8.5.17)(tsx@4.23.1)(typescript@5.9.3)(yaml@2.9.0)
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
   webui-extensions/examples/minimal-adapter:
     dependencies:
       '@pi-web-codex/extension-sdk':
