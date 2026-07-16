@@ -49,10 +49,9 @@ import {
 } from "@workspace/ui/components/tooltip"
 import type { SessionStats, SessionTree } from "@workspace/runtime-protocol"
 
-import { SessionTreeDialog } from "@/components/session-tree-dialog"
-import { sessionTreeCurrentEntryId } from "@/lib/session-tree"
+import { SessionTreeViewer } from "@/components/session-tree-viewer"
 
-type DialogKind = "rename" | "fork" | "tree" | "stats" | "import" | "runtime"
+type DialogKind = "rename" | "fork" | "stats" | "import" | "runtime"
 
 interface ReplacementResult {
   projectId: string | null
@@ -96,7 +95,7 @@ export function SessionOperations({
   const [tree, setTree] = useState<SessionTree | null>(null)
   const [stats, setStats] = useState<SessionStats | null>(null)
   const [selectedEntryId, setSelectedEntryId] = useState("")
-  const [summarize, setSummarize] = useState(false)
+  const [treeOpen, setTreeOpen] = useState(false)
   const [file, setFile] = useState<File | null>(null)
   const runtimeTargets = runtimeProfiles.filter(
     (profile) => profile.id !== runtimeProfileId
@@ -150,11 +149,10 @@ export function SessionOperations({
     }
   }
 
-  async function openTree(kind: "fork" | "tree") {
-    setDialog(kind)
+  async function openFork() {
+    setDialog("fork")
     setTree(null)
     setSelectedEntryId("")
-    if (kind === "tree") setSummarize(false)
     setWorking(true)
     setError(null)
     try {
@@ -165,10 +163,7 @@ export function SessionOperations({
       )
       setTree(result)
       setSelectedEntryId(
-        kind === "fork"
-          ? (result.entries.filter((entry) => entry.role === "user").at(-1)
-              ?.id ?? "")
-          : (sessionTreeCurrentEntryId(result) ?? "")
+        result.entries.filter((entry) => entry.role === "user").at(-1)?.id ?? ""
       )
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure))
@@ -259,18 +254,6 @@ export function SessionOperations({
     })
   }
 
-  async function navigateTree() {
-    if (!selectedEntryId) return
-    await run(async () => {
-      await mutate(`/api/v1/sessions/${sessionId}/tree`, {
-        entryId: selectedEntryId,
-        summarize,
-      })
-      setDialog(null)
-      router.refresh()
-    })
-  }
-
   async function exportSession(format: "jsonl" | "html") {
     await run(async () => {
       const response = await fetch(
@@ -319,7 +302,7 @@ export function SessionOperations({
             size="icon"
             aria-label="Session tree"
             aria-haspopup="dialog"
-            onClick={() => void openTree("tree")}
+            onClick={() => setTreeOpen(true)}
           >
             <GitMergeIcon />
           </Button>
@@ -352,7 +335,7 @@ export function SessionOperations({
               <Repeat2Icon /> Duplicate into runtime
             </DropdownMenuItem>
           ) : null}
-          <DropdownMenuItem onSelect={() => void openTree("fork")}>
+          <DropdownMenuItem onSelect={() => void openFork()}>
             <GitForkIcon /> Fork
           </DropdownMenuItem>
           <DropdownMenuSeparator />
@@ -375,17 +358,18 @@ export function SessionOperations({
         </DropdownMenuContent>
       </DropdownMenu>
 
+      <SessionTreeViewer
+        sessionId={sessionId}
+        mutationToken={mutationToken}
+        open={treeOpen}
+        onOpenChange={setTreeOpen}
+      />
+
       <Dialog
         open={dialog !== null}
         onOpenChange={(open) => !open && setDialog(null)}
       >
-        <DialogContent
-          className={
-            dialog === "tree"
-              ? "flex h-[calc(100svh-1rem)] w-[calc(100vw-1rem)] max-w-[56rem] flex-col gap-0 overflow-hidden p-0 sm:h-[min(44rem,calc(100svh-2rem))] sm:max-w-[56rem]"
-              : undefined
-          }
-        >
+        <DialogContent>
           {dialog === "rename" ? (
             <form className="grid gap-5" onSubmit={rename}>
               <DialogHeader>
@@ -442,20 +426,6 @@ export function SessionOperations({
                 </Button>
               </DialogFooter>
             </div>
-          ) : null}
-
-          {dialog === "tree" ? (
-            <SessionTreeDialog
-              tree={tree}
-              selectedEntryId={selectedEntryId}
-              onSelectedEntryIdChange={setSelectedEntryId}
-              summarize={summarize}
-              onSummarizeChange={setSummarize}
-              working={working}
-              error={error}
-              onCancel={() => setDialog(null)}
-              onNavigate={navigateTree}
-            />
           ) : null}
 
           {dialog === "stats" ? (
@@ -570,9 +540,7 @@ export function SessionOperations({
             </form>
           ) : null}
 
-          {error && dialog !== "tree" ? (
-            <p className="text-sm text-destructive">{error}</p>
-          ) : null}
+          {error ? <p className="text-sm text-destructive">{error}</p> : null}
         </DialogContent>
       </Dialog>
     </>

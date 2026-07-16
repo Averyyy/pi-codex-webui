@@ -9,6 +9,7 @@ import {
 } from "react"
 import { useRouter } from "next/navigation"
 import {
+  GitMergeIcon,
   LoaderCircleIcon,
   Minimize2Icon,
   RefreshCwIcon,
@@ -53,6 +54,7 @@ import {
 import { Markdown } from "@/components/markdown"
 import { PiTuiSurface } from "@/components/pi-tui-surface"
 import { ConversationDisclosure } from "@/components/conversation-disclosure"
+import { ConversationCompactionStatus } from "@/components/conversation-compaction-status"
 import { ExtensionSlot } from "@/components/extension-slot"
 import {
   promptImages,
@@ -65,8 +67,10 @@ import {
   ConversationComposer,
   nextThinkingLevel,
 } from "@/components/conversation-composer"
+import { SessionTreeViewer } from "@/components/session-tree-viewer"
 import { stripAnsi } from "@/lib/ansi"
 import { notifyWhenHidden } from "@/lib/browser-notifications"
+import { compactionEndOutcome } from "@/lib/compaction-events"
 import { formatInlinePreview } from "@/lib/session-display"
 
 interface RuntimeEvent {
@@ -252,6 +256,10 @@ export function SessionRuntime({
   const [submitting, setSubmitting] = useState(false)
   const [updating, setUpdating] = useState(false)
   const [compacting, setCompacting] = useState(false)
+  const [compactionNotice, setCompactionNotice] = useState<
+    "running" | "complete" | null
+  >(null)
+  const [treeOpen, setTreeOpen] = useState(false)
   const [streamingBehavior, setStreamingBehavior] = useState<
     "steer" | "followUp"
   >("followUp")
@@ -496,9 +504,20 @@ export function SessionRuntime({
       }
       if (event.type === "compaction.start") {
         setCompacting(true)
+        setCompactionNotice("running")
         setStatus("busy")
       }
-      if (event.type === "compaction.end") setCompacting(false)
+      if (event.type === "compaction.end") {
+        const outcome = compactionEndOutcome(event.payload)
+        setCompacting(false)
+        if (outcome.kind === "complete") {
+          setCompactionNotice("complete")
+          router.refresh()
+        } else {
+          setCompactionNotice(null)
+          if (outcome.kind === "failed") setError(outcome.message)
+        }
+      }
       if (event.type === "retry.start") {
         setRetrying(retryDescription(event.payload))
       }
@@ -711,7 +730,6 @@ export function SessionRuntime({
   }
 
   async function compact() {
-    setCompacting(true)
     setError(null)
     try {
       const result = await mutate<{ snapshot: RuntimeSnapshot }>(
@@ -723,8 +741,6 @@ export function SessionRuntime({
       router.refresh()
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure))
-    } finally {
-      setCompacting(false)
     }
   }
 
@@ -809,6 +825,9 @@ export function SessionRuntime({
             {streaming.text ? <Markdown>{streaming.text}</Markdown> : null}
           </div>
         ) : null}
+        {compactionNotice ? (
+          <ConversationCompactionStatus state={compactionNotice} />
+        ) : null}
         {inlineSurfaces("aboveEditor").map(renderTuiSurface)}
         {widgets
           .filter(([, widget]) => widget.placement === "aboveEditor")
@@ -845,6 +864,24 @@ export function SessionRuntime({
                   )
               : undefined
           }
+          commands={[
+            {
+              id: "compact",
+              label: "压缩",
+              description: "压缩当前对话的上下文",
+              icon: Minimize2Icon,
+              disabled: settingsDisabled,
+              onSelect: () => void compact(),
+            },
+            {
+              id: "tree",
+              label: "会话树",
+              description: "查看并切换会话分支",
+              icon: GitMergeIcon,
+              disabled: status === "crashed",
+              onSelect: () => setTreeOpen(true),
+            },
+          ]}
           editor={
             editorSurface ? (
               <PiTuiSurface
@@ -950,6 +987,12 @@ export function SessionRuntime({
               </>
             ) : null
           }
+        />
+        <SessionTreeViewer
+          sessionId={sessionId}
+          mutationToken={mutationToken}
+          open={treeOpen}
+          onOpenChange={setTreeOpen}
         />
         <ExtensionSlot name="composer.below" />
         {widgets

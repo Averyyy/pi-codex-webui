@@ -1,17 +1,9 @@
 "use client"
 
-import { useRef, useState } from "react"
-import { ImagePlusIcon, PlusIcon, XIcon } from "lucide-react"
+import { useState } from "react"
+import { XIcon } from "lucide-react"
 
 import { Button } from "@workspace/ui/components/button"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuTrigger,
-} from "@workspace/ui/components/dropdown-menu"
 
 import type { PromptImage } from "@/lib/prompt-images"
 
@@ -127,66 +119,6 @@ export function ComposerImagePreviews({
           {error}
         </p>
       ) : null}
-    </>
-  )
-}
-
-export function ComposerImageAddButton({
-  imagesSupported,
-  disabled,
-  onImagesAdd,
-}: {
-  imagesSupported: boolean
-  disabled: boolean
-  onImagesAdd?: (files: File[]) => void | Promise<void>
-}) {
-  const fileInput = useRef<HTMLInputElement>(null)
-
-  return (
-    <>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            data-liquid-glass="control"
-            type="button"
-            variant="secondary"
-            size="icon"
-            className="rounded-full"
-            aria-label="添加"
-          >
-            <PlusIcon />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent side="top" align="start" className="w-64">
-          <DropdownMenuLabel>添加</DropdownMenuLabel>
-          <DropdownMenuGroup>
-            <DropdownMenuItem
-              disabled={!imagesSupported || disabled || !onImagesAdd}
-              onSelect={() => fileInput.current?.click()}
-            >
-              <ImagePlusIcon />
-              <span className="grid gap-0.5">
-                <span>图片</span>
-                <span className="text-xs text-muted-foreground">
-                  {imagesSupported ? "添加到当前消息" : "当前模型不支持图片"}
-                </span>
-              </span>
-            </DropdownMenuItem>
-          </DropdownMenuGroup>
-        </DropdownMenuContent>
-      </DropdownMenu>
-      <input
-        ref={fileInput}
-        type="file"
-        accept="image/*"
-        multiple
-        className="hidden"
-        onChange={(event) => {
-          const files = Array.from(event.currentTarget.files ?? [])
-          event.currentTarget.value = ""
-          if (files.length) void onImagesAdd?.(files)
-        }}
-      />
     </>
   )
 }

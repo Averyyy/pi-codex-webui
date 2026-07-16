@@ -8,7 +8,13 @@ import type {
   ReactNode,
   Ref,
 } from "react"
-import { ArrowUpIcon, LoaderCircleIcon, Settings2Icon } from "lucide-react"
+import { useRef, useState } from "react"
+import {
+  ArrowUpIcon,
+  ImagePlusIcon,
+  LoaderCircleIcon,
+  Settings2Icon,
+} from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@workspace/ui/components/button"
@@ -25,14 +31,24 @@ import type { RuntimeModel, ThinkingLevel } from "@workspace/runtime-protocol"
 import { cn } from "@workspace/ui/lib/utils"
 
 import {
-  ComposerImageAddButton,
   ComposerImagePreviews,
   type ComposerImage,
 } from "@/components/composer-image-attachments"
+import {
+  ComposerCommandMenu,
+  composerSlashCommandQuery,
+  filterComposerCommands,
+  removeComposerSlashCommand,
+  type ComposerCommand,
+} from "@/components/composer-command-menu"
 
 function modelValue(model: { provider: string; id: string }) {
   return JSON.stringify([model.provider, model.id])
 }
+
+const imageCommandId = "image"
+
+function noop() {}
 
 export function ConversationComposer({
   value,
@@ -55,6 +71,7 @@ export function ConversationComposer({
   onCycleThinkingLevel,
   textareaRef,
   className,
+  commands = [],
 }: {
   value: string
   onValueChange: (value: string) => void
@@ -76,8 +93,74 @@ export function ConversationComposer({
   onCycleThinkingLevel?: () => void
   textareaRef?: Ref<HTMLTextAreaElement>
   className?: string
+  commands?: ComposerCommand[]
 }) {
+  const imageInputRef = useRef<HTMLInputElement>(null)
+  const [commandMenuOpen, setCommandMenuOpen] = useState(false)
+  const [commandQuery, setCommandQuery] = useState("")
+  const [openedWithSlash, setOpenedWithSlash] = useState(false)
+  const availableCommands: ComposerCommand[] = [
+    ...commands,
+    {
+      id: imageCommandId,
+      label: "图片",
+      description: imagesSupported ? "添加到当前消息" : "当前模型不支持图片",
+      icon: ImagePlusIcon,
+      disabled: !imagesSupported || submitting || !onImagesAdd,
+      onSelect: noop,
+    },
+  ]
+  const matchingCommands = filterComposerCommands(
+    availableCommands,
+    commandQuery
+  )
+
+  function closeCommandMenu() {
+    setCommandMenuOpen(false)
+    setCommandQuery("")
+    setOpenedWithSlash(false)
+  }
+
+  function handleValueChange(nextValue: string) {
+    onValueChange(nextValue)
+    const nextQuery = composerSlashCommandQuery(nextValue)
+    if (nextQuery === null) {
+      closeCommandMenu()
+      return
+    }
+    setCommandQuery(nextQuery)
+    setOpenedWithSlash(true)
+    setCommandMenuOpen(true)
+  }
+
+  function handleCommandSelect(command: ComposerCommand) {
+    const removeSlashCommand = openedWithSlash
+    closeCommandMenu()
+    if (removeSlashCommand) {
+      onValueChange(removeComposerSlashCommand(value))
+    }
+    if (command.id === imageCommandId) {
+      imageInputRef.current?.click()
+      return
+    }
+    command.onSelect()
+  }
+
   function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (openedWithSlash && commandMenuOpen) {
+      if (event.key === "Escape") {
+        closeCommandMenu()
+        return
+      }
+      if (event.key === "Enter" || (event.key === "Tab" && !event.shiftKey)) {
+        const command = matchingCommands.find((item) => !item.disabled)
+        if (command) {
+          event.preventDefault()
+          handleCommandSelect(command)
+          return
+        }
+      }
+    }
     if (
       event.key === "Tab" &&
       event.shiftKey &&
@@ -113,11 +196,38 @@ export function ConversationComposer({
       {settings || editor === undefined ? (
         <div className="flex flex-wrap items-center gap-2 border-b px-1 pb-2">
           {editor === undefined ? (
-            <ComposerImageAddButton
-              imagesSupported={imagesSupported}
-              disabled={submitting}
-              onImagesAdd={onImagesAdd}
-            />
+            <>
+              <ComposerCommandMenu
+                open={commandMenuOpen}
+                onOpenChange={(open) => {
+                  setCommandMenuOpen(open)
+                  if (!open) {
+                    setCommandQuery("")
+                    setOpenedWithSlash(false)
+                  }
+                }}
+                commands={availableCommands}
+                query={commandQuery}
+                preserveInputFocus={openedWithSlash}
+                onTriggerClick={() => {
+                  setCommandQuery("")
+                  setOpenedWithSlash(false)
+                }}
+                onCommandSelect={handleCommandSelect}
+              />
+              <input
+                ref={imageInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                className="hidden"
+                onChange={(event) => {
+                  const files = Array.from(event.currentTarget.files ?? [])
+                  event.currentTarget.value = ""
+                  if (files.length) void onImagesAdd?.(files)
+                }}
+              />
+            </>
           ) : null}
           {settings}
         </div>
@@ -131,7 +241,7 @@ export function ConversationComposer({
         <Textarea
           ref={textareaRef}
           value={value}
-          onChange={(event) => onValueChange(event.target.value)}
+          onChange={(event) => handleValueChange(event.target.value)}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
           placeholder={placeholder}
