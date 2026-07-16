@@ -27,6 +27,7 @@ import {
 } from "@workspace/runtime-protocol"
 
 import { McpServerCard } from "@/components/mcp-server-card"
+import { ConfirmDialog } from "@/components/confirm-dialog"
 import {
   McpServerForm,
   type McpServerFormValue,
@@ -65,6 +66,7 @@ export function McpSettings({
   const [working, setWorking] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const [pendingDelete, setPendingDelete] = useState<McpServerView | null>(null)
   const selectedProject =
     projects.find((project) => project.id === catalog.projectId) ?? null
 
@@ -230,11 +232,6 @@ export function McpSettings({
   }
 
   async function remove(server: McpServerView) {
-    if (
-      !window.confirm(t("settings.mcp.deleteConfirm", { name: server.name }))
-    ) {
-      return
-    }
     setWorking(`delete:${server.id}`)
     setError(null)
     setNotice(null)
@@ -250,6 +247,13 @@ export function McpSettings({
     } finally {
       setWorking(null)
     }
+  }
+
+  async function confirmRemove() {
+    if (!pendingDelete) return
+    const server = pendingDelete
+    setPendingDelete(null)
+    await remove(server)
   }
 
   return (
@@ -345,7 +349,7 @@ export function McpSettings({
                   }}
                   onTest={() => void test(server)}
                   onReconnect={() => void reconnect(server)}
-                  onRemove={() => void remove(server)}
+                  onRemove={() => setPendingDelete(server)}
                   onToggleServer={(enabled) =>
                     void patch(
                       server,
@@ -399,6 +403,21 @@ export function McpSettings({
             if (!open) setEditing(null)
           }}
           onSave={save}
+        />
+      ) : null}
+      {pendingDelete ? (
+        <ConfirmDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setPendingDelete(null)
+          }}
+          title={t("settings.mcp.confirmDeleteTitle")}
+          description={t("settings.mcp.deleteConfirm", {
+            name: pendingDelete.name,
+          })}
+          cancelLabel={t("settings.mcp.cancel")}
+          confirmLabel={t("settings.mcp.delete")}
+          onConfirm={() => void confirmRemove()}
         />
       ) : null}
     </div>

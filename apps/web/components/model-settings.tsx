@@ -44,6 +44,7 @@ import { Input } from "@workspace/ui/components/input"
 import { Switch } from "@workspace/ui/components/switch"
 
 import { CustomProviderForm } from "@/components/custom-provider-form"
+import { ConfirmDialog } from "@/components/confirm-dialog"
 import { useI18n } from "@/components/i18n-provider"
 import type { Translator } from "@/lib/i18n"
 
@@ -95,6 +96,12 @@ export function ModelSettings({
   const [providerDialogOpen, setProviderDialogOpen] = useState(false)
   const [editingProvider, setEditingProvider] =
     useState<ModelSettingsProvider | null>(null)
+  const [pendingProviderDelete, setPendingProviderDelete] = useState<{
+    provider: string
+    confirmKey:
+      | "settings.models.deleteCustomProvider"
+      | "settings.models.deleteProviderAuth"
+  } | null>(null)
   const [modelSearch, setModelSearch] = useState("")
 
   async function readSettings(response: Response) {
@@ -162,14 +169,6 @@ export function ModelSettings({
   }
 
   async function removeProvider(provider: string) {
-    const providerView = settings.providers.find(
-      (entry) => entry.provider === provider
-    )
-    const confirmKey = providerView?.custom
-      ? "settings.models.deleteCustomProvider"
-      : "settings.models.deleteProviderAuth"
-    if (!window.confirm(t(confirmKey, { provider }))) return
-
     setWorking(provider)
     setError(null)
     try {
@@ -190,6 +189,25 @@ export function ModelSettings({
     } finally {
       setWorking(null)
     }
+  }
+
+  function requestRemoveProvider(provider: string) {
+    const providerView = settings.providers.find(
+      (entry) => entry.provider === provider
+    )
+    setPendingProviderDelete({
+      provider,
+      confirmKey: providerView?.custom
+        ? "settings.models.deleteCustomProvider"
+        : "settings.models.deleteProviderAuth",
+    })
+  }
+
+  async function confirmRemoveProvider() {
+    if (!pendingProviderDelete) return
+    const { provider } = pendingProviderDelete
+    setPendingProviderDelete(null)
+    await removeProvider(provider)
   }
 
   function openAddProvider() {
@@ -368,7 +386,7 @@ export function ModelSettings({
                         disabled={working !== null}
                         onClick={(event) => {
                           event.preventDefault()
-                          void removeProvider(provider.provider)
+                          requestRemoveProvider(provider.provider)
                         }}
                       >
                         {working === provider.provider ? (
@@ -447,6 +465,21 @@ export function ModelSettings({
           working={working?.startsWith("provider-save:") ?? false}
           onOpenChange={setProviderDialogOpen}
           onSave={(value) => void saveProvider(value)}
+        />
+      ) : null}
+      {pendingProviderDelete ? (
+        <ConfirmDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setPendingProviderDelete(null)
+          }}
+          title={t("settings.models.confirmDeleteTitle")}
+          description={t(pendingProviderDelete.confirmKey, {
+            provider: pendingProviderDelete.provider,
+          })}
+          cancelLabel={t("settings.models.cancel")}
+          confirmLabel={t("settings.models.delete")}
+          onConfirm={() => void confirmRemoveProvider()}
         />
       ) : null}
     </div>

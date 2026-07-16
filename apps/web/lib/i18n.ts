@@ -224,10 +224,14 @@ const messages = {
   },
   "settings.archive.archivedAt": { "zh-CN": "归档于", "en-US": "Archived" },
   "settings.archive.delete": { "zh-CN": "删除", "en-US": "Delete" },
+  "settings.archive.cancel": { "zh-CN": "取消", "en-US": "Cancel" },
+  "settings.archive.confirmDeleteTitle": {
+    "zh-CN": "永久删除归档对话？",
+    "en-US": "Permanently delete this archived conversation?",
+  },
   "settings.archive.confirmDelete": {
-    "zh-CN": "永久删除这个归档对话？对应的 Pi JSONL 也会被删除。",
-    "en-US":
-      "Permanently delete this archived conversation? Its Pi JSONL will also be deleted.",
+    "zh-CN": "对应的 Pi JSONL 也会被删除。此操作无法撤销。",
+    "en-US": "Its Pi JSONL will also be deleted. This action cannot be undone.",
   },
   "settings.archive.deleteFailed": {
     "zh-CN": "删除归档对话失败。",
@@ -259,6 +263,12 @@ const messages = {
   "settings.models.operationFailed": {
     "zh-CN": "模型设置操作失败。",
     "en-US": "Model settings operation failed.",
+  },
+  "settings.models.cancel": { "zh-CN": "取消", "en-US": "Cancel" },
+  "settings.models.delete": { "zh-CN": "删除", "en-US": "Delete" },
+  "settings.models.confirmDeleteTitle": {
+    "zh-CN": "确认删除 provider？",
+    "en-US": "Delete this provider?",
   },
   "settings.models.deleteCustomProvider": {
     "zh-CN": "删除 provider “{provider}”及其自定义配置？",
@@ -650,6 +660,11 @@ const messages = {
   "settings.mcp.reconnected": {
     "zh-CN": "{name} 已重新连接。",
     "en-US": "{name} reconnected.",
+  },
+  "settings.mcp.cancel": { "zh-CN": "取消", "en-US": "Cancel" },
+  "settings.mcp.confirmDeleteTitle": {
+    "zh-CN": "确认删除 MCP server？",
+    "en-US": "Delete this MCP server?",
   },
   "settings.mcp.deleteConfirm": {
     "zh-CN": "删除 MCP server “{name}”？",

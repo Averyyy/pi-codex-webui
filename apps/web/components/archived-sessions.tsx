@@ -13,6 +13,7 @@ import {
   CardTitle,
 } from "@workspace/ui/components/card"
 
+import { ConfirmDialog } from "@/components/confirm-dialog"
 import { useI18n } from "@/components/i18n-provider"
 import { displaySessionTitle, formatTimestamp } from "@/lib/session-display"
 import type { ArchivedSession } from "@/lib/session-types"
@@ -28,11 +29,9 @@ export function ArchivedSessions({
   const { t } = useI18n()
   const [sessions, setSessions] = useState(initial)
   const [deleting, setDeleting] = useState<string | null>(null)
+  const [pendingDelete, setPendingDelete] = useState<string | null>(null)
 
   async function deleteSession(sessionId: string) {
-    if (!window.confirm(t("settings.archive.confirmDelete"))) {
-      return
-    }
     setDeleting(sessionId)
     try {
       const response = await fetch(`/api/v1/sessions/${sessionId}`, {
@@ -53,6 +52,13 @@ export function ArchivedSessions({
     } finally {
       setDeleting(null)
     }
+  }
+
+  async function confirmDelete() {
+    if (!pendingDelete) return
+    const sessionId = pendingDelete
+    setPendingDelete(null)
+    await deleteSession(sessionId)
   }
 
   if (!sessions.length) {
@@ -83,7 +89,7 @@ export function ArchivedSessions({
               variant="outline"
               size="sm"
               disabled={deleting !== null}
-              onClick={() => void deleteSession(session.id)}
+              onClick={() => setPendingDelete(session.id)}
             >
               {deleting === session.id ? (
                 <LoaderCircleIcon className="animate-spin" />
@@ -95,6 +101,17 @@ export function ArchivedSessions({
           </CardHeader>
         </Card>
       ))}
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingDelete(null)
+        }}
+        title={t("settings.archive.confirmDeleteTitle")}
+        description={t("settings.archive.confirmDelete")}
+        cancelLabel={t("settings.archive.cancel")}
+        confirmLabel={t("settings.archive.delete")}
+        onConfirm={() => void confirmDelete()}
+      />
     </div>
   )
 }
