@@ -15,6 +15,7 @@ import { Button } from "@workspace/ui/components/button"
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
@@ -207,7 +208,9 @@ export function ComposerModelSelect<T extends RuntimeModel>({
       disabled={disabled}
     >
       <SelectTrigger size="sm" className="max-w-56" aria-label="模型">
-        <SelectValue />
+        <SelectValue>
+          {selected.provider} / {selected.name}
+        </SelectValue>
       </SelectTrigger>
       <SelectContent
         position="popper"
@@ -226,11 +229,16 @@ export function ComposerModelSelect<T extends RuntimeModel>({
           </Button>
         }
       >
-        {models.map((available) => (
-          <SelectItem key={modelValue(available)} value={modelValue(available)}>
-            {available.provider} / {available.name}
-          </SelectItem>
-        ))}
+        <SelectGroup>
+          {models.map((available) => (
+            <SelectItem
+              key={modelValue(available)}
+              value={modelValue(available)}
+            >
+              {available.provider} / {available.name}
+            </SelectItem>
+          ))}
+        </SelectGroup>
       </SelectContent>
     </Select>
   )
@@ -265,14 +273,16 @@ export function ComposerThinkingSelect({
         aria-keyshortcuts="Shift+Tab"
         title="Shift+Tab 切换 reasoning effort"
       >
-        <SelectValue />
+        <SelectValue>Reasoning: {level}</SelectValue>
       </SelectTrigger>
       <SelectContent position="popper" side="top">
-        {levels.map((available) => (
-          <SelectItem key={available} value={available}>
-            Reasoning: {available}
-          </SelectItem>
-        ))}
+        <SelectGroup>
+          {levels.map((available) => (
+            <SelectItem key={available} value={available}>
+              Reasoning: {available}
+            </SelectItem>
+          ))}
+        </SelectGroup>
       </SelectContent>
     </Select>
   )

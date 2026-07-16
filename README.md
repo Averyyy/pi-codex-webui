@@ -44,6 +44,9 @@ backing operation.
 
 ## Run the packaged app
 
+Requires Node.js 22.19 or Node.js 24 and newer. Node.js 23 is unsupported
+because its bundled SQLite does not include FTS5.
+
 ```bash
 npm install --global pi-web-codex
 pi-web-codex

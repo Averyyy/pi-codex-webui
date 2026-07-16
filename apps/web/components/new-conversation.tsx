@@ -42,6 +42,7 @@ import {
   ConversationComposer,
   nextThinkingLevel,
 } from "@/components/conversation-composer"
+import { ApiError, responseJson } from "@/lib/api-response"
 import { pickWorkspaceProject } from "@/lib/project-picker-client"
 
 const NO_PROJECT = "__none__"
@@ -55,29 +56,6 @@ interface NewConversationProject {
 interface CreatedSession {
   projectId: string | null
   sessionId: string
-}
-
-class ApiError extends Error {
-  constructor(
-    message: string,
-    readonly code?: string
-  ) {
-    super(message)
-  }
-}
-
-async function responseJson<T>(response: Response) {
-  const result = (await response.json()) as T & {
-    error?: string
-    code?: string
-  }
-  if (!response.ok) {
-    throw new ApiError(
-      result.error ?? `操作失败（HTTP ${response.status}）。`,
-      result.code
-    )
-  }
-  return result
 }
 
 function modelKey(model: Pick<RuntimeModel, "provider" | "id">) {

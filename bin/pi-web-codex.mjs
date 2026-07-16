@@ -6,11 +6,29 @@ import { access, mkdir, open, readFile, rm } from "node:fs/promises"
 import { createServer } from "node:net"
 import { homedir } from "node:os"
 import path from "node:path"
+import { DatabaseSync } from "node:sqlite"
 import { fileURLToPath } from "node:url"
 
 const APP_NAME = "pi-web-codex"
 const DEFAULTS = { host: "127.0.0.1", port: 1816, openBrowser: true }
 const packageRoot = fileURLToPath(new URL("..", import.meta.url))
+
+function assertSqliteFts5() {
+  const database = new DatabaseSync(":memory:")
+  try {
+    const row = database
+      .prepare("SELECT sqlite_compileoption_used('ENABLE_FTS5') AS enabled")
+      .get()
+    if (row.enabled !== 1) {
+      throw new Error(
+        `${APP_NAME} requires a Node.js build with SQLite FTS5 support. ` +
+          `Node ${process.versions.node} does not provide it; use Node 22.19 or a current Node.js release with FTS5.`
+      )
+    }
+  } finally {
+    database.close()
+  }
+}
 
 function configRoot(override) {
   if (override) return path.resolve(override)
@@ -183,6 +201,8 @@ async function main() {
     console.log(packageJson.version)
     return
   }
+
+  assertSqliteFts5()
 
   const root = configRoot(options.configDir)
   const persisted = await readSettings(root)
