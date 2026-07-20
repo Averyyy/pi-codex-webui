@@ -10,9 +10,11 @@ import {
   GitPullRequestIcon,
   HammerIcon,
   LoaderCircleIcon,
+  Minimize2Icon,
   PlusIcon,
   SearchCodeIcon,
   SparklesIcon,
+  TargetIcon,
 } from "lucide-react"
 
 import { Button } from "@workspace/ui/components/button"
@@ -46,6 +48,8 @@ import { ApiError, responseJson } from "@/lib/api-response"
 import { pickWorkspaceProject } from "@/lib/project-picker-client"
 
 const NO_PROJECT = "__none__"
+
+function noop() {}
 
 interface NewConversationProject {
   id: string
@@ -344,26 +348,46 @@ export function NewConversation({
           }
           textareaRef={messageInputRef}
           className="shadow-lg shadow-foreground/5"
+          commands={[
+            {
+              id: "goal",
+              label: "目标",
+              description: "进入任务后可用",
+              icon: TargetIcon,
+              disabled: true,
+              onSelect: noop,
+            },
+            {
+              id: "compact",
+              label: "压缩",
+              description: "进入任务后可用",
+              icon: Minimize2Icon,
+              disabled: true,
+              onSelect: noop,
+            },
+          ]}
           actions={
-            submitting ? (
-              <span
-                role="status"
-                aria-live="polite"
-                className="flex items-center gap-1.5 text-xs text-muted-foreground"
-              >
-                <LoaderCircleIcon className="size-3 animate-spin" />
-                正在创建任务…
-              </span>
-            ) : loadingModels ? (
-              <span
-                role="status"
-                aria-live="polite"
-                className="flex items-center gap-1.5 text-xs text-muted-foreground"
-              >
-                <LoaderCircleIcon className="size-3 animate-spin" />
-                正在加载模型
-              </span>
-            ) : null
+            <>
+              {submitting ? (
+                <span
+                  role="status"
+                  aria-live="polite"
+                  className="flex items-center gap-1.5 text-xs text-muted-foreground"
+                >
+                  <LoaderCircleIcon className="size-3 animate-spin" />
+                  正在创建任务…
+                </span>
+              ) : loadingModels ? (
+                <span
+                  role="status"
+                  aria-live="polite"
+                  className="flex items-center gap-1.5 text-xs text-muted-foreground"
+                >
+                  <LoaderCircleIcon className="size-3 animate-spin" />
+                  正在加载模型
+                </span>
+              ) : null}
+            </>
           }
           settings={
             <>

@@ -85,6 +85,9 @@ function rendererKind(invocation: ExtensionInvocation) {
   if (invocation.operation.type === "entry.render") {
     return { kind: "entry", name: invocation.operation.customType }
   }
+  if (invocation.operation.type === "status.render") {
+    return { kind: "status", name: invocation.operation.key }
+  }
   return null
 }
 
@@ -154,6 +157,7 @@ function manifestCapabilitiesMatch(
   }
   for (const renderer of descriptor.extension.contributes.rendererAdapters ??
     []) {
+    if (renderer.kind === "status") continue
     const available =
       renderer.kind === "tool"
         ? target.tools
@@ -223,6 +227,7 @@ export class WebUiAdapterHost {
     string,
     { adapter: LoadedAdapter; registration: RendererAdapterRegistration }
   >()
+  private readonly statusViews = new Map<string, string>()
   private definitions: AdapterDefinition[] = []
 
   constructor(private readonly options: WebUiAdapterHostOptions) {}
@@ -616,6 +621,37 @@ export class WebUiAdapterHost {
         { invocation, payload },
         this.context(selected.adapter)
       )
+      if (renderer.kind === "status") {
+        const key = operationKey(
+          invocation.owner.resolvedPath,
+          renderer.kind,
+          renderer.name
+        )
+        const existingId = this.statusViews.get(key)
+        if (!view) {
+          if (existingId) this.finishView(existingId)
+          this.statusViews.delete(key)
+          return
+        }
+        if (existingId && this.views.has(existingId)) {
+          this.updateView(
+            selected.adapter.descriptor.key,
+            existingId,
+            view.state,
+            view.title
+          )
+          return
+        }
+        const opened = this.openView(selected.adapter, {
+          ...view,
+          blocking: false,
+        })
+        void Promise.resolve(opened).then((instanceId) => {
+          if (typeof instanceId === "string")
+            this.statusViews.set(key, instanceId)
+        })
+        return
+      }
       if (view)
         void this.openView(selected.adapter, { ...view, blocking: false })
     } catch (error) {
@@ -701,6 +737,7 @@ export class WebUiAdapterHost {
     const view = this.views.get(instanceId)
     if (!view) return
     this.views.delete(instanceId)
+    this.removeStatusView(instanceId)
     clearTimeout(view.activationTimeout)
     this.options.emitView({
       version: 1,
@@ -715,6 +752,7 @@ export class WebUiAdapterHost {
     const view = this.views.get(instanceId)
     if (!view) return
     this.views.delete(instanceId)
+    this.removeStatusView(instanceId)
     clearTimeout(view.activationTimeout)
     this.options.emitView({
       version: 1,
@@ -738,6 +776,12 @@ export class WebUiAdapterHost {
       adapter.descriptor.key,
       failure.message
     )
+  }
+
+  private removeStatusView(instanceId: string) {
+    for (const [key, value] of this.statusViews) {
+      if (value === instanceId) this.statusViews.delete(key)
+    }
   }
 
   snapshots() {
@@ -793,6 +837,7 @@ export class WebUiAdapterHost {
     this.definitions = []
     this.commands.clear()
     this.renderers.clear()
+    this.statusViews.clear()
     this.owners.clear()
   }
 }

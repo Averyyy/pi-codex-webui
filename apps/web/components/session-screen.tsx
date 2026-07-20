@@ -171,6 +171,7 @@ export async function SessionScreen({
                 initialEventCursor={eventCursor}
                 initialStatus={runtime.status}
                 initialSnapshot={runtime.snapshot}
+                initialGoalState={snapshot.goalState}
               />
             ) : (
               <div

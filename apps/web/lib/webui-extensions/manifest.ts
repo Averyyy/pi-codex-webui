@@ -61,7 +61,7 @@ const contributesSchema = z
     rendererAdapters: z
       .array(
         z.object({
-          kind: z.enum(["tool", "message", "entry"]),
+          kind: z.enum(["tool", "message", "entry", "status"]),
           name: z.string().min(1).max(128),
           handler: z.string().min(1).max(128),
         })

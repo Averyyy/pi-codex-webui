@@ -471,7 +471,7 @@ export const webUiExtensionContributionSchema = z.object({
     rendererAdapters: z
       .array(
         z.object({
-          kind: z.enum(["tool", "message", "entry"]),
+          kind: z.enum(["tool", "message", "entry", "status"]),
           name: z.string().min(1),
           handler: z.string().min(1),
         })

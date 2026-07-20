@@ -1,0 +1,64 @@
+{
+  "name": "pi-goal-webui",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "lint": "eslint",
+    "format": "prettier --write \"src/**/*.ts\" \"tsup.config.ts\"",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@pi-web-codex/extension-sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "@workspace/eslint-config": "workspace:*",
+    "@workspace/typescript-config": "workspace:*",
+    "eslint": "^9",
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3"
+  },
+  "piWebCodex": {
+    "apiVersion": 1,
+    "host": {
+      "version": ">=0.1.0 <1.0.0",
+      "protocolVersion": 1
+    },
+    "extensions": [
+      {
+        "id": "goal",
+        "name": "Goal Web UI",
+        "target": {
+          "packageName": "@narumitw/pi-goal",
+          "extensionPath": "**/src/goal.ts",
+          "version": ">=0.20.0 <1.0.0",
+          "testedVersions": [
+            "0.20.0"
+          ],
+          "compatibility": {
+            "mode": "probe",
+            "onUntestedVersion": "allow-if-probe-passes"
+          }
+        },
+        "runtimes": [
+          "pi",
+          "pi-client"
+        ],
+        "worker": "./dist/worker.mjs",
+        "client": "./dist/client.mjs",
+        "contributes": {
+          "rendererAdapters": [
+            {
+              "kind": "status",
+              "name": "goal",
+              "handler": "goal.status"
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

@@ -14,6 +14,7 @@ import {
   Minimize2Icon,
   RefreshCwIcon,
   SquareIcon,
+  TargetIcon,
 } from "lucide-react"
 import { toast } from "sonner"
 
@@ -53,6 +54,7 @@ import {
 
 import { Markdown } from "@/components/markdown"
 import { PiTuiSurface } from "@/components/pi-tui-surface"
+import { GoalStatusBar } from "@/components/goal-status-bar"
 import { ConversationDisclosure } from "@/components/conversation-disclosure"
 import { ConversationCompactionStatus } from "@/components/conversation-compaction-status"
 import { ExtensionSlot } from "@/components/extension-slot"
@@ -72,6 +74,7 @@ import { stripAnsi } from "@/lib/ansi"
 import { notifyWhenHidden } from "@/lib/browser-notifications"
 import { compactionEndOutcome } from "@/lib/compaction-events"
 import { formatInlinePreview } from "@/lib/session-display"
+import type { PiGoalState } from "@/lib/pi-goal"
 import { isVisibleTuiSurface } from "@/lib/tui-surface"
 
 interface RuntimeEvent {
@@ -242,12 +245,14 @@ export function SessionRuntime({
   initialEventCursor,
   initialStatus,
   initialSnapshot,
+  initialGoalState,
 }: {
   sessionId: string
   mutationToken: string
   initialEventCursor: string
   initialStatus: RuntimeStatus
   initialSnapshot: RuntimeSnapshot | null
+  initialGoalState: PiGoalState | null
 }) {
   const router = useRouter()
   const [status, setStatus] = useState(initialStatus)
@@ -264,6 +269,9 @@ export function SessionRuntime({
   const [streamingBehavior, setStreamingBehavior] = useState<
     "steer" | "followUp"
   >("followUp")
+  const [goalDialogOpen, setGoalDialogOpen] = useState(false)
+  const [goalObjective, setGoalObjective] = useState("")
+  const [goalTokenBudget, setGoalTokenBudget] = useState("")
   const [error, setError] = useState<string | null>(null)
   const [streaming, setStreaming] = useState({ text: "", thinking: "" })
   const [activeTool, setActiveTool] = useState<string | null>(null)
@@ -332,7 +340,7 @@ export function SessionRuntime({
   ) {
     const text = rawMessage.trim()
     const images = options.images ?? []
-    if ((!text && images.length === 0) || submitting) return
+    if ((!text && images.length === 0) || submitting) return false
 
     setSubmitting(true)
     setError(null)
@@ -346,8 +354,10 @@ export function SessionRuntime({
         setDraft((current) => (current.trim() === text ? "" : current))
         composerImages.clearImages()
       }
+      return true
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure))
+      return false
     } finally {
       setSubmitting(false)
     }
@@ -745,6 +755,16 @@ export function SessionRuntime({
     }
   }
 
+  function startGoal() {
+    const objective = goalObjective.trim()
+    if (!objective) return
+    const budget = goalTokenBudget ? `--tokens ${Number(goalTokenBudget)} ` : ""
+    setGoalDialogOpen(false)
+    setGoalObjective("")
+    setGoalTokenBudget("")
+    void sendMessage(`/goal ${budget}${objective}`)
+  }
+
   async function respondToExtensionUI(response: ExtensionUIResponse) {
     if (!extensionRequest) return
     const requestId = extensionRequest.requestId
@@ -771,6 +791,10 @@ export function SessionRuntime({
   const isBusy = status === "busy"
   const settingsDisabled =
     isBusy || updating || compacting || status === "crashed"
+  const goalAvailable = Boolean(
+    snapshot?.activeTools.includes("goal_complete") &&
+    snapshot.activeTools.includes("goal_blocked")
+  )
   const hasStreamingContent = streaming.text || streaming.thinking
   const widgets = Object.entries(extensionWidgets)
   const surfaces = Object.values(tuiSurfaces)
@@ -843,7 +867,12 @@ export function SessionRuntime({
               {widget.lines.join("\n")}
             </pre>
           ))}
-        <ExtensionSlot name="composer.above" />
+        <GoalStatusBar
+          initialState={initialGoalState}
+          disabled={status === "starting" || status === "crashed"}
+          onCommand={(args) => sendMessage(`/goal ${args}`)}
+        />
+        <ExtensionSlot name="composer.above" excludeViewIds={["goal.card"]} />
         <ConversationComposer
           value={draft}
           onValueChange={setDraft}
@@ -869,6 +898,18 @@ export function SessionRuntime({
               : undefined
           }
           commands={[
+            ...(goalAvailable
+              ? [
+                  {
+                    id: "goal",
+                    label: "目标",
+                    description: "让 Pi 持续工作直到目标完成",
+                    icon: TargetIcon,
+                    disabled: settingsDisabled,
+                    onSelect: () => setGoalDialogOpen(true),
+                  },
+                ]
+              : []),
             {
               id: "compact",
               label: "压缩",
@@ -899,6 +940,18 @@ export function SessionRuntime({
           }
           actions={
             <>
+              {goalAvailable ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setGoalDialogOpen(true)}
+                  disabled={settingsDisabled}
+                >
+                  <TargetIcon />
+                  目标
+                </Button>
+              ) : null}
               <Badge
                 variant={status === "crashed" ? "destructive" : "secondary"}
               >
@@ -1033,6 +1086,48 @@ export function SessionRuntime({
           <p className="text-sm text-destructive">{error}</p>
         ) : null}
       </div>
+
+      <Dialog open={goalDialogOpen} onOpenChange={setGoalDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>启动目标</DialogTitle>
+            <DialogDescription>
+              Pi 会持续推进并验证结果，直到完成、暂停或遇到真正的阻塞。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-3">
+            <Textarea
+              value={goalObjective}
+              onChange={(event) => setGoalObjective(event.target.value)}
+              placeholder="描述需要完成的目标"
+              aria-label="目标内容"
+              maxLength={4_000}
+              className="min-h-28"
+              autoFocus
+            />
+            <Input
+              type="number"
+              min={1}
+              step={1}
+              value={goalTokenBudget}
+              onChange={(event) => setGoalTokenBudget(event.target.value)}
+              placeholder="Token 预算（可选）"
+              aria-label="Token 预算"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setGoalDialogOpen(false)}>
+              取消
+            </Button>
+            <Button
+              onClick={startGoal}
+              disabled={!goalObjective.trim() || submitting}
+            >
+              启动目标
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={extensionRequest !== null}

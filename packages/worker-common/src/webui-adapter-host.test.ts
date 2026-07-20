@@ -425,3 +425,59 @@ test("tool execution is attributed to renderer adapters", async () => {
     await rm(files.root, { recursive: true, force: true })
   }
 })
+
+test("status renderers keep one persistent view and close it when status clears", async () => {
+  const files = await fixture(`
+    export default (web) => web.registerRendererAdapter({
+      id: "target.status",
+      render: ({ payload }) => payload.statusText
+        ? { viewId: "target.card", placement: "composer.above", state: payload }
+        : undefined
+    })
+  `)
+  const events: WebUiViewEvent[] = []
+  const target = extension(files.targetPath, () => {})
+  const host = new WebUiAdapterHost({
+    descriptors: [
+      descriptor(files.workerPath, {
+        contributes: {
+          rendererAdapters: [
+            { kind: "status", name: "target", handler: "target.status" },
+          ],
+        },
+      }),
+    ],
+    session: () => ({
+      cwd: "/tmp/project",
+      listSessions: async () => [],
+      switchSession: async () => ({ cancelled: false }),
+    }),
+    emitView: (event) => events.push(event),
+    emitStatus: () => {},
+  })
+  const statusInvocation = {
+    owner: {
+      extensionPath: files.targetPath,
+      resolvedPath: files.targetPath,
+      sourceInfo: target.sourceInfo,
+      packageName: "pi-target",
+      packageVersion: "1.1.0",
+    },
+    operation: { type: "status.render" as const, key: "target" },
+  }
+  try {
+    await host.initialize([target])
+    host.tryRender(statusInvocation, { statusText: "active" })
+    await Promise.resolve()
+    host.tryRender(statusInvocation, { statusText: "paused" })
+    host.tryRender(statusInvocation, { statusText: undefined })
+    assert.deepEqual(
+      events.map((event) => event.kind),
+      ["open", "update", "close"]
+    )
+    assert.equal(host.snapshots().length, 0)
+  } finally {
+    host.dispose()
+    await rm(files.root, { recursive: true, force: true })
+  }
+})

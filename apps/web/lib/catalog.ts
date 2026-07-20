@@ -5,6 +5,7 @@ import { realpath, rm, stat } from "node:fs/promises"
 import path from "node:path"
 
 import { getDatabase, inTransaction } from "@/lib/database"
+import { latestPiGoalState } from "@/lib/pi-goal"
 import {
   parsePiSession,
   readStablePiSessionFile,
@@ -495,6 +496,7 @@ export async function getSessionSnapshot(sessionId: string) {
       parentSessionFile: parsed.header.parentSession ?? null,
     },
     entries: toTranscriptEntries(parsed),
+    goalState: latestPiGoalState(parsed.activeBranch),
   } satisfies SessionSnapshot
 }
 

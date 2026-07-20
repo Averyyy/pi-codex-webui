@@ -36,7 +36,10 @@ import { resolveConfiguredScopedModels } from "./model-settings.js"
 import { sessionTreeEntryText } from "./session-tree.js"
 import { SubagentBridge } from "./subagents.js"
 import { createFooterData, TuiSurfaceManager } from "./tui-surfaces.js"
-import { createExtensionInstrumentor } from "./extension-instrumentation.js"
+import {
+  createExtensionInstrumentor,
+  extensionInvocation,
+} from "./extension-instrumentation.js"
 import { WebUiAdapterHost } from "./webui-adapter-host.js"
 
 let codingAgent: CodingAgentModule
@@ -378,6 +381,16 @@ function createExtensionUIContext() {
       else extensionStatuses.set(statusKey, statusText)
       currentSurfaceManager().requestRender("footer")
       emit({ method: "setStatus", statusKey, statusText })
+      const invocation = extensionInvocation.getStore()
+      if (invocation && adapterHost) {
+        adapterHost.tryRender(
+          {
+            owner: invocation.owner,
+            operation: { type: "status.render", key: statusKey },
+          },
+          { statusText }
+        )
+      }
     },
     setWidget: (
       widgetKey: string,
@@ -580,6 +593,25 @@ async function initialize(
           })),
         switchSession: (sessionPath) =>
           currentRuntime().switchSession(sessionPath),
+        latestCustomEntry: (customType) => {
+          const entries = currentRuntime().session.sessionManager.getBranch()
+          for (let index = entries.length - 1; index >= 0; index -= 1) {
+            const entry = entries[index]
+            if (entry?.type === "custom" && entry.customType === customType) {
+              return entry.data
+            }
+          }
+          return undefined
+        },
+        command: async (name, args) => {
+          const session = currentRuntime().session
+          const command = session.extensionRunner.getCommand(name)
+          if (!command) throw new Error(`Unknown Pi extension command: ${name}`)
+          await command.handler(
+            args,
+            session.extensionRunner.createCommandContext()
+          )
+        },
       }),
       emitView: (event) => {
         if (!webSessionId) {

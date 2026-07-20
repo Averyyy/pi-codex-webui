@@ -36,7 +36,7 @@ export interface WebUiExtensionContribution {
   contributes: {
     commandAdapters?: Array<{ command: string; handler: string }>
     rendererAdapters?: Array<{
-      kind: "tool" | "message" | "entry"
+      kind: "tool" | "message" | "entry" | "status"
       name: string
       handler: string
     }>
@@ -74,6 +74,7 @@ export type ExtensionOperation =
   | { type: "tool.renderResult"; name: string }
   | { type: "message.render"; customType: string }
   | { type: "entry.render"; customType: string }
+  | { type: "status.render"; key: string }
 
 export interface ExtensionInvocation {
   owner: ExtensionOwner
@@ -104,6 +105,8 @@ export interface WorkerSessionApi {
   readonly sessionFile?: string
   listSessions(): Promise<WorkerSessionInfo[]>
   switchSession(sessionPath: string): Promise<{ cancelled: boolean }>
+  latestCustomEntry?(customType: string): unknown
+  command?(name: string, args: string): Promise<void>
 }
 
 export interface WorkerSessionInfo {

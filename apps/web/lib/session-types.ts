@@ -1,3 +1,5 @@
+import type { PiGoalState } from "@/lib/pi-goal"
+
 export interface ProjectSummary {
   id: string
   path: string
@@ -76,6 +78,7 @@ export interface SessionSnapshot {
     parentSessionFile: string | null
   }
   entries: TranscriptEntry[]
+  goalState: PiGoalState | null
 }
 
 export interface SessionSearchResult {
