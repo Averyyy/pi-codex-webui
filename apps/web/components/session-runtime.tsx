@@ -72,6 +72,7 @@ import { stripAnsi } from "@/lib/ansi"
 import { notifyWhenHidden } from "@/lib/browser-notifications"
 import { compactionEndOutcome } from "@/lib/compaction-events"
 import { formatInlinePreview } from "@/lib/session-display"
+import { isVisibleTuiSurface } from "@/lib/tui-surface"
 
 interface RuntimeEvent {
   type: string
@@ -781,7 +782,10 @@ export function SessionRuntime({
     .at(-1)
   const inlineSurfaces = (placement: TuiSurfaceSnapshot["placement"]) =>
     surfaces.filter(
-      (surface) => surface.mode === "inline" && surface.placement === placement
+      (surface) =>
+        surface.mode === "inline" &&
+        surface.placement === placement &&
+        isVisibleTuiSurface(surface)
     )
 
   const renderTuiSurface = (surface: TuiSurfaceSnapshot) => (
