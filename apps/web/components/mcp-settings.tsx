@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { usePathname, useRouter } from "next/navigation"
 import { PlusIcon } from "lucide-react"
 
@@ -67,6 +67,7 @@ export function McpSettings({
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [pendingDelete, setPendingDelete] = useState<McpServerView | null>(null)
+  const catalogUpdateSequence = useRef(0)
   const selectedProject =
     projects.find((project) => project.id === catalog.projectId) ?? null
 
@@ -74,6 +75,7 @@ export function McpSettings({
     let active = true
     const events = new EventSource("/api/v1/events")
     const refresh = async () => {
+      const sequence = ++catalogUpdateSequence.current
       try {
         const response = await fetch(
           endpoint("/api/v1/mcp/servers", catalog.projectId)
@@ -82,12 +84,15 @@ export function McpSettings({
         if (!response.ok) {
           throw new Error(body.error ?? t("settings.mcp.readFailed"))
         }
-        if (active) {
-          setCatalog(mcpCatalogSchema.parse(body))
+        if (active && sequence === catalogUpdateSequence.current) {
+          const next = mcpCatalogSchema.parse(body)
+          setCatalog((current) =>
+            next.revision >= current.revision ? next : current
+          )
           setError(null)
         }
       } catch (failure) {
-        if (active) {
+        if (active && sequence === catalogUpdateSequence.current) {
           setError(failure instanceof Error ? failure.message : String(failure))
         }
       }
@@ -100,6 +105,18 @@ export function McpSettings({
       events.close()
     }
   }, [catalog.projectId, t])
+
+  function acceptCatalog(next: McpCatalog) {
+    catalogUpdateSequence.current += 1
+    setCatalog((current) =>
+      next.revision >= current.revision ? next : current
+    )
+  }
+
+  function handleFailure(failure: unknown) {
+    setError(failure instanceof Error ? failure.message : String(failure))
+    router.refresh()
+  }
 
   function mutationHeaders(includeRevision = true) {
     return {
@@ -116,7 +133,7 @@ export function McpSettings({
     if (!response.ok)
       throw new Error(body.error ?? t("settings.mcp.requestFailed"))
     const next = mcpCatalogSchema.parse(body)
-    setCatalog(next)
+    acceptCatalog(next)
     return next
   }
 
@@ -144,7 +161,7 @@ export function McpSettings({
       setEditing(null)
       setNotice(t("settings.mcp.saved", { name: server.name }))
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure))
+      handleFailure(failure)
     } finally {
       setWorking(null)
     }
@@ -171,7 +188,7 @@ export function McpSettings({
       await readCatalog(response)
       setNotice(success)
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure))
+      handleFailure(failure)
     } finally {
       setWorking(null)
     }
@@ -195,7 +212,8 @@ export function McpSettings({
       if (!response.ok) {
         throw new Error(result.error ?? t("settings.mcp.testFailed"))
       }
-      setCatalog(mcpCatalogSchema.parse(result.catalog))
+      const next = mcpCatalogSchema.parse(result.catalog)
+      acceptCatalog(next)
       setNotice(
         t("settings.mcp.connected", {
           name: server.name,
@@ -204,7 +222,7 @@ export function McpSettings({
         })
       )
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure))
+      handleFailure(failure)
     } finally {
       setWorking(null)
     }
@@ -225,7 +243,7 @@ export function McpSettings({
       await readCatalog(response)
       setNotice(t("settings.mcp.reconnected", { name: server.name }))
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure))
+      handleFailure(failure)
     } finally {
       setWorking(null)
     }
@@ -243,7 +261,7 @@ export function McpSettings({
       await readCatalog(response)
       setNotice(t("settings.mcp.deleted", { name: server.name }))
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure))
+      handleFailure(failure)
     } finally {
       setWorking(null)
     }
@@ -265,6 +283,7 @@ export function McpSettings({
           <CardAction>
             <Button
               type="button"
+              disabled={working !== null}
               onClick={() => {
                 setEditing(null)
                 setFormOpen(true)
@@ -283,6 +302,7 @@ export function McpSettings({
               </span>
               <Select
                 value={catalog.projectId ?? undefined}
+                disabled={working !== null}
                 onValueChange={(value) =>
                   router.push(
                     `${pathname}?projectId=${encodeURIComponent(value)}`

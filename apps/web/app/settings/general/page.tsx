@@ -13,6 +13,7 @@ export default async function GeneralSettingsPage() {
       description={t("settings.page.general.description")}
     >
       <GeneralSettingsForm
+        key={config.revision}
         initial={config}
         mutationToken={getMutationToken()}
       />

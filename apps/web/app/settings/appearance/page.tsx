@@ -12,7 +12,7 @@ export default async function AppearanceSettingsPage() {
       description={t("settings.page.appearance.description")}
     >
       <AppearanceSettingsForm
-        key={config.appearance.language}
+        key={config.revision}
         initial={config}
         mutationToken={getMutationToken()}
       />

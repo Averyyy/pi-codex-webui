@@ -103,14 +103,19 @@ export function PiTuiSurface({ surface, onAction, onError }: Props) {
         const resize = () => {
           flushInput()
           fit.fit()
-          const size = `${terminal.cols}x${terminal.rows}`
+          const columns = Math.min(400, Math.max(20, terminal.cols))
+          const rows = Math.min(200, Math.max(3, terminal.rows))
+          if (columns !== terminal.cols || rows !== terminal.rows) {
+            terminal.resize(columns, rows)
+          }
+          const size = `${columns}x${rows}`
           if (size === lastSize) return
           lastSize = size
           enqueue({
             version: 1,
             action: "resize",
-            columns: terminal.cols,
-            rows: terminal.rows,
+            columns,
+            rows,
           })
         }
         resize()

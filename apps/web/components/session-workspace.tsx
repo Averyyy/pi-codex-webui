@@ -150,7 +150,7 @@ function PanelTabs({
                   <Button
                     variant="ghost"
                     size="icon-xs"
-                    className="-ml-1 opacity-0 transition-opacity group-focus-within/tab:opacity-100 group-hover/tab:opacity-100"
+                    className="-ml-1 opacity-0 transition-opacity group-focus-within/tab:opacity-100 group-hover/tab:opacity-100 [@media(hover:none)]:opacity-100"
                     aria-label={`关闭${metadata.label}标签页`}
                     onClick={() => onCloseTab(tab)}
                   >
@@ -233,7 +233,7 @@ export function SessionWorkspace({
   subagentsInstalled: boolean
   initialGit: ProjectGitStatus | null
   fileManagerLabel: string | null
-  environment: (SessionInspectorProps & { sessionId: string }) | null
+  environment: SessionInspectorProps | null
   headerActions: ReactNode
   toolbar: ReactNode
   conversation: ReactNode
@@ -359,11 +359,15 @@ export function SessionWorkspace({
   }
 
   async function stopTerminal() {
-    const response = await fetch(`/api/v1/sessions/${sessionId}/terminal`, {
-      method: "DELETE",
-      headers: { "X-Pi-Web-Codex-Mutation-Token": mutationToken },
-    })
-    if (!response.ok) toast.error("无法关闭终端。")
+    try {
+      const response = await fetch(`/api/v1/sessions/${sessionId}/terminal`, {
+        method: "DELETE",
+        headers: { "X-Pi-Web-Codex-Mutation-Token": mutationToken },
+      })
+      if (!response.ok) throw new Error("无法关闭终端。")
+    } catch (failure) {
+      toast.error(failure instanceof Error ? failure.message : String(failure))
+    }
   }
 
   function closeTerminal() {
@@ -387,14 +391,19 @@ export function SessionWorkspace({
   async function revealProject() {
     if (!projectId) return
     setRevealing(true)
-    const response = await fetch(`/api/v1/projects/${projectId}/reveal`, {
-      method: "POST",
-      headers: { "X-Pi-Web-Codex-Mutation-Token": mutationToken },
-    })
-    setRevealing(false)
-    if (!response.ok) {
-      const body = (await response.json()) as { error?: string }
-      toast.error(body.error ?? "无法打开项目目录。")
+    try {
+      const response = await fetch(`/api/v1/projects/${projectId}/reveal`, {
+        method: "POST",
+        headers: { "X-Pi-Web-Codex-Mutation-Token": mutationToken },
+      })
+      if (!response.ok) {
+        const body = (await response.json()) as { error?: string }
+        throw new Error(body.error ?? "无法打开项目目录。")
+      }
+    } catch (failure) {
+      toast.error(failure instanceof Error ? failure.message : String(failure))
+    } finally {
+      setRevealing(false)
     }
   }
 

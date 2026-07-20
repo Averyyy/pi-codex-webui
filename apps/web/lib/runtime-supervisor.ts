@@ -32,6 +32,7 @@ import {
   runtimeSnapshotSchema,
   workerToHostMessageSchema,
   type HostToWorkerMessage,
+  type ExtensionUIRequest,
   type ExtensionUIResponse,
   type ResourceCatalog,
   type RuntimeSnapshot,
@@ -78,6 +79,17 @@ export interface RuntimeState {
   snapshot: RuntimeSnapshot | null
 }
 
+export type PendingExtensionUIRequest = Extract<
+  ExtensionUIRequest,
+  { method: "select" | "confirm" | "input" | "editor" }
+>
+
+export interface PendingExtensionUIView {
+  requestId: string
+  request: PendingExtensionUIRequest
+  expiresAt: number | null
+}
+
 export function hasAvailableSelectedModel(
   snapshot: Pick<RuntimeSnapshot, "model" | "availableModels"> | null
 ) {
@@ -122,6 +134,14 @@ interface ManagedRuntime {
   mcpCalls: Map<string, AbortController>
   cleanupPromise: Promise<void> | null
   webUiStatuses: Map<string, WebUiExtensionStatus>
+  extensionUiRequests?: Map<
+    string,
+    {
+      request: PendingExtensionUIRequest
+      expiresAt: number | null
+      timeout: NodeJS.Timeout | null
+    }
+  >
 }
 
 interface NewRuntimeOptions {
@@ -763,6 +783,19 @@ export class RuntimeSupervisor {
       sessionId,
       payload: { extensionRequestId, response },
     })
+    this.removePendingExtensionUI(runtime, extensionRequestId)
+  }
+
+  pendingExtensionUI(sessionId: string): PendingExtensionUIView[] {
+    const runtime = this.runtimes.get(sessionId)
+    if (!runtime || runtime.cleaned) return []
+    return [...this.extensionUIRequests(runtime)].map(
+      ([requestId, { request, expiresAt }]) => ({
+        requestId,
+        request,
+        expiresAt,
+      })
+    )
   }
 
   async tuiSurfaces(sessionId: string) {
@@ -1332,6 +1365,7 @@ export class RuntimeSupervisor {
       mcpCalls: new Map(),
       cleanupPromise: null,
       webUiStatuses: new Map(),
+      extensionUiRequests: new Map(),
     }
     this.runtimes.set(provisionalWebSessionId, managed)
     this.bindChild(managed)
@@ -1521,6 +1555,7 @@ export class RuntimeSupervisor {
       mcpCalls: new Map(),
       cleanupPromise: null,
       webUiStatuses: new Map(),
+      extensionUiRequests: new Map(),
     }
     this.runtimes.set(sessionId, managed)
     this.bindChild(managed)
@@ -1641,10 +1676,36 @@ export class RuntimeSupervisor {
       return
     }
     if (message.type === "extension.ui.request") {
+      let expiresAt: number | null | undefined
+      if (
+        message.payload.method === "select" ||
+        message.payload.method === "confirm" ||
+        message.payload.method === "input" ||
+        message.payload.method === "editor"
+      ) {
+        expiresAt = this.trackPendingExtensionUI(
+          runtime,
+          message.requestId,
+          message.payload
+        )
+      }
       this.eventHub.publish({
         type: "extension.ui.request",
         sessionId: runtime.webSessionId,
-        payload: { requestId: message.requestId, ...message.payload },
+        payload: {
+          requestId: message.requestId,
+          ...message.payload,
+          ...(expiresAt === undefined ? {} : { expiresAt }),
+        },
+      })
+      return
+    }
+    if (message.type === "extension.ui.closed") {
+      this.removePendingExtensionUI(runtime, message.requestId)
+      this.eventHub.publish({
+        type: "extension.ui.closed",
+        sessionId: runtime.webSessionId,
+        payload: { requestId: message.requestId },
       })
       return
     }
@@ -2230,12 +2291,50 @@ export class RuntimeSupervisor {
     runtime.child.kill("SIGTERM")
   }
 
+  private trackPendingExtensionUI(
+    runtime: ManagedRuntime,
+    requestId: string,
+    request: PendingExtensionUIRequest
+  ) {
+    this.removePendingExtensionUI(runtime, requestId)
+    const timeoutMs = "timeout" in request ? request.timeout : undefined
+    const expiresAt = timeoutMs ? Date.now() + timeoutMs : null
+    const timeout = timeoutMs
+      ? setTimeout(
+          () => this.removePendingExtensionUI(runtime, requestId),
+          timeoutMs
+        )
+      : null
+    timeout?.unref()
+    this.extensionUIRequests(runtime).set(requestId, {
+      request,
+      expiresAt,
+      timeout,
+    })
+    return expiresAt
+  }
+
+  private removePendingExtensionUI(runtime: ManagedRuntime, requestId: string) {
+    const requests = this.extensionUIRequests(runtime)
+    const pending = requests.get(requestId)
+    if (!pending) return
+    if (pending.timeout) clearTimeout(pending.timeout)
+    requests.delete(requestId)
+  }
+
+  private extensionUIRequests(runtime: ManagedRuntime) {
+    return (runtime.extensionUiRequests ??= new Map())
+  }
+
   private async cleanup(runtime: ManagedRuntime) {
     if (runtime.cleanupPromise) return runtime.cleanupPromise
     runtime.cleanupPromise = (async () => {
       runtime.cleaned = true
       for (const controller of runtime.mcpCalls.values()) controller.abort()
       runtime.mcpCalls.clear()
+      for (const requestId of this.extensionUIRequests(runtime).keys()) {
+        this.removePendingExtensionUI(runtime, requestId)
+      }
       if (this.runtimes.get(runtime.webSessionId) === runtime) {
         this.runtimes.delete(runtime.webSessionId)
       }
@@ -2327,6 +2426,12 @@ export class RuntimeSupervisor {
 }
 
 export function getRuntimeSupervisor() {
-  globalThis.piWebCodexRuntimeSupervisor ??= new RuntimeSupervisor()
-  return globalThis.piWebCodexRuntimeSupervisor
+  const existing = globalThis.piWebCodexRuntimeSupervisor
+  if (existing) {
+    Object.setPrototypeOf(existing, RuntimeSupervisor.prototype)
+    return existing
+  }
+  const supervisor = new RuntimeSupervisor()
+  globalThis.piWebCodexRuntimeSupervisor = supervisor
+  return supervisor
 }

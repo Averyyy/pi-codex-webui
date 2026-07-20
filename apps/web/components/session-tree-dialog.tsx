@@ -151,6 +151,7 @@ export function SessionTreeDialog({
           <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             value={query}
+            disabled={working}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="搜索消息或标签"
             aria-label="搜索 session tree"
@@ -165,6 +166,7 @@ export function SessionTreeDialog({
             <button
               key={option.value}
               type="button"
+              disabled={working}
               aria-pressed={filter === option.value}
               className={cn(
                 "h-7 rounded-md px-2.5 text-xs font-medium text-muted-foreground transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
@@ -252,6 +254,7 @@ export function SessionTreeDialog({
                   {branching ? (
                     <button
                       type="button"
+                      disabled={working}
                       className="absolute top-1/2 z-10 flex size-4 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-sm border bg-background text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
                       style={{ left: x }}
                       onClick={() => toggleFold(row.entry.id)}
@@ -277,6 +280,7 @@ export function SessionTreeDialog({
 
                   <button
                     type="button"
+                    disabled={working}
                     className={cn(
                       "absolute top-1 right-0 bottom-1 flex min-w-0 items-center gap-2 rounded-lg px-2.5 text-left transition-colors outline-none hover:bg-muted/70 focus-visible:ring-2 focus-visible:ring-ring/50",
                       row.active
@@ -348,6 +352,7 @@ export function SessionTreeDialog({
               id="summarize-abandoned-branches"
               size="sm"
               checked={summarize}
+              disabled={working}
               onCheckedChange={onSummarizeChange}
             />
             总结放弃的分支

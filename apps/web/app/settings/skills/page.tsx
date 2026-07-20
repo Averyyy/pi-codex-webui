@@ -19,6 +19,7 @@ export default async function SkillsSettingsPage({
     >
       {data.catalog && data.selectedProjectId ? (
         <ResourceListSettings
+          key={`skill:${data.selectedProjectId}`}
           kind="skill"
           projects={data.projects}
           projectId={data.selectedProjectId}

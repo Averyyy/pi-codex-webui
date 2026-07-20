@@ -106,6 +106,7 @@ export function GeneralSettingsForm({
         router.refresh()
         toast.success(t("settings.general.saved"))
       } catch (error) {
+        router.refresh()
         toast.error(
           error instanceof Error
             ? error.message
@@ -117,6 +118,8 @@ export function GeneralSettingsForm({
 
   return (
     <form
+      inert={pending}
+      aria-busy={pending}
       onSubmit={(event) => {
         event.preventDefault()
         submit(new FormData(event.currentTarget))
@@ -241,6 +244,7 @@ export function AppearanceSettingsForm({
           translate(saved.appearance.language, "settings.appearance.saved")
         )
       } catch (error) {
+        router.refresh()
         toast.error(
           error instanceof Error
             ? error.message
@@ -252,6 +256,8 @@ export function AppearanceSettingsForm({
 
   return (
     <form
+      inert={pending}
+      aria-busy={pending}
       onSubmit={(event) => {
         event.preventDefault()
         submit(new FormData(event.currentTarget))

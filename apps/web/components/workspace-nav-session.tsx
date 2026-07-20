@@ -89,20 +89,17 @@ export function WorkspaceNavSession({
         })
       )
       router.refresh()
+      return true
     } catch (error) {
       toast.error(error instanceof Error ? error.message : String(error))
+      return false
     } finally {
       setWorking(false)
     }
   }
 
   const actions = (
-    <div
-      className={cn(
-        "pointer-events-none absolute top-1 right-1 flex items-center rounded-md bg-sidebar-accent opacity-0 transition-opacity group-focus-within/session:pointer-events-auto group-focus-within/session:opacity-100 group-hover/session:pointer-events-auto group-hover/session:opacity-100",
-        shortcutLabel && "hidden"
-      )}
-    >
+    <div className="pointer-events-none absolute top-1 right-1 flex items-center rounded-md bg-sidebar-accent opacity-0 transition-opacity group-focus-within/session:pointer-events-auto group-focus-within/session:opacity-100 group-hover/session:pointer-events-auto group-hover/session:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100">
       <Tooltip>
         <TooltipTrigger asChild>
           <Button
@@ -133,8 +130,11 @@ export function WorkspaceNavSession({
             disabled={working}
             aria-label="归档对话"
             onClick={() => {
-              if (pathname === href) router.push("/")
-              void mutate(`/api/v1/sessions/${session.id}/archive`)
+              void (async () => {
+                if (await mutate(`/api/v1/sessions/${session.id}/archive`)) {
+                  if (pathname === href) router.push("/")
+                }
+              })()
             }}
           >
             <ArchiveIcon />
@@ -145,7 +145,7 @@ export function WorkspaceNavSession({
     </div>
   )
   const shortcut = shortcutLabel ? (
-    <kbd className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 rounded-md bg-sidebar-accent px-1.5 py-1 font-sans text-[11px] leading-none text-muted-foreground shadow-xs">
+    <kbd className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 rounded-md bg-sidebar-accent px-1.5 py-1 font-sans text-[11px] leading-none text-muted-foreground shadow-xs group-focus-within/session:hidden group-hover/session:hidden [@media(hover:none)]:hidden">
       {shortcutLabel}
     </kbd>
   ) : null

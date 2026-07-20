@@ -32,6 +32,7 @@ import {
   ResourceProjectControls,
   type ResourceProject,
 } from "@/components/resource-project-controls"
+import { ConfirmDialog } from "@/components/confirm-dialog"
 import { useI18n } from "@/components/i18n-provider"
 import { useResourceCatalog } from "@/lib/use-resource-catalog"
 
@@ -52,6 +53,9 @@ export function PackageSettings({
   const [source, setSource] = useState("")
   const [scope, setScope] = useState<"global" | "project">("global")
   const [working, setWorking] = useState<string | null>(null)
+  const [pendingRemove, setPendingRemove] = useState<
+    ResourceCatalog["packages"][number] | null
+  >(null)
   const [trustWorking, setTrustWorking] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [catalog, setCatalog] = useResourceCatalog(
@@ -60,6 +64,7 @@ export function PackageSettings({
     initialCatalog,
     setError
   )
+  const busy = working !== null || trustWorking
 
   async function readCatalog(response: Response) {
     const result = (await response.json()) as ResourceCatalog & {
@@ -95,7 +100,7 @@ export function PackageSettings({
   }
 
   async function mutate(packageId: string, operation: "remove" | "update") {
-    setWorking(packageId)
+    setWorking(`${operation}:${packageId}`)
     setError(null)
     try {
       await readCatalog(
@@ -125,6 +130,13 @@ export function PackageSettings({
     }
   }
 
+  async function confirmRemove() {
+    if (!pendingRemove) return
+    const packageId = pendingRemove.id
+    setPendingRemove(null)
+    await mutate(packageId, "remove")
+  }
+
   return (
     <div className="grid gap-6">
       <ResourceProjectControls
@@ -132,7 +144,7 @@ export function PackageSettings({
         projectId={projectId}
         catalog={catalog}
         mutationToken={mutationToken}
-        working={trustWorking}
+        working={busy}
         onWorkingChange={setTrustWorking}
         onCatalogChange={setCatalog}
         onError={setError}
@@ -151,12 +163,14 @@ export function PackageSettings({
           >
             <Input
               value={source}
+              disabled={busy}
               onChange={(event) => setSource(event.target.value)}
               placeholder={t("settings.packages.sourcePlaceholder")}
               aria-label={t("settings.packages.source")}
             />
             <Select
               value={scope}
+              disabled={busy}
               onValueChange={(value) => setScope(value as "global" | "project")}
             >
               <SelectTrigger aria-label={t("settings.packages.scope")}>
@@ -174,7 +188,7 @@ export function PackageSettings({
             <Button
               type="submit"
               disabled={
-                working !== null ||
+                busy ||
                 !source.trim() ||
                 (scope === "project" && !catalog.projectTrusted)
               }
@@ -224,10 +238,10 @@ export function PackageSettings({
                     aria-label={t("settings.packages.update", {
                       source: pkg.source,
                     })}
-                    disabled={working !== null}
+                    disabled={busy}
                     onClick={() => void mutate(pkg.id, "update")}
                   >
-                    {working === pkg.id ? (
+                    {working === `update:${pkg.id}` ? (
                       <LoaderCircleIcon className="animate-spin" />
                     ) : (
                       <RefreshCwIcon />
@@ -240,10 +254,14 @@ export function PackageSettings({
                     aria-label={t("settings.packages.remove", {
                       source: pkg.source,
                     })}
-                    disabled={working !== null}
-                    onClick={() => void mutate(pkg.id, "remove")}
+                    disabled={busy}
+                    onClick={() => setPendingRemove(pkg)}
                   >
-                    <Trash2Icon />
+                    {working === `remove:${pkg.id}` ? (
+                      <LoaderCircleIcon className="animate-spin" />
+                    ) : (
+                      <Trash2Icon />
+                    )}
                   </Button>
                 </CardAction>
               </CardHeader>
@@ -261,6 +279,21 @@ export function PackageSettings({
         )}
       </section>
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
+      {pendingRemove ? (
+        <ConfirmDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setPendingRemove(null)
+          }}
+          title={t("settings.packages.confirmRemoveTitle")}
+          description={t("settings.packages.confirmRemoveDescription", {
+            source: pendingRemove.source,
+          })}
+          cancelLabel={t("settings.packages.cancel")}
+          confirmLabel={t("settings.packages.confirmRemove")}
+          onConfirm={() => void confirmRemove()}
+        />
+      ) : null}
     </div>
   )
 }

@@ -13,6 +13,7 @@ import {
 import {
   webUiViewEventSchema,
   webUiViewSnapshotsSchema,
+  type WebUiViewEvent,
   type WebUiViewSnapshot,
 } from "@workspace/runtime-protocol"
 
@@ -43,6 +44,24 @@ interface RuntimeEvent {
 export const SessionExtensionContext =
   createContext<SessionExtensionContextValue | null>(null)
 
+function applyViewEvent(
+  current: Record<string, WebUiViewSnapshot>,
+  event: WebUiViewEvent
+) {
+  if (event.kind === "close") {
+    if (!(event.instanceId in current)) return current
+    const next = { ...current }
+    delete next[event.instanceId]
+    return next
+  }
+
+  const view = event.view
+  const existing = current[view.instanceId]
+  return existing && existing.revision > view.revision
+    ? current
+    : { ...current, [view.instanceId]: view }
+}
+
 export function SessionExtensionProvider({
   sessionId,
   projectId,
@@ -58,7 +77,10 @@ export function SessionExtensionProvider({
 }) {
   const [catalog, setCatalog] = useState(initialCatalog)
   const [views, setViews] = useState<Record<string, WebUiViewSnapshot>>({})
-  const closedViews = useRef(new Set<string>())
+  const viewLoadBuffers = useRef(new Set<WebUiViewEvent[]>())
+  const viewLoadGeneration = useRef(0)
+  const viewLoadSequence = useRef(0)
+  const catalogLoadSequence = useRef(0)
 
   const invoke = useCallback(
     async (
@@ -118,27 +140,39 @@ export function SessionExtensionProvider({
   )
 
   const loadViews = useEffectEvent(async () => {
-    const response = await fetch(`/api/v1/sessions/${sessionId}/webui-views`, {
-      cache: "no-store",
-    })
-    if (!response.ok) {
-      throw new Error(`WebUI views sync failed (HTTP ${response.status}).`)
-    }
-    const snapshots = webUiViewSnapshotsSchema.parse(await response.json())
-    setViews((current) => {
-      const next = { ...current }
-      for (const snapshot of snapshots) {
-        if (closedViews.current.has(snapshot.instanceId)) continue
-        const existing = current[snapshot.instanceId]
-        if (!existing || snapshot.revision >= existing.revision) {
-          next[snapshot.instanceId] = snapshot
-        }
+    const generation = viewLoadGeneration.current
+    const sequence = ++viewLoadSequence.current
+    const pendingEvents: WebUiViewEvent[] = []
+    viewLoadBuffers.current.add(pendingEvents)
+    try {
+      const response = await fetch(
+        `/api/v1/sessions/${sessionId}/webui-views`,
+        { cache: "no-store" }
+      )
+      if (!response.ok) {
+        throw new Error(`WebUI views sync failed (HTTP ${response.status}).`)
       }
-      return next
-    })
+      const snapshots = webUiViewSnapshotsSchema.parse(await response.json())
+      if (
+        generation !== viewLoadGeneration.current ||
+        sequence !== viewLoadSequence.current
+      ) {
+        return
+      }
+
+      let next: Record<string, WebUiViewSnapshot> = {}
+      for (const snapshot of snapshots) {
+        next[snapshot.instanceId] = snapshot
+      }
+      for (const event of pendingEvents) next = applyViewEvent(next, event)
+      setViews(next)
+    } finally {
+      viewLoadBuffers.current.delete(pendingEvents)
+    }
   })
 
   const loadCatalog = useEffectEvent(async () => {
+    const sequence = ++catalogLoadSequence.current
     const query =
       projectId === null
         ? `?scope=global&sessionId=${encodeURIComponent(sessionId)}`
@@ -151,7 +185,11 @@ export function SessionExtensionProvider({
         `WebUI extension catalog failed (HTTP ${response.status}).`
       )
     }
-    setCatalog((await response.json()) as WebUiExtensionCatalogView)
+    const next = (await response.json()) as WebUiExtensionCatalogView
+    if (sequence !== catalogLoadSequence.current) return
+    setCatalog((current) =>
+      next.revision >= current.revision ? next : current
+    )
   })
 
   useEffect(() => {
@@ -162,32 +200,20 @@ export function SessionExtensionProvider({
       ) as RuntimeEvent
       if (event.type === "webui.view") {
         const viewEvent = webUiViewEventSchema.parse(event.payload)
-        if (viewEvent.kind === "close") {
-          closedViews.current.add(viewEvent.instanceId)
-          setViews((current) => {
-            const next = { ...current }
-            delete next[viewEvent.instanceId]
-            return next
-          })
-        } else {
-          const view = viewEvent.view
-          closedViews.current.delete(view.instanceId)
-          setViews((current) => {
-            const existing = current[view.instanceId]
-            return existing && existing.revision > view.revision
-              ? current
-              : { ...current, [view.instanceId]: view }
-          })
+        for (const buffer of viewLoadBuffers.current) {
+          buffer.push(viewEvent)
         }
+        setViews((current) => applyViewEvent(current, viewEvent))
       }
       if (event.type === "runtime.starting") {
-        closedViews.current.clear()
+        viewLoadGeneration.current += 1
         setViews({})
       }
       if (
         event.type === "runtime.stopped" ||
         event.type === "runtime.crashed"
       ) {
+        viewLoadGeneration.current += 1
         setViews({})
       }
       if (event.type === "runtime.ready" || event.type === "resync.required") {

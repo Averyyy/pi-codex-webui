@@ -19,6 +19,7 @@ export default async function PackagesSettingsPage({
     >
       {data.catalog && data.selectedProjectId ? (
         <PackageSettings
+          key={data.selectedProjectId}
           projects={data.projects}
           projectId={data.selectedProjectId}
           sessionIds={data.sessionIds}

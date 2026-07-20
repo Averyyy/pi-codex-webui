@@ -5,6 +5,7 @@ import {
   useEffect,
   useEffectEvent,
   useMemo,
+  useRef,
   useState,
 } from "react"
 import { useRouter } from "next/navigation"
@@ -81,6 +82,7 @@ export function useSessionIndicators({
   const [unreadOverrides, setUnreadOverrides] = useState(
     () => new Map<string, boolean>()
   )
+  const readRequests = useRef(new Map<string, Promise<void>>())
   const runningSessionIds = useMemo(
     () =>
       new Set(
@@ -126,14 +128,23 @@ export function useSessionIndicators({
   )
 
   const readSession = useCallback(
-    async (sessionId: string) => {
+    (sessionId: string) => {
+      const existing = readRequests.current.get(sessionId)
+      if (existing) return existing
+
       setUnreadOverrides((current) => setOverride(current, sessionId, false))
-      try {
-        await persistSessionRead(sessionId)
-      } catch (error) {
-        setUnreadOverrides((current) => setOverride(current, sessionId, true))
-        toast.error(error instanceof Error ? error.message : String(error))
-      }
+      const request: Promise<void> = persistSessionRead(sessionId)
+        .catch((error: unknown) => {
+          setUnreadOverrides((current) => setOverride(current, sessionId, true))
+          toast.error(error instanceof Error ? error.message : String(error))
+        })
+        .finally(() => {
+          if (readRequests.current.get(sessionId) === request) {
+            readRequests.current.delete(sessionId)
+          }
+        })
+      readRequests.current.set(sessionId, request)
+      return request
     },
     [persistSessionRead]
   )
@@ -168,15 +179,8 @@ export function useSessionIndicators({
 
   useEffect(() => {
     if (!activeSessionId) return
-    void persistSessionRead(activeSessionId).then(
-      () =>
-        setUnreadOverrides((current) =>
-          setOverride(current, activeSessionId, false)
-        ),
-      (error: unknown) =>
-        toast.error(error instanceof Error ? error.message : String(error))
-    )
-  }, [activeSessionId, persistSessionRead])
+    void readSession(activeSessionId)
+  }, [activeSessionId, readSession])
 
   useEffect(() => {
     if (!hasSessions) return

@@ -102,6 +102,7 @@ export function ResourceProjectControls({
           </span>
           <Select
             value={projectId}
+            disabled={working}
             onValueChange={(value) =>
               router.push(`${pathname}?projectId=${encodeURIComponent(value)}`)
             }

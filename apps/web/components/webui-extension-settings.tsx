@@ -103,6 +103,7 @@ export function WebUiExtensionSettings({
       setCatalog(result)
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure))
+      router.refresh()
     } finally {
       setWorkingId(null)
     }
@@ -131,6 +132,7 @@ export function WebUiExtensionSettings({
                 <FieldTitle>{t("settings.webui.currentProject")}</FieldTitle>
                 <Select
                   value={projectId}
+                  disabled={workingId !== null}
                   onValueChange={(value) =>
                     router.push(
                       `${pathname}?projectId=${encodeURIComponent(value)}`

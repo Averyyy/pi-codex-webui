@@ -47,9 +47,14 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@workspace/ui/components/tooltip"
-import type { SessionStats, SessionTree } from "@workspace/runtime-protocol"
+import type {
+  RuntimeStatus,
+  SessionStats,
+  SessionTree,
+} from "@workspace/runtime-protocol"
 
 import { SessionTreeViewer } from "@/components/session-tree-viewer"
+import { useStreamingRuntimeStatus } from "@/components/session-streaming-context"
 
 type DialogKind = "rename" | "fork" | "stats" | "import" | "runtime"
 
@@ -81,6 +86,7 @@ export function SessionOperations({
   mutationToken,
   runtimeProfileId,
   runtimeProfiles,
+  initialRuntimeStatus,
 }: {
   sessionId: string
   projectId: string | null
@@ -88,6 +94,7 @@ export function SessionOperations({
   mutationToken: string
   runtimeProfileId: string
   runtimeProfiles: Array<{ id: string; label: string }>
+  initialRuntimeStatus: RuntimeStatus
 }) {
   const router = useRouter()
   const [dialog, setDialog] = useState<DialogKind | null>(null)
@@ -105,6 +112,13 @@ export function SessionOperations({
   )
   const [working, setWorking] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const runtimeStatus = useStreamingRuntimeStatus() ?? initialRuntimeStatus
+  const runtimeOperationDisabled = [
+    "starting",
+    "busy",
+    "stopping",
+    "crashed",
+  ].includes(runtimeStatus)
 
   const mutationHeaders = {
     "X-Pi-Web-Codex-Mutation-Token": mutationToken,
@@ -132,6 +146,13 @@ export function SessionOperations({
         : `/projects/${result.projectId}/sessions/${result.sessionId}`
     )
     router.refresh()
+  }
+
+  function openDialog(next: DialogKind) {
+    setError(null)
+    if (next === "rename") setName(title)
+    if (next === "import") setFile(null)
+    setDialog(next)
   }
 
   async function run(operation: () => Promise<void>) {
@@ -174,6 +195,7 @@ export function SessionOperations({
 
   async function openStats() {
     setDialog("stats")
+    setStats(null)
     setWorking(true)
     setError(null)
     try {
@@ -268,8 +290,10 @@ export function SessionOperations({
       const link = document.createElement("a")
       link.href = url
       link.download = `pi-session.${format}`
+      document.body.append(link)
       link.click()
-      URL.revokeObjectURL(url)
+      link.remove()
+      window.setTimeout(() => URL.revokeObjectURL(url), 0)
     })
   }
 
@@ -302,6 +326,7 @@ export function SessionOperations({
             size="icon"
             aria-label="Session tree"
             aria-haspopup="dialog"
+            disabled={working || runtimeOperationDisabled}
             onClick={() => setTreeOpen(true)}
           >
             <GitMergeIcon />
@@ -312,7 +337,12 @@ export function SessionOperations({
 
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="icon" aria-label="Session 操作">
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Session 操作"
+            disabled={working}
+          >
             {working ? (
               <LoaderCircleIcon className="animate-spin" />
             ) : (
@@ -324,31 +354,55 @@ export function SessionOperations({
           <DropdownMenuItem onSelect={startNewConversation}>
             <PlusIcon /> 新对话
           </DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => setDialog("rename")}>
+          <DropdownMenuItem
+            disabled={runtimeOperationDisabled}
+            onSelect={() => openDialog("rename")}
+          >
             <PencilIcon /> 重命名
           </DropdownMenuItem>
-          <DropdownMenuItem onSelect={clone}>
+          <DropdownMenuItem
+            disabled={runtimeOperationDisabled}
+            onSelect={clone}
+          >
             <CopyIcon /> Clone 当前分支
           </DropdownMenuItem>
           {runtimeTargets.length ? (
-            <DropdownMenuItem onSelect={() => setDialog("runtime")}>
+            <DropdownMenuItem
+              disabled={runtimeOperationDisabled}
+              onSelect={() => openDialog("runtime")}
+            >
               <Repeat2Icon /> Duplicate into runtime
             </DropdownMenuItem>
           ) : null}
-          <DropdownMenuItem onSelect={() => void openFork()}>
+          <DropdownMenuItem
+            disabled={runtimeOperationDisabled}
+            onSelect={() => void openFork()}
+          >
             <GitForkIcon /> Fork
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem onSelect={() => void exportSession("jsonl")}>
+          <DropdownMenuItem
+            disabled={runtimeOperationDisabled}
+            onSelect={() => void exportSession("jsonl")}
+          >
             <DownloadIcon /> 导出 JSONL
           </DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => void exportSession("html")}>
+          <DropdownMenuItem
+            disabled={runtimeOperationDisabled}
+            onSelect={() => void exportSession("html")}
+          >
             <DownloadIcon /> 导出 HTML
           </DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => setDialog("import")}>
+          <DropdownMenuItem
+            disabled={runtimeOperationDisabled}
+            onSelect={() => openDialog("import")}
+          >
             <ImportIcon /> 导入 JSONL
           </DropdownMenuItem>
-          <DropdownMenuItem onSelect={openStats}>
+          <DropdownMenuItem
+            disabled={runtimeOperationDisabled}
+            onSelect={openStats}
+          >
             <BarChart3Icon /> 统计
           </DropdownMenuItem>
           <DropdownMenuSeparator />
@@ -367,7 +421,9 @@ export function SessionOperations({
 
       <Dialog
         open={dialog !== null}
-        onOpenChange={(open) => !open && setDialog(null)}
+        onOpenChange={(open) => {
+          if (!open && !working) setDialog(null)
+        }}
       >
         <DialogContent>
           {dialog === "rename" ? (
@@ -382,9 +438,13 @@ export function SessionOperations({
                 value={name}
                 onChange={(event) => setName(event.target.value)}
                 autoFocus
+                disabled={working || runtimeOperationDisabled}
               />
               <DialogFooter>
-                <Button type="submit" disabled={working || !name.trim()}>
+                <Button
+                  type="submit"
+                  disabled={working || runtimeOperationDisabled || !name.trim()}
+                >
                   保存
                 </Button>
               </DialogFooter>
@@ -403,6 +463,7 @@ export function SessionOperations({
                 <Select
                   value={selectedEntryId}
                   onValueChange={setSelectedEntryId}
+                  disabled={working || runtimeOperationDisabled}
                 >
                   <SelectTrigger className="w-full" aria-label="Session entry">
                     <SelectValue />
@@ -418,7 +479,12 @@ export function SessionOperations({
                 </Select>
               ) : null}
               <DialogFooter>
-                <Button onClick={fork} disabled={working || !selectedEntryId}>
+                <Button
+                  onClick={fork}
+                  disabled={
+                    working || runtimeOperationDisabled || !selectedEntryId
+                  }
+                >
                   {working ? (
                     <LoaderCircleIcon className="animate-spin" />
                   ) : null}
@@ -436,7 +502,11 @@ export function SessionOperations({
                   统计由当前 Pi AgentSession 计算。
                 </DialogDescription>
               </DialogHeader>
-              {stats ? (
+              {working ? (
+                <div className="grid min-h-28 place-items-center">
+                  <LoaderCircleIcon className="animate-spin text-muted-foreground" />
+                </div>
+              ) : stats ? (
                 <dl className="grid grid-cols-2 gap-3 text-sm">
                   <div>
                     <dt className="text-muted-foreground">用户消息</dt>
@@ -490,6 +560,7 @@ export function SessionOperations({
               <Select
                 value={selectedRuntimeProfileId}
                 onValueChange={setSelectedRuntimeProfileId}
+                disabled={working || runtimeOperationDisabled}
               >
                 <SelectTrigger className="w-full" aria-label="目标 runtime">
                   <SelectValue />
@@ -505,7 +576,11 @@ export function SessionOperations({
               <DialogFooter>
                 <Button
                   onClick={duplicateIntoRuntime}
-                  disabled={working || !selectedRuntimeProfileId}
+                  disabled={
+                    working ||
+                    runtimeOperationDisabled ||
+                    !selectedRuntimeProfileId
+                  }
                 >
                   {working ? (
                     <LoaderCircleIcon className="animate-spin" />
@@ -528,9 +603,13 @@ export function SessionOperations({
                 type="file"
                 accept=".jsonl,application/x-ndjson"
                 onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+                disabled={working || runtimeOperationDisabled}
               />
               <DialogFooter>
-                <Button type="submit" disabled={working || !file}>
+                <Button
+                  type="submit"
+                  disabled={working || runtimeOperationDisabled || !file}
+                >
                   {working ? (
                     <LoaderCircleIcon className="animate-spin" />
                   ) : null}

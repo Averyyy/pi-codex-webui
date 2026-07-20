@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { useRef, useState, type FormEvent } from "react"
+import { useRef, useState, useTransition, type FormEvent } from "react"
 import { useRouter } from "next/navigation"
 import {
   BugIcon,
@@ -27,7 +27,6 @@ import {
   SelectValue,
 } from "@workspace/ui/components/select"
 import {
-  modelSettingsSchema,
   type ModelSettings,
   type ModelSettingsModel,
   type RuntimeModel,
@@ -60,6 +59,13 @@ interface NewConversationProject {
 interface CreatedSession {
   projectId: string | null
   sessionId: string
+}
+
+interface ModelSelection {
+  projectId: string | null
+  settings: ModelSettings
+  model: ModelSettingsModel | null
+  thinkingLevel: ThinkingLevel | null
 }
 
 function modelKey(model: Pick<RuntimeModel, "provider" | "id">) {
@@ -118,24 +124,56 @@ export function NewConversation({
   mutationToken: string
 }) {
   const router = useRouter()
-  const [projectId, setProjectId] = useState(initialProjectId)
-  const [modelSettings, setModelSettings] = useState(initialModelSettings)
-  const [model, setModel] = useState<ModelSettingsModel | null>(() =>
-    initialModel(initialModelSettings)
-  )
-  const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel | null>(
-    () => initialModel(initialModelSettings)?.defaultThinkingLevel ?? null
-  )
+  const projectId = initialProjectId
+  const [modelSelection, setModelSelection] = useState<ModelSelection>(() => {
+    const model = initialModel(initialModelSettings)
+    return {
+      projectId: initialProjectId,
+      settings: initialModelSettings,
+      model,
+      thinkingLevel: model?.defaultThinkingLevel ?? null,
+    }
+  })
+  if (
+    modelSelection.projectId !== initialProjectId ||
+    modelSelection.settings !== initialModelSettings
+  ) {
+    const available = enabledModels(initialModelSettings)
+    const selected = modelSelection.model
+    const previous = selected
+      ? available.find(
+          (candidate) => modelKey(candidate) === modelKey(selected)
+        )
+      : null
+    const sameProject = modelSelection.projectId === initialProjectId
+    const model =
+      sameProject && previous ? previous : initialModel(initialModelSettings)
+    const previousThinking = modelSelection.thinkingLevel
+    setModelSelection({
+      projectId: initialProjectId,
+      settings: initialModelSettings,
+      model,
+      thinkingLevel:
+        sameProject &&
+        model &&
+        previousThinking &&
+        model.availableThinkingLevels.includes(previousThinking)
+          ? previousThinking
+          : (model?.defaultThinkingLevel ?? null),
+    })
+  }
+  const { model, thinkingLevel } = modelSelection
   const [message, setMessage] = useState("")
   const [projectSelectOpen, setProjectSelectOpen] = useState(false)
   const [addingProject, setAddingProject] = useState(false)
   const [submitting, setSubmitting] = useState(false)
-  const [loadingModels, setLoadingModels] = useState(false)
+  const submittingRef = useRef(false)
+  const [loadingModels, startProjectTransition] = useTransition()
   const [error, setError] = useState<ApiError | null>(null)
   const messageInputRef = useRef<HTMLTextAreaElement>(null)
   const composerImages = useComposerImages()
   const selectedProject = projects.find((project) => project.id === projectId)
-  const models = enabledModels(modelSettings)
+  const models = enabledModels(initialModelSettings)
 
   function chooseStarter(message: string) {
     setMessage(message)
@@ -149,7 +187,9 @@ export function NewConversation({
     try {
       const project = await pickWorkspaceProject(mutationToken)
       if (project) {
-        router.replace(`/new?projectId=${encodeURIComponent(project.id)}`)
+        startProjectTransition(() =>
+          router.replace(`/new?projectId=${encodeURIComponent(project.id)}`)
+        )
       }
     } catch (failure) {
       setError(
@@ -164,39 +204,17 @@ export function NewConversation({
     }
   }
 
-  async function selectProject(value: string) {
+  function selectProject(value: string) {
     const nextProjectId = value === NO_PROJECT ? null : value
-    setProjectId(nextProjectId)
-    setLoadingModels(true)
+    if (nextProjectId === projectId) return
     setError(null)
-    try {
-      const search = nextProjectId
-        ? `projectId=${encodeURIComponent(nextProjectId)}`
-        : "newTask=1"
-      const nextSettings = modelSettingsSchema.parse(
-        await responseJson<ModelSettings>(
-          await fetch(`/api/v1/model-settings?${search}`, {
-            cache: "no-store",
-          })
-        )
+    startProjectTransition(() =>
+      router.replace(
+        nextProjectId
+          ? `/new?projectId=${encodeURIComponent(nextProjectId)}`
+          : "/new"
       )
-      setModelSettings(nextSettings)
-      const nextModel = initialModel(nextSettings)
-      setModel(nextModel)
-      setThinkingLevel(nextModel?.defaultThinkingLevel ?? null)
-    } catch (failure) {
-      setModel(null)
-      setThinkingLevel(null)
-      setError(
-        failure instanceof ApiError
-          ? failure
-          : new ApiError(
-              failure instanceof Error ? failure.message : String(failure)
-            )
-      )
-    } finally {
-      setLoadingModels(false)
-    }
+    )
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -204,12 +222,13 @@ export function NewConversation({
     const text = message.trim()
     if (
       (!text && composerImages.images.length === 0) ||
-      submitting ||
+      submittingRef.current ||
       loadingModels
     ) {
       return
     }
 
+    submittingRef.current = true
     setSubmitting(true)
     setError(null)
     try {
@@ -251,6 +270,7 @@ export function NewConversation({
             )
       )
     } finally {
+      submittingRef.current = false
       setSubmitting(false)
     }
   }
@@ -338,12 +358,13 @@ export function NewConversation({
             !loadingModels &&
             !submitting
               ? () =>
-                  setThinkingLevel(
-                    nextThinkingLevel(
+                  setModelSelection((current) => ({
+                    ...current,
+                    thinkingLevel: nextThinkingLevel(
                       thinkingLevel,
                       model.availableThinkingLevels
-                    )
-                  )
+                    ),
+                  }))
               : undefined
           }
           textareaRef={messageInputRef}
@@ -404,8 +425,8 @@ export function NewConversation({
                 open={projectSelectOpen}
                 onOpenChange={setProjectSelectOpen}
                 value={projectId ?? NO_PROJECT}
-                onValueChange={(value) => void selectProject(value)}
-                disabled={submitting || addingProject}
+                onValueChange={selectProject}
+                disabled={submitting || addingProject || loadingModels}
               >
                 <SelectTrigger
                   size="sm"
@@ -449,8 +470,11 @@ export function NewConversation({
                 model={model}
                 models={models}
                 onModelChange={(nextModel) => {
-                  setModel(nextModel)
-                  setThinkingLevel(nextModel.defaultThinkingLevel)
+                  setModelSelection((current) => ({
+                    ...current,
+                    model: nextModel,
+                    thinkingLevel: nextModel.defaultThinkingLevel,
+                  }))
                 }}
                 disabled={loadingModels || submitting}
                 settingsHref="/settings/models"
@@ -459,7 +483,12 @@ export function NewConversation({
                 <ComposerThinkingSelect
                   level={thinkingLevel}
                   levels={model.availableThinkingLevels}
-                  onLevelChange={setThinkingLevel}
+                  onLevelChange={(level) =>
+                    setModelSelection((current) => ({
+                      ...current,
+                      thinkingLevel: level,
+                    }))
+                  }
                   disabled={loadingModels || submitting}
                 />
               ) : null}

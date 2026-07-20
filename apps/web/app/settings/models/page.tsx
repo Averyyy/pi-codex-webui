@@ -21,6 +21,7 @@ export default async function ModelSettingsPage({
       description={t("settings.page.models.description")}
     >
       <ModelSettings
+        key={data.sessionId ?? "global"}
         initial={data.settings}
         mutationToken={data.mutationToken}
         sessionId={data.sessionId}

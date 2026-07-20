@@ -76,6 +76,7 @@ export async function SessionScreen({
 
   return (
     <SessionExtensionProvider
+      key={sessionId}
       sessionId={sessionId}
       projectId={projectId}
       mutationToken={mutationToken}
@@ -107,7 +108,6 @@ export async function SessionScreen({
             standalone
               ? null
               : {
-                  sessionId,
                   cwd: snapshot.session.cwd,
                   projectName: snapshot.session.projectName,
                   runtimeKind: snapshot.session.runtimeKind,
@@ -123,16 +123,17 @@ export async function SessionScreen({
               {workspaceAvailable ? (
                 <div key="workspace-actions" className="contents">
                   <SessionDiagnostics
-                    key="session-diagnostics"
+                    key={`session-diagnostics:${sessionId}`}
                     sessionId={sessionId}
                   />
                   <SessionOperations
-                    key="session-operations"
+                    key={`session-operations:${config.revision}`}
                     sessionId={sessionId}
                     projectId={projectId}
                     title={title}
                     mutationToken={mutationToken}
                     runtimeProfileId={snapshot.session.runtimeProfileId}
+                    initialRuntimeStatus={runtime.status}
                     runtimeProfiles={Object.entries(
                       config.developer.runtime.profiles
                     )
@@ -161,12 +162,8 @@ export async function SessionScreen({
                 snapshot={snapshot}
                 sessionId={sessionId}
                 mutationToken={mutationToken}
-                interactionDisabled={
-                  !workspaceAvailable ||
-                  ["starting", "busy", "stopping", "crashed"].includes(
-                    runtime.status
-                  )
-                }
+                workspaceUnavailable={!workspaceAvailable}
+                initialRuntimeStatus={runtime.status}
               />
               <ExtensionSlot
                 key="conversation-after"

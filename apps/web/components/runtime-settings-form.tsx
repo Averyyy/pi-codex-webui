@@ -143,6 +143,7 @@ export function RuntimeSettingsForm({
         router.refresh()
         toast.success(t("settings.runtime.saved"))
       } catch (error) {
+        router.refresh()
         toast.error(
           error instanceof Error
             ? error.message
@@ -184,7 +185,7 @@ export function RuntimeSettingsForm({
   }
 
   return (
-    <Card>
+    <Card inert={saving || testing} aria-busy={saving || testing}>
       <CardHeader>
         <CardTitle>{t("settings.runtime.title")}</CardTitle>
         <CardDescription>{t("settings.runtime.description")}</CardDescription>

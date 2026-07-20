@@ -27,7 +27,9 @@ export function ArchivedSessions({
 }) {
   const router = useRouter()
   const { t } = useI18n()
-  const [sessions, setSessions] = useState(initial)
+  const [deletedSessionIds, setDeletedSessionIds] = useState<Set<string>>(
+    () => new Set()
+  )
   const [deleting, setDeleting] = useState<string | null>(null)
   const [pendingDelete, setPendingDelete] = useState<string | null>(null)
 
@@ -42,9 +44,7 @@ export function ArchivedSessions({
       if (!response.ok) {
         throw new Error(result.error ?? t("settings.archive.deleteFailed"))
       }
-      setSessions((current) =>
-        current.filter((session) => session.id !== sessionId)
-      )
+      setDeletedSessionIds((current) => new Set(current).add(sessionId))
       router.refresh()
       toast.success(t("settings.archive.deleted"))
     } catch (failure) {
@@ -60,6 +60,10 @@ export function ArchivedSessions({
     setPendingDelete(null)
     await deleteSession(sessionId)
   }
+
+  const sessions = initial.filter(
+    (session) => !deletedSessionIds.has(session.id)
+  )
 
   if (!sessions.length) {
     return (

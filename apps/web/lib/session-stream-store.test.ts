@@ -161,3 +161,24 @@ test("recovers when the first replayed event is a message update", () => {
   ])
   assert.equal(store.getMessages()[0]?.complete, false)
 })
+
+test("publishes runtime status immediately and preserves it across stream clears", () => {
+  const frames = new TestFrames()
+  const store = new SessionStreamStore(frames)
+  let notifications = 0
+  store.subscribe(() => {
+    notifications += 1
+  })
+
+  store.setRuntimeStatus("busy")
+  assert.equal(store.getRuntimeStatus(), "busy")
+  assert.equal(notifications, 1)
+
+  store.startMessage({ role: "assistant", content: "working" })
+  store.clear(true)
+  assert.equal(store.getRuntimeStatus(), "busy")
+  assert.deepEqual(store.getMessages(), [])
+
+  store.setRuntimeStatus("ready")
+  assert.equal(store.getRuntimeStatus(), "ready")
+})

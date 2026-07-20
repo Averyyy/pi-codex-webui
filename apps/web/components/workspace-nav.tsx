@@ -100,9 +100,17 @@ export function WorkspaceNav({
     [projects, tasks]
   )
   const unpinnedTasks = tasks.filter((task) => !task.isPinned)
+  const collapsedProjects = projects.slice(0, COLLAPSED_PROJECT_COUNT)
+  const activeProject = projects.find((project) =>
+    pathname.startsWith(`/projects/${project.id}`)
+  )
   const visibleProjects = projectsExpanded
     ? projects
-    : projects.slice(0, COLLAPSED_PROJECT_COUNT)
+    : activeProject &&
+        !collapsedProjects.some((project) => project.id === activeProject.id)
+      ? [...collapsedProjects, activeProject]
+      : collapsedProjects
+  const tasksVisible = tasksOpen || pathname.startsWith("/tasks/")
   const conversationShortcuts = useMemo(
     () =>
       new Map(
@@ -315,7 +323,11 @@ export function WorkspaceNav({
           </SidebarGroup>
 
           {unpinnedTasks.length > 0 ? (
-            <Collapsible open={tasksOpen} onOpenChange={setTasksOpen} asChild>
+            <Collapsible
+              open={tasksVisible}
+              onOpenChange={setTasksOpen}
+              asChild
+            >
               <SidebarGroup className="py-1">
                 <SidebarGroupLabel asChild>
                   <CollapsibleTrigger className="group/tasks w-full cursor-pointer justify-between hover:bg-sidebar-accent">

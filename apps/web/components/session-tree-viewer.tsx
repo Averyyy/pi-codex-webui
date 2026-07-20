@@ -97,7 +97,12 @@ function SessionTreeViewerDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (nextOpen || !working) onOpenChange(nextOpen)
+      }}
+    >
       <DialogContent className="flex h-[calc(100svh-1rem)] w-[calc(100vw-1rem)] max-w-[56rem] flex-col gap-0 overflow-hidden p-0 sm:h-[min(44rem,calc(100svh-2rem))] sm:max-w-[56rem]">
         <SessionTreeDialog
           tree={tree}

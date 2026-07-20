@@ -209,6 +209,10 @@ const messages = {
     "zh-CN": "浏览器没有授予通知权限。",
     "en-US": "The browser did not grant notification permission.",
   },
+  "settings.notifications.showFailed": {
+    "zh-CN": "浏览器无法显示系统通知。",
+    "en-US": "The browser could not show a system notification.",
+  },
   "settings.notifications.testBody": {
     "zh-CN": "桌面通知已启用。",
     "en-US": "Desktop notifications are enabled.",
@@ -455,6 +459,19 @@ const messages = {
   "settings.packages.remove": {
     "zh-CN": "移除 {source}",
     "en-US": "Remove {source}",
+  },
+  "settings.packages.cancel": { "zh-CN": "取消", "en-US": "Cancel" },
+  "settings.packages.confirmRemoveTitle": {
+    "zh-CN": "移除 Package？",
+    "en-US": "Remove package?",
+  },
+  "settings.packages.confirmRemoveDescription": {
+    "zh-CN": "确定要从 Pi 设置中移除 {source} 吗？",
+    "en-US": "Remove {source} from Pi settings?",
+  },
+  "settings.packages.confirmRemove": {
+    "zh-CN": "移除",
+    "en-US": "Remove",
   },
   "settings.packages.filtered": {
     "zh-CN": "资源 filter 已配置",

@@ -223,6 +223,18 @@ test("extension UI protocol distinguishes dialogs from notifications", () => {
     }).success,
     false
   )
+  assert.deepEqual(
+    workerToHostMessageSchema.parse({
+      type: "extension.ui.closed",
+      requestId: "request-a",
+      sessionId: "session-a",
+    }),
+    {
+      type: "extension.ui.closed",
+      requestId: "request-a",
+      sessionId: "session-a",
+    }
+  )
 })
 
 test("TUI surface protocol bounds snapshots and ordered actions", () => {

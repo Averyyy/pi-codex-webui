@@ -1,6 +1,6 @@
 "use client"
 
-import { useSyncExternalStore } from "react"
+import { useState, useSyncExternalStore } from "react"
 import { BellIcon } from "lucide-react"
 import { toast } from "sonner"
 
@@ -21,7 +21,10 @@ import {
 import { Switch } from "@workspace/ui/components/switch"
 
 import { useI18n } from "@/components/i18n-provider"
-import { BROWSER_NOTIFICATIONS_KEY } from "@/lib/browser-notifications"
+import {
+  BROWSER_NOTIFICATIONS_KEY,
+  showBrowserNotification,
+} from "@/lib/browser-notifications"
 
 type PermissionState = NotificationPermission | "unsupported"
 const NOTIFICATION_SETTINGS_EVENT = "pi-web-codex:notification-settings"
@@ -45,6 +48,7 @@ function subscribe(listener: () => void) {
 
 export function NotificationSettings() {
   const { t } = useI18n()
+  const [pending, setPending] = useState(false)
   const snapshot = useSyncExternalStore(
     subscribe,
     notificationSnapshot,
@@ -59,26 +63,36 @@ export function NotificationSettings() {
   }
 
   async function setNotifications(next: boolean) {
-    if (!next) {
+    if (pending) return
+    setPending(true)
+    try {
+      if (!next) {
+        window.localStorage.removeItem(BROWSER_NOTIFICATIONS_KEY)
+        settingsChanged()
+        return
+      }
+      const nextPermission =
+        Notification.permission === "default"
+          ? await Notification.requestPermission()
+          : Notification.permission
+      if (nextPermission !== "granted") {
+        settingsChanged()
+        toast.error(t("settings.notifications.permissionDenied"))
+        return
+      }
+      window.localStorage.setItem(BROWSER_NOTIFICATIONS_KEY, "1")
+      settingsChanged()
+      await showBrowserNotification(
+        "pi-web-codex",
+        t("settings.notifications.testBody")
+      )
+    } catch {
       window.localStorage.removeItem(BROWSER_NOTIFICATIONS_KEY)
       settingsChanged()
-      return
+      toast.error(t("settings.notifications.showFailed"))
+    } finally {
+      setPending(false)
     }
-    const nextPermission =
-      Notification.permission === "default"
-        ? await Notification.requestPermission()
-        : Notification.permission
-    if (nextPermission !== "granted") {
-      settingsChanged()
-      toast.error(t("settings.notifications.permissionDenied"))
-      return
-    }
-    window.localStorage.setItem(BROWSER_NOTIFICATIONS_KEY, "1")
-    settingsChanged()
-    new Notification("pi-web-codex", {
-      body: t("settings.notifications.testBody"),
-      icon: "/pwa-icon.svg",
-    })
   }
 
   const description =
@@ -110,7 +124,11 @@ export function NotificationSettings() {
             <Switch
               checked={enabled}
               onCheckedChange={(next) => void setNotifications(next)}
-              disabled={permission === "unsupported" || permission === "denied"}
+              disabled={
+                pending ||
+                permission === "unsupported" ||
+                permission === "denied"
+              }
               aria-label={t("settings.notifications.agentComplete")}
             />
           </Field>

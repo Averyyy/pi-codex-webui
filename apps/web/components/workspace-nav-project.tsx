@@ -240,6 +240,7 @@ export function WorkspaceNavProject({
       {action.separatorBefore ? <DropdownMenuSeparator /> : null}
       <DropdownMenuItem
         variant={action.destructive ? "destructive" : "default"}
+        disabled={working}
         onSelect={action.onSelect}
       >
         <action.icon />
@@ -252,6 +253,7 @@ export function WorkspaceNavProject({
       {action.separatorBefore ? <ContextMenuSeparator /> : null}
       <ContextMenuItem
         variant={action.destructive ? "destructive" : "default"}
+        disabled={working}
         onSelect={action.onSelect}
       >
         <action.icon />
@@ -300,13 +302,14 @@ export function WorkspaceNavProject({
                   </HoverCardContent>
                 </HoverCard>
 
-                <div className="pointer-events-none absolute top-0.5 right-1 flex items-center rounded-md bg-sidebar-accent opacity-0 transition-opacity group-focus-within/project:pointer-events-auto group-focus-within/project:opacity-100 group-hover/project:pointer-events-auto group-hover/project:opacity-100">
+                <div className="pointer-events-none absolute top-0.5 right-1 flex items-center rounded-md bg-sidebar-accent opacity-0 transition-opacity group-focus-within/project:pointer-events-auto group-focus-within/project:opacity-100 group-hover/project:pointer-events-auto group-hover/project:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100">
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <Button
                         variant="ghost"
                         size="icon-sm"
                         aria-label={`${project.name} 更多操作`}
+                        disabled={working}
                       >
                         <MoreHorizontalIcon />
                       </Button>
@@ -372,7 +375,7 @@ export function WorkspaceNavProject({
       <Dialog
         open={dialog !== null}
         onOpenChange={(open) => {
-          if (!open) {
+          if (!open && !working) {
             setDialog(null)
             setError(null)
           }
@@ -395,6 +398,7 @@ export function WorkspaceNavProject({
                   onChange={(event) => setName(event.target.value)}
                   autoFocus
                   required
+                  disabled={working}
                 />
               </div>
               {error ? <p className="text-destructive">{error}</p> : null}
@@ -431,6 +435,7 @@ export function WorkspaceNavProject({
                     placeholder="/Users/me/Documents/project-worktree"
                     autoFocus
                     required
+                    disabled={working}
                   />
                 </div>
                 <div className="grid gap-2">
@@ -443,6 +448,7 @@ export function WorkspaceNavProject({
                     onChange={(event) => setBranch(event.target.value)}
                     placeholder="feature/my-worktree"
                     required
+                    disabled={working}
                   />
                 </div>
               </div>

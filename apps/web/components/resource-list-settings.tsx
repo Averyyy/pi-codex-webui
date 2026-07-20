@@ -49,6 +49,7 @@ export function ResourceListSettings({
   const resources = catalog.resources.filter(
     (resource) => resource.type === kind
   )
+  const busy = workingId !== null || trustWorking
 
   async function toggle(resource: ResourceView, enabled: boolean) {
     setWorkingId(resource.id)
@@ -86,7 +87,7 @@ export function ResourceListSettings({
         projectId={projectId}
         catalog={catalog}
         mutationToken={mutationToken}
-        working={trustWorking}
+        working={busy}
         onWorkingChange={setTrustWorking}
         onCatalogChange={setCatalog}
         onError={setError}
@@ -135,8 +136,7 @@ export function ResourceListSettings({
                         aria-label={`${resource.name} ${t("settings.resources.enabled")}`}
                         checked={resource.enabled}
                         disabled={
-                          workingId !== null ||
-                          trustWorking ||
+                          busy ||
                           (scope === "project" && !catalog.projectTrusted)
                         }
                         onCheckedChange={(enabled) =>

@@ -11,7 +11,9 @@ import {
 
 import { Button } from "@workspace/ui/components/button"
 import { Textarea } from "@workspace/ui/components/textarea"
+import type { RuntimeStatus } from "@workspace/runtime-protocol"
 
+import { useStreamingRuntimeStatus } from "@/components/session-streaming-context"
 import { responseJson } from "@/lib/api-response"
 import type { TranscriptEntry, TranscriptPart } from "@/lib/session-types"
 
@@ -21,16 +23,19 @@ export function UserMessage({
   entry,
   sessionId,
   mutationToken,
-  interactionDisabled,
+  workspaceUnavailable,
+  initialRuntimeStatus,
   children,
 }: {
   entry: UserMessageEntry
   sessionId: string
   mutationToken: string
-  interactionDisabled: boolean
+  workspaceUnavailable: boolean
+  initialRuntimeStatus: RuntimeStatus
   children: ReactNode
 }) {
   const router = useRouter()
+  const liveRuntimeStatus = useStreamingRuntimeStatus()
   const [editing, setEditing] = useState(false)
   const [editValue, setEditValue] = useState("")
   const [working, setWorking] = useState(false)
@@ -45,6 +50,10 @@ export function UserMessage({
   const editable =
     messageText.trim().length > 0 &&
     entry.parts.every((part) => part.type === "text" || part.type === "image")
+  const runtimeStatus = liveRuntimeStatus ?? initialRuntimeStatus
+  const interactionDisabled =
+    workspaceUnavailable ||
+    ["starting", "busy", "stopping", "crashed"].includes(runtimeStatus)
 
   async function navigateBranch(entryId: string | undefined) {
     if (!entryId || working || interactionDisabled) return

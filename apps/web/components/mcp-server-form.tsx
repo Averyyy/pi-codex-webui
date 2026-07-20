@@ -166,7 +166,12 @@ export function McpServerForm({
             {t("settings.mcpForm.description")}
           </DialogDescription>
         </DialogHeader>
-        <form className="grid gap-5" onSubmit={submit}>
+        <form
+          className="grid gap-5"
+          inert={working}
+          aria-busy={working}
+          onSubmit={submit}
+        >
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="grid gap-2">
               <Label htmlFor="mcp-name">{t("settings.mcpForm.name")}</Label>

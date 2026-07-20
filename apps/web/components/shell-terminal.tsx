@@ -93,11 +93,19 @@ export function ShellTerminal({
         terminal.loadAddon(fit)
         terminal.open(container)
         cleanupTerminal = () => terminal.dispose()
-        fit.fit()
+        const fitToProtocol = () => {
+          fit.fit()
+          const columns = Math.min(500, Math.max(2, terminal.cols))
+          const rows = Math.min(300, Math.max(1, terminal.rows))
+          if (columns !== terminal.cols || rows !== terminal.rows) {
+            terminal.resize(columns, rows)
+          }
+          return { columns, rows }
+        }
+        const initialSize = fitToProtocol()
         await action({
           action: "start",
-          columns: Math.max(2, terminal.cols),
-          rows: Math.max(1, terminal.rows),
+          ...initialSize,
         })
         if (disposed) {
           terminal.dispose()
@@ -133,16 +141,16 @@ export function ShellTerminal({
           }
         })
 
-        let lastSize = `${terminal.cols}x${terminal.rows}`
+        let lastSize = `${initialSize.columns}x${initialSize.rows}`
         const resize = () => {
-          fit.fit()
-          const size = `${terminal.cols}x${terminal.rows}`
+          const { columns, rows } = fitToProtocol()
+          const size = `${columns}x${rows}`
           if (size === lastSize) return
           lastSize = size
           enqueue({
             action: "resize",
-            columns: Math.max(2, terminal.cols),
-            rows: Math.max(1, terminal.rows),
+            columns,
+            rows,
           })
         }
         resizeObserver = new ResizeObserver(resize)

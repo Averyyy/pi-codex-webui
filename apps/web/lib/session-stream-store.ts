@@ -4,6 +4,7 @@ import {
   type ToolResultView,
 } from "@/lib/message-content"
 import type { TranscriptPart } from "@/lib/session-types"
+import type { RuntimeStatus } from "@workspace/runtime-protocol"
 
 export interface RuntimeStreamMessage {
   role: string
@@ -42,6 +43,7 @@ interface SessionStreamingSnapshot {
   tools: ReadonlyMap<string, StreamingToolView>
   activeTools: ActiveStreamingTool[]
   followRequest: number
+  runtimeStatus: RuntimeStatus | null
 }
 
 export interface FrameScheduler {
@@ -53,12 +55,15 @@ const EMPTY_MESSAGES: StreamingMessageView[] = []
 const EMPTY_ACTIVE_TOOLS: ActiveStreamingTool[] = []
 const EMPTY_TOOLS: ReadonlyMap<string, StreamingToolView> = new Map()
 
-function emptySnapshot(): SessionStreamingSnapshot {
+function emptySnapshot(
+  runtimeStatus: RuntimeStatus | null = null
+): SessionStreamingSnapshot {
   return {
     messages: EMPTY_MESSAGES,
     tools: EMPTY_TOOLS,
     activeTools: EMPTY_ACTIVE_TOOLS,
     followRequest: 0,
+    runtimeStatus,
   }
 }
 
@@ -108,6 +113,7 @@ export class SessionStreamStore {
   getMessages = () => this.committed.messages
   getActiveTools = () => this.committed.activeTools
   getFollowRequest = () => this.committed.followRequest
+  getRuntimeStatus = () => this.committed.runtimeStatus
   getTool = (toolCallId: string) => this.committed.tools.get(toolCallId) ?? null
 
   requestFollow = () => {
@@ -115,6 +121,12 @@ export class SessionStreamStore {
       ...this.pending,
       followRequest: this.pending.followRequest + 1,
     })
+  }
+
+  setRuntimeStatus = (runtimeStatus: RuntimeStatus) => {
+    if (this.pending.runtimeStatus === runtimeStatus) return
+    this.pending = { ...this.pending, runtimeStatus }
+    this.commit()
   }
 
   startMessage = (message: RuntimeStreamMessage) => {
@@ -184,7 +196,7 @@ export class SessionStreamStore {
 
   clear = (synchronous = false) => {
     this.activeMessageIds.clear()
-    this.pending = emptySnapshot()
+    this.pending = emptySnapshot(this.pending.runtimeStatus)
     if (synchronous) this.commit()
     else this.schedule()
   }

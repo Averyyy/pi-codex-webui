@@ -119,10 +119,12 @@ export function ComposerImagePreviews({
   images,
   error,
   onRemove,
+  disabled = false,
 }: {
   images: ComposerImage[]
   error?: string | null
   onRemove?: (id: string) => void
+  disabled?: boolean
 }) {
   return (
     <>
@@ -148,6 +150,7 @@ export function ComposerImagePreviews({
                 className="absolute top-1 right-1 rounded-full"
                 onClick={() => onRemove?.(image.id)}
                 aria-label={`移除 ${image.name}`}
+                disabled={disabled}
               >
                 <XIcon />
               </Button>

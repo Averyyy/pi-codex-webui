@@ -82,18 +82,27 @@ export function SessionDiagnostics({ sessionId }: { sessionId: string }) {
   const [diagnostics, setDiagnostics] = useState<RuntimeDiagnostics | null>(
     null
   )
-  const [error, setError] = useState<string | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [connectionError, setConnectionError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!open) return
     let active = true
+    let loaded = false
+    let pendingEvents: ProtocolEvent[] = []
     void loadDiagnostics(sessionId).then(
       (result) => {
-        if (active) setDiagnostics(result)
+        if (!active) return
+        loaded = true
+        setDiagnostics(pendingEvents.reduce(nextStatus, result))
+        pendingEvents = []
       },
       (failure: unknown) => {
         if (active) {
-          setError(failure instanceof Error ? failure.message : String(failure))
+          loaded = true
+          setLoadError(
+            failure instanceof Error ? failure.message : String(failure)
+          )
         }
       }
     )
@@ -105,20 +114,36 @@ export function SessionDiagnostics({ sessionId }: { sessionId: string }) {
       const event = JSON.parse(
         (source as MessageEvent<string>).data
       ) as ProtocolEvent
+      if (!loaded) {
+        pendingEvents.push(event)
+        return
+      }
       setDiagnostics((current) =>
         current ? nextStatus(current, event) : current
       )
     })
-    events.onerror = () => setError("协议事件连接已断开，正在自动重连。")
-    events.onopen = () => setError(null)
+    events.onerror = () =>
+      setConnectionError("协议事件连接已断开，正在自动重连。")
+    events.onopen = () => setConnectionError(null)
     return () => {
       active = false
       events.close()
     }
   }, [open, sessionId])
 
+  const error = loadError ?? connectionError
+
+  function handleOpenChange(nextOpen: boolean) {
+    if (nextOpen) {
+      setDiagnostics(null)
+      setLoadError(null)
+      setConnectionError(null)
+    }
+    setOpen(nextOpen)
+  }
+
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
         <Button variant="ghost" size="icon" aria-label="Runtime 诊断">
           <ActivityIcon />

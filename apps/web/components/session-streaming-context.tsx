@@ -63,6 +63,15 @@ export function useStreamingFollowRequest() {
   return useSyncExternalStore(store.subscribe, store.getFollowRequest, () => 0)
 }
 
+export function useStreamingRuntimeStatus() {
+  const store = useSessionStreaming()
+  return useSyncExternalStore(
+    store.subscribe,
+    store.getRuntimeStatus,
+    () => null
+  )
+}
+
 export function useStreamingTool(toolCallId: string) {
   const store = useSessionStreaming()
   const getTool = useCallback(

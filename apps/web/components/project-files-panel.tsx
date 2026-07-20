@@ -85,14 +85,20 @@ export function ProjectFilesPanel({ projectId }: { projectId: string }) {
   }, [currentPath, projectId, revision])
 
   function openPath(path: string) {
+    if (path === currentPath) {
+      refresh()
+      return
+    }
     setLoading(true)
     setError(null)
+    setEntry(null)
     setCurrentPath(path)
   }
 
   function refresh() {
     setLoading(true)
     setError(null)
+    setEntry(null)
     setRevision((value) => value + 1)
   }
 

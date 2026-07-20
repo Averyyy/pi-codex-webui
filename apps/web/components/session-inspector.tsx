@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState, type ReactNode } from "react"
+import type { ReactNode } from "react"
 import {
   Clock3Icon,
   FileDiffIcon,
@@ -31,6 +31,7 @@ import {
 } from "@workspace/ui/components/tooltip"
 
 import { SubagentsSummary } from "@/components/subagents"
+import { useStreamingRuntimeStatus } from "@/components/session-streaming-context"
 import type { ProjectGitStatus } from "@/lib/project-git"
 import { formatTimestamp } from "@/lib/session-display"
 
@@ -41,16 +42,6 @@ const STATUS_LABELS: Record<RuntimeStatus, string> = {
   busy: "运行中",
   stopping: "停止中",
   crashed: "已崩溃",
-}
-
-const RUNTIME_EVENT_STATUS: Partial<Record<string, RuntimeStatus>> = {
-  "runtime.starting": "starting",
-  "runtime.ready": "ready",
-  "runtime.busy": "busy",
-  "runtime.idle": "ready",
-  "runtime.stopping": "stopping",
-  "runtime.stopped": "stopped",
-  "runtime.crashed": "crashed",
 }
 
 export interface SessionInspectorProps {
@@ -218,26 +209,8 @@ function InspectorContent({
   )
 }
 
-export function SessionInspector({
-  sessionId,
-  ...props
-}: SessionInspectorProps & { sessionId: string }) {
-  const [runtimeStatus, setRuntimeStatus] = useState(props.runtimeStatus)
-
-  useEffect(() => {
-    const events = new EventSource(`/api/v1/events?sessionId=${sessionId}`)
-    const update = (source: Event) => {
-      const event = JSON.parse((source as MessageEvent<string>).data) as {
-        type: string
-      }
-      const status = RUNTIME_EVENT_STATUS[event.type]
-      if (status) setRuntimeStatus(status)
-    }
-    for (const type of Object.keys(RUNTIME_EVENT_STATUS)) {
-      events.addEventListener(type, update)
-    }
-    return () => events.close()
-  }, [sessionId])
+export function SessionInspector(props: SessionInspectorProps) {
+  const runtimeStatus = useStreamingRuntimeStatus() ?? props.runtimeStatus
 
   return (
     <Sheet>

@@ -19,6 +19,7 @@ export default async function ExtensionsSettingsPage({
     >
       {data.catalog && data.selectedProjectId ? (
         <ResourceListSettings
+          key={`extension:${data.selectedProjectId}`}
           kind="extension"
           projects={data.projects}
           projectId={data.selectedProjectId}

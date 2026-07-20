@@ -17,6 +17,7 @@ export default async function WebUiExtensionsSettingsPage({
       description={t("settings.page.webuiExtensions.description")}
     >
       <WebUiExtensionSettings
+        key={`${data.selectedProjectId ?? "global"}:${data.catalog.revision}`}
         projects={data.projects}
         projectId={data.selectedProjectId}
         initialCatalog={data.catalog}

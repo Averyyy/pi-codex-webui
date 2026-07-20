@@ -338,6 +338,13 @@ function createDialogPromise<T>(
       if (timeout) clearTimeout(timeout)
       options?.signal?.removeEventListener("abort", abort)
       pendingExtensionRequests.delete(requestId)
+      if (webSessionId) {
+        send({
+          type: "extension.ui.closed",
+          requestId,
+          sessionId: webSessionId,
+        })
+      }
     }
     const finish = (value: T) => {
       cleanup()

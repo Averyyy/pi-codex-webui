@@ -19,22 +19,27 @@ function loadClient(url: string) {
   let loading = clients.get(url)
   if (loading) return loading
   loading = (async () => {
-    const imported = (await import(/* webpackIgnore: true */ url)) as {
-      default?: unknown
+    try {
+      const imported = (await import(/* webpackIgnore: true */ url)) as {
+        default?: unknown
+      }
+      if (typeof imported.default !== "function") {
+        throw new TypeError("Adapter client must export a default initializer.")
+      }
+      const views = new Map<string, ExternalViewRenderer>()
+      await (imported.default as ClientExtensionInitializer)({
+        registerView(renderer) {
+          if (views.has(renderer.id)) {
+            throw new Error(`Duplicate client view: ${renderer.id}`)
+          }
+          views.set(renderer.id, renderer)
+        },
+      })
+      return views
+    } catch (error) {
+      clients.delete(url)
+      throw error
     }
-    if (typeof imported.default !== "function") {
-      throw new TypeError("Adapter client must export a default initializer.")
-    }
-    const views = new Map<string, ExternalViewRenderer>()
-    await (imported.default as ClientExtensionInitializer)({
-      registerView(renderer) {
-        if (views.has(renderer.id)) {
-          throw new Error(`Duplicate client view: ${renderer.id}`)
-        }
-        views.set(renderer.id, renderer)
-      },
-    })
-    return views
   })()
   clients.set(url, loading)
   return loading
@@ -134,7 +139,15 @@ export function WebUiViewHost({ view }: { view: WebUiViewSnapshot }) {
       await report(identity, "ready")
     })().catch((error: unknown) => {
       if (!controller.signal.aborted) {
-        showFailure(error instanceof Error ? error.message : String(error))
+        const message = error instanceof Error ? error.message : String(error)
+        const result = mountedRef.current
+        mountedRef.current = null
+        mounted = false
+        try {
+          result?.dispose()
+        } finally {
+          showFailure(message)
+        }
       }
     })
 

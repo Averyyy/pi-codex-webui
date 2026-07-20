@@ -264,6 +264,7 @@ export function ModelSettings({
               type="button"
               variant="outline"
               size="sm"
+              disabled={working !== null}
               onClick={openAddProvider}
             >
               <PlusIcon />
@@ -462,7 +463,7 @@ export function ModelSettings({
         <CustomProviderForm
           open
           provider={editingProvider}
-          working={working?.startsWith("provider-save:") ?? false}
+          working={working !== null}
           onOpenChange={setProviderDialogOpen}
           onSave={(value) => void saveProvider(value)}
         />

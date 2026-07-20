@@ -6,6 +6,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react"
@@ -304,16 +305,22 @@ function AgentRow({
 
 export function SubagentsPanel() {
   const { snapshot, stop } = useSubagents()
-  const [stoppingId, setStoppingId] = useState<string | null>(null)
+  const [stoppingIds, setStoppingIds] = useState(() => new Set<string>())
+  const stoppingIdsRef = useRef(new Set<string>())
   const activeCount = snapshot.agents.filter((agent) =>
     ACTIVE_STATUSES.has(agent.status)
   ).length
 
   function stopAgent(agent: SubagentRecord) {
-    setStoppingId(agent.id)
+    if (stoppingIdsRef.current.has(agent.id)) return
+    stoppingIdsRef.current.add(agent.id)
+    setStoppingIds(new Set(stoppingIdsRef.current))
     void stop(agent.id)
       .catch((error: Error) => toast.error(error.message))
-      .finally(() => setStoppingId(null))
+      .finally(() => {
+        stoppingIdsRef.current.delete(agent.id)
+        setStoppingIds(new Set(stoppingIdsRef.current))
+      })
   }
 
   if (!snapshot.available) {
@@ -365,7 +372,7 @@ export function SubagentsPanel() {
             <AgentRow
               key={agent.id}
               agent={agent}
-              stopping={stoppingId === agent.id}
+              stopping={stoppingIds.has(agent.id)}
               onStop={() => stopAgent(agent)}
             />
           ))}

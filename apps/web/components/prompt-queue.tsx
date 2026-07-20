@@ -168,7 +168,7 @@ export function PromptQueue({
       </Card>
 
       <Dialog
-        open={editing !== null}
+        open={editing !== null && editingStillQueued}
         onOpenChange={(open) => {
           if (!open && updatingId === null) setEditing(null)
         }}

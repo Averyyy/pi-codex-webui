@@ -1099,6 +1099,12 @@ const extensionUIRequestMessageSchema = z.object({
   payload: extensionUIRequestSchema,
 })
 
+const extensionUIClosedMessageSchema = z.object({
+  type: z.literal("extension.ui.closed"),
+  requestId: z.string().min(1),
+  sessionId: z.string().min(1),
+})
+
 const tuiSurfaceEventMessageSchema = z.object({
   type: z.literal("tui.surface.event"),
   sessionId: z.string().min(1),
@@ -1141,6 +1147,7 @@ export const workerToHostMessageSchema = z.discriminatedUnion("type", [
   runtimeLogMessageSchema,
   runtimeFatalMessageSchema,
   extensionUIRequestMessageSchema,
+  extensionUIClosedMessageSchema,
   tuiSurfaceEventMessageSchema,
   webUiViewEventMessageSchema,
   webUiExtensionStatusMessageSchema,

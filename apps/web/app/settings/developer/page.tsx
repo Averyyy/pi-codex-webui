@@ -12,6 +12,7 @@ export default async function DeveloperSettingsPage() {
       description={t("settings.page.developer.description")}
     >
       <RuntimeSettingsForm
+        key={config.revision}
         initial={{
           revision: config.revision,
           defaultProfileId: config.developer.runtime.default,

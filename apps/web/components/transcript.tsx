@@ -4,6 +4,7 @@ import {
   Settings2Icon,
   TerminalIcon,
 } from "lucide-react"
+import type { RuntimeStatus } from "@workspace/runtime-protocol"
 
 import { ConversationDisclosure } from "@/components/conversation-disclosure"
 import { ConversationMessageParts } from "@/components/conversation-message-parts"
@@ -27,13 +28,15 @@ function Message({
   toolResults,
   sessionId,
   mutationToken,
-  interactionDisabled,
+  workspaceUnavailable,
+  initialRuntimeStatus,
 }: {
   entry: MessageEntry
   toolResults: ReadonlyMap<string, ToolResultView>
   sessionId: string
   mutationToken: string
-  interactionDisabled: boolean
+  workspaceUnavailable: boolean
+  initialRuntimeStatus: RuntimeStatus
 }) {
   if (entry.role === "bashExecution") {
     const [command, output] = entry.parts
@@ -77,7 +80,8 @@ function Message({
         entry={entry}
         sessionId={sessionId}
         mutationToken={mutationToken}
-        interactionDisabled={interactionDisabled}
+        workspaceUnavailable={workspaceUnavailable}
+        initialRuntimeStatus={initialRuntimeStatus}
       >
         {content}
       </UserMessage>
@@ -214,12 +218,14 @@ export function SessionTranscript({
   snapshot,
   sessionId,
   mutationToken,
-  interactionDisabled,
+  workspaceUnavailable,
+  initialRuntimeStatus,
 }: {
   snapshot: SessionSnapshot
   sessionId: string
   mutationToken: string
-  interactionDisabled: boolean
+  workspaceUnavailable: boolean
+  initialRuntimeStatus: RuntimeStatus
 }) {
   const toolResults = new Map<string, ToolResultView>()
   const renderedToolResults = new Set<string>()
@@ -264,7 +270,8 @@ export function SessionTranscript({
             toolResults={toolResults}
             sessionId={sessionId}
             mutationToken={mutationToken}
-            interactionDisabled={interactionDisabled}
+            workspaceUnavailable={workspaceUnavailable}
+            initialRuntimeStatus={initialRuntimeStatus}
           />
         ) : (
           <Event key={entry.id} entry={entry} />

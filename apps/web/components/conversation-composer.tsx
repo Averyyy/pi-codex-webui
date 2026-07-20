@@ -114,8 +114,12 @@ export function ConversationComposer({
     availableCommands,
     commandQuery
   )
+  const hasUnsupportedImages = images.length > 0 && !imagesSupported
   const submissionDisabled =
-    (!value.trim() && images.length === 0) || submitting || sendDisabled
+    (!value.trim() && images.length === 0) ||
+    submitting ||
+    sendDisabled ||
+    hasUnsupportedImages
 
   function closeCommandMenu() {
     setCommandMenuOpen(false)
@@ -197,6 +201,10 @@ export function ConversationComposer({
     if (files.length === 0 || !onImagesAdd) return
 
     event.preventDefault()
+    if (submitting) {
+      toast.error("消息正在发送，请稍后添加图片。")
+      return
+    }
     if (!imagesSupported) {
       toast.error("当前模型不支持图片。")
       return
@@ -240,7 +248,16 @@ export function ConversationComposer({
                 onChange={(event) => {
                   const files = Array.from(event.currentTarget.files ?? [])
                   event.currentTarget.value = ""
-                  if (files.length) void onImagesAdd?.(files)
+                  if (!files.length) return
+                  if (submitting) {
+                    toast.error("消息正在发送，请稍后添加图片。")
+                    return
+                  }
+                  if (!imagesSupported) {
+                    toast.error("当前模型不支持图片。")
+                    return
+                  }
+                  void onImagesAdd?.(files)
                 }}
               />
             </>
@@ -250,8 +267,14 @@ export function ConversationComposer({
       ) : null}
       <ComposerImagePreviews
         images={images}
-        error={imageError}
+        error={
+          imageError ??
+          (hasUnsupportedImages
+            ? "当前模型不支持已添加的图片。请移除图片或切换模型。"
+            : null)
+        }
         onRemove={onImageRemove}
+        disabled={submitting}
       />
       {editor ?? (
         <Textarea
@@ -309,6 +332,14 @@ export function ComposerModelSelect<T extends RuntimeModel>({
     : null
 
   if (!selected) {
+    if (disabled) {
+      return (
+        <Button size="sm" variant="outline" disabled>
+          <Settings2Icon />
+          选择模型
+        </Button>
+      )
+    }
     return (
       <Button asChild size="sm" variant="outline">
         <Link href={settingsHref}>
