@@ -98,6 +98,91 @@ test("reads the active Pi branch and pairs tool calls with their results", () =>
   assert.match(searchableText(parsed.entries[1]!), /package\.json/)
 })
 
+test("exposes user-message branch position and branch-tip navigation", () => {
+  const firstQuestion = {
+    type: "message",
+    id: "user-first",
+    parentId: null,
+    timestamp: "2026-07-13T00:00:01.000Z",
+    message: { role: "user", content: "first wording" },
+  }
+  const firstAnswer = {
+    type: "message",
+    id: "assistant-first",
+    parentId: "user-first",
+    timestamp: "2026-07-13T00:00:02.000Z",
+    message: { role: "assistant", content: "first answer" },
+  }
+  const editedQuestion = {
+    type: "message",
+    id: "user-edited",
+    parentId: null,
+    timestamp: "2026-07-13T00:00:03.000Z",
+    message: { role: "user", content: "edited wording" },
+  }
+  const editedAnswer = {
+    type: "message",
+    id: "assistant-edited",
+    parentId: "user-edited",
+    timestamp: "2026-07-13T00:00:04.000Z",
+    message: { role: "assistant", content: "edited answer" },
+  }
+
+  const editedTranscript = toTranscriptEntries(
+    parsePiSession(
+      file,
+      jsonl(header, firstQuestion, firstAnswer, editedQuestion, editedAnswer)
+    )
+  )
+  assert.deepEqual(editedTranscript[0], {
+    kind: "message",
+    id: "user-edited",
+    timestamp: editedQuestion.timestamp,
+    role: "user",
+    parts: [{ type: "text", text: "edited wording" }],
+    isError: false,
+    toolCallId: undefined,
+    toolName: undefined,
+    details: undefined,
+    metadata: editedQuestion.message,
+    branch: {
+      index: 2,
+      total: 2,
+      previousEntryId: "assistant-first",
+    },
+  })
+
+  const activeMarker = {
+    type: "model_change",
+    id: "model-active",
+    parentId: "assistant-first",
+    timestamp: "2026-07-13T00:00:05.000Z",
+    provider: "provider",
+    modelId: "model",
+  }
+  const firstTranscript = toTranscriptEntries(
+    parsePiSession(
+      file,
+      jsonl(
+        header,
+        firstQuestion,
+        firstAnswer,
+        editedQuestion,
+        editedAnswer,
+        activeMarker
+      )
+    )
+  )
+  assert.deepEqual(
+    firstTranscript[0]?.kind === "message" && firstTranscript[0].branch,
+    {
+      index: 1,
+      total: 2,
+      nextEntryId: "assistant-edited",
+    }
+  )
+})
+
 test("incremental entry parsing preserves line numbers and metadata", () => {
   const appended = [
     {

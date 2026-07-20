@@ -41,6 +41,7 @@ import {
   extensionInvocation,
 } from "./extension-instrumentation.js"
 import { WebUiAdapterHost } from "./webui-adapter-host.js"
+import { PromptQueue, type QueuedPromptRecord } from "./prompt-queue.js"
 
 let codingAgent: CodingAgentModule
 let modelThinking: ModelThinkingModule
@@ -53,6 +54,9 @@ let eventSequence = 0
 let surfaceManager: TuiSurfaceManager | undefined
 let adapterHost: WebUiAdapterHost | undefined
 let subagents: SubagentBridge | undefined
+let promptQueue = new PromptQueue()
+let suppressPromptQueueEvents = false
+let promptQueueReplacement = Promise.resolve()
 let editorComponentFactory: Parameters<
   ExtensionUIContext["setEditorComponent"]
 >[0]
@@ -85,6 +89,31 @@ function sendSessionEvent(eventType: string, payload: unknown) {
     eventType,
     payload,
   })
+}
+
+function serializePromptQueueReplacement<T>(operation: () => Promise<T>) {
+  const result = promptQueueReplacement.then(operation, operation)
+  promptQueueReplacement = result.then(
+    () => undefined,
+    () => undefined
+  )
+  return result
+}
+
+function promptQueueState(session: AgentSession) {
+  const steering = [...session.getSteeringMessages()]
+  const followUp = [...session.getFollowUpMessages()]
+  return {
+    steering,
+    followUp,
+    items: promptQueue.reconcile({ steering, followUp }),
+  }
+}
+
+function emitPromptQueueUpdate(session: AgentSession) {
+  const state = promptQueueState(session)
+  sendSessionEvent("queue_update", { type: "queue_update", ...state })
+  return { items: state.items }
 }
 
 function runtimeError(error: unknown): RuntimeError {
@@ -223,6 +252,7 @@ function snapshot(session: AgentSession): RuntimeSnapshot {
     activeTools: session.getActiveToolNames(),
     isStreaming: session.isStreaming,
     isCompacting: session.isCompacting,
+    queuedPrompts: promptQueue.snapshot(),
   }
 }
 
@@ -479,6 +509,7 @@ function createExtensionUIContext() {
 }
 
 async function bindSession(session: AgentSession) {
+  promptQueue = new PromptQueue()
   resetSurfaceManager()
   await session.bindExtensions({
     uiContext: createExtensionUIContext(),
@@ -514,6 +545,13 @@ async function bindSession(session: AgentSession) {
   })
   unsubscribe?.()
   unsubscribe = session.subscribe((event: AgentSessionEvent) => {
+    if (event.type === "queue_update") {
+      if (!suppressPromptQueueEvents) {
+        const items = promptQueue.reconcile(event)
+        sendSessionEvent(event.type, { ...event, items })
+      }
+      return
+    }
     sendSessionEvent(event.type, event)
   })
 }
@@ -804,28 +842,86 @@ async function prompt(
   assertSession(message)
   const session = currentRuntime().session
   const queued = session.isStreaming
+  const pendingId = queued
+    ? promptQueue.begin(
+        message.payload.streamingBehavior,
+        message.payload.message,
+        message.payload.images
+      )
+    : undefined
   let accepted = false
-  await session.prompt(message.payload.message, {
-    images: message.payload.images,
-    source: "rpc",
-    streamingBehavior: session.isStreaming
-      ? message.payload.streamingBehavior
-      : undefined,
-    preflightResult(success) {
-      if (!success || accepted) return
-      accepted = true
-      respond(message.requestId, {
-        success: true,
-        data: { accepted: true, queued },
-      })
-    },
-  })
+  try {
+    await session.prompt(message.payload.message, {
+      images: message.payload.images,
+      source: "rpc",
+      streamingBehavior: session.isStreaming
+        ? message.payload.streamingBehavior
+        : undefined,
+      preflightResult(success) {
+        if (!success || accepted) return
+        accepted = true
+        respond(message.requestId, {
+          success: true,
+          data: { accepted: true, queued },
+        })
+      },
+    })
+  } finally {
+    if (pendingId) promptQueue.cancel(pendingId)
+  }
   if (!accepted) {
     respond(message.requestId, {
       success: true,
       data: { accepted: true, queued },
     })
   }
+}
+
+async function enqueueRecords(
+  session: AgentSession,
+  records: QueuedPromptRecord[]
+) {
+  for (const record of records) {
+    if (record.mode === "steer") {
+      await session.steer(record.text, record.images)
+    } else {
+      await session.followUp(record.text, record.images)
+    }
+  }
+}
+
+async function replacePromptQueue(
+  message: Extract<HostToWorkerMessage, { type: "session.queue.replace" }>
+) {
+  assertSession(message)
+  const session = currentRuntime().session
+  if (!session.isStreaming) {
+    const error = new Error("当前轮次已结束，消息不再处于可编辑队列中。")
+    error.name = "QueueConflict"
+    throw error
+  }
+
+  const replacement = promptQueue.prepareReplacement(
+    message.payload.expected,
+    message.payload.next
+  )
+  suppressPromptQueueEvents = true
+  try {
+    session.clearQueue()
+    try {
+      await enqueueRecords(session, replacement.next)
+      promptQueue.commit(replacement.next)
+    } catch (error) {
+      session.clearQueue()
+      await enqueueRecords(session, replacement.previous)
+      promptQueue.commit(replacement.previous)
+      throw error
+    }
+  } finally {
+    suppressPromptQueueEvents = false
+  }
+
+  return emitPromptQueueUpdate(session)
 }
 
 async function reloadModelSettings(session: AgentSession) {
@@ -934,6 +1030,13 @@ async function dispatch(message: HostToWorkerMessage) {
     respond(message.requestId, { success: true })
   } else if (message.type === "session.prompt") {
     await prompt(message)
+  } else if (message.type === "session.queue.replace") {
+    respond(message.requestId, {
+      success: true,
+      data: await serializePromptQueueReplacement(() =>
+        replacePromptQueue(message)
+      ),
+    })
   } else if (message.type === "session.abort") {
     await session.abort()
     respond(message.requestId, { success: true, data: snapshot(session) })

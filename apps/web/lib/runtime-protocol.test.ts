@@ -6,6 +6,7 @@ import {
   extensionUIResponseSchema,
   hostToWorkerMessageSchema,
   promptAcceptedSchema,
+  queueUpdatedEventSchema,
   resourceCatalogSchema,
   runtimeStatusSchema,
   subagentsSnapshotSchema,
@@ -136,6 +137,36 @@ test("prompt acceptance records whether Pi queued the message", () => {
   assert.equal(
     promptAcceptedSchema.safeParse({ accepted: true }).success,
     false
+  )
+})
+
+test("prompt queue messages preserve identity, order, and mode", () => {
+  const first = {
+    id: "103bddb6-4b6e-45c8-a7ac-21587073147f",
+    text: "first",
+    mode: "followUp" as const,
+  }
+  const second = {
+    id: "7473e73d-3d53-4dc4-9396-a69449963c96",
+    text: "second",
+    mode: "steer" as const,
+  }
+  assert.deepEqual(
+    queueUpdatedEventSchema.parse({
+      steering: ["second"],
+      followUp: ["first"],
+      items: [first, second],
+    }).items,
+    [first, second]
+  )
+  assert.equal(
+    hostToWorkerMessageSchema.safeParse({
+      type: "session.queue.replace",
+      requestId: "request-1",
+      sessionId: "session-1",
+      payload: { expected: [first, second], next: [first, second] },
+    }).success,
+    true
   )
 })
 

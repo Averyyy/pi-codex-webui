@@ -1,291 +1,46 @@
 import {
-  BotIcon,
-  BrainIcon,
   CircleAlertIcon,
-  FileDownIcon,
-  FilePenLineIcon,
-  FileSearchIcon,
   FileTextIcon,
-  FolderSearchIcon,
-  SearchIcon,
   Settings2Icon,
   TerminalIcon,
-  WrenchIcon,
 } from "lucide-react"
 
-import {
-  ConversationDisclosure,
-  type ConversationDisclosureTone,
-} from "@/components/conversation-disclosure"
+import { ConversationDisclosure } from "@/components/conversation-disclosure"
+import { ConversationMessageParts } from "@/components/conversation-message-parts"
 import { Markdown } from "@/components/markdown"
+import { UserMessage } from "@/components/user-message"
 import { stripAnsi } from "@/lib/ansi"
+import type { ToolResultView } from "@/lib/message-content"
 import { formatInlinePreview, formatTimestamp } from "@/lib/session-display"
-import type {
-  SessionSnapshot,
-  TranscriptEntry,
-  TranscriptPart,
-} from "@/lib/session-types"
-import {
-  isWebAccessToolName,
-  webAccessToolPresentation,
-  type WebAccessToolName,
-} from "@/lib/web-access-tool"
+import type { SessionSnapshot, TranscriptEntry } from "@/lib/session-types"
 
 type MessageEntry = Extract<TranscriptEntry, { kind: "message" }>
+const TRANSCRIPT_ITEM_CLASS =
+  "[content-visibility:auto] [contain-intrinsic-size:auto_5rem]"
 
 function json(value: unknown) {
   return JSON.stringify(value, null, 2)
 }
 
-function toolSummary(name: string, args: Record<string, unknown>) {
-  let field: unknown
-  switch (name) {
-    case "bash":
-      field = args.command
-      break
-    case "Agent":
-      field = args.description
-      break
-    case "read":
-    case "write":
-    case "edit":
-    case "find":
-      field = args.path
-      break
-    case "grep":
-      field = args.pattern
-      break
-  }
-  return typeof field === "string" ? field : ""
-}
-
-function toolAppearance(name: string): {
-  icon: React.ReactNode
-  tone: ConversationDisclosureTone
-} {
-  switch (name) {
-    case "bash":
-      return { icon: <TerminalIcon />, tone: "execute" }
-    case "Agent":
-      return { icon: <BotIcon />, tone: "agent" }
-    case "read":
-      return { icon: <FileTextIcon />, tone: "read" }
-    case "write":
-    case "edit":
-      return { icon: <FilePenLineIcon />, tone: "write" }
-    case "find":
-      return { icon: <FolderSearchIcon />, tone: "read" }
-    case "grep":
-      return { icon: <SearchIcon />, tone: "read" }
-    default:
-      return { icon: <WrenchIcon />, tone: "neutral" }
-  }
-}
-
-function ImagePart({
-  part,
-}: {
-  part: Extract<TranscriptPart, { type: "image" }>
-}) {
-  return (
-    // Session images are local data URLs with no stable dimensions for next/image.
-    // eslint-disable-next-line @next/next/no-img-element
-    <img
-      src={`data:${part.mimeType};base64,${part.data}`}
-      alt="Session attachment"
-      className="max-h-[32rem] max-w-full rounded-xl border object-contain"
-    />
-  )
-}
-
-function TextParts({
-  parts,
-  literal = false,
-}: {
-  parts: TranscriptPart[]
-  literal?: boolean
-}) {
-  return parts.map((part, index) => {
-    if (part.type === "text") {
-      return literal ? (
-        <pre
-          key={index}
-          className="max-h-96 overflow-auto rounded-lg border bg-terminal p-3 font-mono text-xs leading-5 whitespace-pre-wrap text-terminal-foreground"
-        >
-          {stripAnsi(part.text)}
-        </pre>
-      ) : (
-        <Markdown key={index}>{part.text}</Markdown>
-      )
-    }
-    if (part.type === "thinking") {
-      return (
-        <ConversationDisclosure
-          key={index}
-          label={part.redacted ? "已脱敏思考" : "思考"}
-          preview={formatInlinePreview(part.text)}
-          icon={<BrainIcon />}
-          tone="agent"
-          ariaLabel={part.redacted ? "展开已脱敏思考" : "展开思考"}
-          contentClassName="max-h-80 overflow-y-auto pr-2 text-xs text-muted-foreground [&_p]:leading-5"
-        >
-          <Markdown>{part.text}</Markdown>
-        </ConversationDisclosure>
-      )
-    }
-    if (part.type === "image") return <ImagePart key={index} part={part} />
-    if (part.type === "unsupported") {
-      return (
-        <div key={index} className="rounded-lg border border-dashed p-3">
-          <p className="mb-2 text-xs font-medium">
-            未支持的 content part：{part.partType}
-          </p>
-          <pre className="overflow-x-auto text-xs">{json(part.value)}</pre>
-        </div>
-      )
-    }
-    return null
-  })
-}
-
-function ToolCallCard({
-  part,
-  result,
-}: {
-  part: Extract<TranscriptPart, { type: "toolCall" }>
-  result?: MessageEntry
-}) {
-  if (isWebAccessToolName(part.name)) {
-    return <WebAccessToolCard name={part.name} part={part} result={result} />
-  }
-  const summary = toolSummary(part.name, part.arguments)
-  const appearance = toolAppearance(part.name)
-  return (
-    <ConversationDisclosure
-      defaultOpen={result?.isError === true}
-      label={<code className="font-mono text-xs">{part.name}</code>}
-      preview={summary}
-      icon={appearance.icon}
-      tone={appearance.tone}
-      status={result?.isError ? "失败" : result ? "完成" : "运行中"}
-      statusTone={
-        result?.isError ? "destructive" : result ? "success" : "running"
-      }
-      ariaLabel={`展开 ${part.name} 详情`}
-    >
-      <div className="flex min-w-0 flex-col gap-3">
-        <section>
-          <p className="mb-1.5 text-xs font-medium text-muted-foreground">
-            参数
-          </p>
-          <pre className="max-h-72 max-w-full overflow-auto rounded-lg bg-muted/60 p-3 font-mono text-xs leading-5">
-            {json(part.arguments)}
-          </pre>
-        </section>
-        {result ? (
-          <div>
-            <p className="mb-1.5 text-xs font-medium text-muted-foreground">
-              结果
-            </p>
-            <div className="flex min-w-0 flex-col gap-2 text-sm">
-              <TextParts parts={result.parts} literal />
-            </div>
-          </div>
-        ) : null}
-      </div>
-    </ConversationDisclosure>
-  )
-}
-
-const WEB_ACCESS_ICONS: Record<WebAccessToolName, React.ReactNode> = {
-  web_search: <SearchIcon />,
-  fetch_content: <FileDownIcon />,
-  get_search_content: <FileSearchIcon />,
-}
-
-function WebAccessToolCard({
-  name,
-  part,
-  result,
-}: {
-  name: WebAccessToolName
-  part: Extract<TranscriptPart, { type: "toolCall" }>
-  result?: MessageEntry
-}) {
-  const presentation = webAccessToolPresentation(
-    name,
-    part.arguments,
-    result?.details
-  )
-  const failed = result?.isError === true || presentation.error !== undefined
-  return (
-    <ConversationDisclosure
-      defaultOpen={failed}
-      label={presentation.label}
-      preview={presentation.preview}
-      icon={WEB_ACCESS_ICONS[name]}
-      tone="web"
-      status={failed ? "失败" : result ? "完成" : "运行中"}
-      statusTone={failed ? "destructive" : result ? "success" : "running"}
-      ariaLabel={`展开${presentation.label}详情`}
-      contentClassName="max-w-full"
-    >
-      <div className="flex min-w-0 flex-col gap-4">
-        {presentation.inputs.length ? (
-          <section>
-            <p className="mb-1.5 text-xs font-medium text-muted-foreground">
-              {name === "web_search" ? "查询" : "目标"}
-            </p>
-            <ul className="flex min-w-0 flex-col gap-1.5 text-sm">
-              {presentation.inputs.map((input) => (
-                <li
-                  key={input}
-                  className="min-w-0 rounded-lg bg-muted/50 px-3 py-2 break-words"
-                >
-                  {input}
-                </li>
-              ))}
-            </ul>
-          </section>
-        ) : null}
-        {presentation.facts.length ? (
-          <dl className="flex flex-wrap gap-x-5 gap-y-2 text-xs">
-            {presentation.facts.map((fact) => (
-              <div key={fact.label} className="flex min-w-0 gap-1.5">
-                <dt className="shrink-0 text-muted-foreground">{fact.label}</dt>
-                <dd className="min-w-0 break-all">{fact.value}</dd>
-              </div>
-            ))}
-          </dl>
-        ) : null}
-        {result ? (
-          <section className="min-w-0">
-            <p className="mb-1.5 text-xs font-medium text-muted-foreground">
-              结果
-            </p>
-            <div className="flex min-w-0 flex-col gap-2 text-sm">
-              <TextParts parts={result.parts} />
-            </div>
-          </section>
-        ) : null}
-      </div>
-    </ConversationDisclosure>
-  )
-}
-
 function Message({
   entry,
   toolResults,
+  sessionId,
+  mutationToken,
+  interactionDisabled,
 }: {
   entry: MessageEntry
-  toolResults: Map<string, MessageEntry>
+  toolResults: ReadonlyMap<string, ToolResultView>
+  sessionId: string
+  mutationToken: string
+  interactionDisabled: boolean
 }) {
   if (entry.role === "bashExecution") {
     const [command, output] = entry.parts
     const commandText =
       command?.type === "text" ? formatInlinePreview(command.text) : ""
     return (
-      <div id={`entry-${entry.id}`}>
+      <div id={`entry-${entry.id}`} className={TRANSCRIPT_ITEM_CLASS}>
         <ConversationDisclosure
           defaultOpen={entry.isError === true}
           label={<code className="font-mono text-xs">shell</code>}
@@ -308,16 +63,33 @@ function Message({
 
   const user = entry.role === "user"
   const assistant = entry.role === "assistant"
+  const content = (
+    <ConversationMessageParts
+      parts={entry.parts}
+      literal={entry.role === "toolResult"}
+      toolResults={toolResults}
+    />
+  )
+
+  if (user) {
+    return (
+      <UserMessage
+        entry={entry}
+        sessionId={sessionId}
+        mutationToken={mutationToken}
+        interactionDisabled={interactionDisabled}
+      >
+        {content}
+      </UserMessage>
+    )
+  }
+
   return (
     <article
       id={`entry-${entry.id}`}
-      className={
-        user
-          ? "ml-auto max-w-[88%] min-w-0 rounded-2xl bg-muted px-3.5 py-2.5"
-          : "flex min-w-0 flex-col gap-2"
-      }
+      className={`flex min-w-0 flex-col gap-2 ${TRANSCRIPT_ITEM_CLASS}`}
     >
-      {!user && !assistant ? (
+      {!assistant ? (
         <div className="flex items-center gap-2 text-xs font-medium">
           <span>{entry.role}</span>
           <span className="font-normal text-muted-foreground">
@@ -325,23 +97,7 @@ function Message({
           </span>
         </div>
       ) : null}
-      <div className="flex min-w-0 flex-col gap-2">
-        {entry.parts.map((part, index) =>
-          part.type === "toolCall" ? (
-            <ToolCallCard
-              key={part.id}
-              part={part}
-              result={toolResults.get(part.id)}
-            />
-          ) : (
-            <TextParts
-              key={index}
-              parts={[part]}
-              literal={entry.role === "toolResult"}
-            />
-          )
-        )}
-      </div>
+      <div className="flex min-w-0 flex-col gap-2">{content}</div>
     </article>
   )
 }
@@ -355,7 +111,7 @@ function Event({
     entry.eventType === "compaction" || entry.eventType === "branch_summary"
   if (summary) {
     return (
-      <div id={`entry-${entry.id}`}>
+      <div id={`entry-${entry.id}`} className={TRANSCRIPT_ITEM_CLASS}>
         <ConversationDisclosure
           label={entry.title}
           preview={entry.text ? formatInlinePreview(entry.text) : undefined}
@@ -371,7 +127,7 @@ function Event({
   }
   if (entry.value !== undefined) {
     return (
-      <div id={`entry-${entry.id}`}>
+      <div id={`entry-${entry.id}`} className={TRANSCRIPT_ITEM_CLASS}>
         <ConversationDisclosure
           label={entry.title}
           preview={formatInlinePreview(json(entry.value))}
@@ -388,7 +144,7 @@ function Event({
   return (
     <div
       id={`entry-${entry.id}`}
-      className="flex items-center justify-center gap-2 text-xs text-muted-foreground"
+      className={`flex items-center justify-center gap-2 text-xs text-muted-foreground ${TRANSCRIPT_ITEM_CLASS}`}
     >
       <span>{entry.title}</span>
       {entry.text ? <code>{stripAnsi(entry.text)}</code> : null}
@@ -409,6 +165,7 @@ function isSettingEvent(entry: TranscriptEntry): entry is SettingEvent {
 function SettingChanges({ entries }: { entries: SettingEvent[] }) {
   return (
     <ConversationDisclosure
+      className={TRANSCRIPT_ITEM_CLASS}
       label="会话设置变更"
       preview={`${entries.length} 项`}
       icon={<Settings2Icon />}
@@ -453,8 +210,18 @@ function transcriptBlocks(entries: TranscriptEntry[]) {
   return blocks
 }
 
-export function SessionTranscript({ snapshot }: { snapshot: SessionSnapshot }) {
-  const toolResults = new Map<string, MessageEntry>()
+export function SessionTranscript({
+  snapshot,
+  sessionId,
+  mutationToken,
+  interactionDisabled,
+}: {
+  snapshot: SessionSnapshot
+  sessionId: string
+  mutationToken: string
+  interactionDisabled: boolean
+}) {
+  const toolResults = new Map<string, ToolResultView>()
   const renderedToolResults = new Set<string>()
   for (const entry of snapshot.entries) {
     if (
@@ -462,7 +229,11 @@ export function SessionTranscript({ snapshot }: { snapshot: SessionSnapshot }) {
       entry.role === "toolResult" &&
       entry.toolCallId
     ) {
-      toolResults.set(entry.toolCallId, entry)
+      toolResults.set(entry.toolCallId, {
+        parts: entry.parts,
+        details: entry.details,
+        isError: entry.isError,
+      })
     }
     if (entry.kind === "message") {
       for (const part of entry.parts) {
@@ -487,7 +258,14 @@ export function SessionTranscript({ snapshot }: { snapshot: SessionSnapshot }) {
           return null
         }
         return entry.kind === "message" ? (
-          <Message key={entry.id} entry={entry} toolResults={toolResults} />
+          <Message
+            key={entry.id}
+            entry={entry}
+            toolResults={toolResults}
+            sessionId={sessionId}
+            mutationToken={mutationToken}
+            interactionDisabled={interactionDisabled}
+          />
         ) : (
           <Event key={entry.id} entry={entry} />
         )

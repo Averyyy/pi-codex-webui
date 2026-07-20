@@ -367,6 +367,17 @@ SSE event stream
 - MCP status
 - config update
 
+浏览器把 `session.message.start/update/end` 与
+`tool.execution.start/update/end` 投影到独立的 session stream store。连续 token
+和工具 partial result 在同一 `requestAnimationFrame` 内合并；消息尾部与每个
+`toolCallId` 分别订阅，避免整棵 runtime/composer 在每个 token 上重渲染。并行工具
+各自维护状态，start、partial result、end 始终更新同一张工具卡。
+
+完成事件不会立即移除 client live run。前端先触发 transcript 的 RSC refresh，等新
+event cursor 随服务端内容提交后，再在同一 layout frame 清空 live projection，因此
+持久化交接期间既不留空也不重复。terminal、TUI surface、queue、extension UI 与
+subagent 状态继续直接消费各自的增量事件，不经过 transcript refresh。
+
 ---
 
 ## 6.2 API 基础路径
@@ -451,6 +462,7 @@ POST   /api/v1/sessions/:sessionId/runtime/restart
 
 ```text
 POST /api/v1/sessions/:sessionId/messages
+PUT  /api/v1/sessions/:sessionId/queue
 POST /api/v1/sessions/:sessionId/abort
 ```
 
@@ -473,6 +485,24 @@ POST /api/v1/sessions/:sessionId/abort
   "queued": false
 }
 ```
+
+运行中发送的消息默认使用 `followUp`。队列变更使用完整的当前快照作为
+乐观并发条件，避免编辑覆盖一条已经被 Agent 消费的消息：
+
+```json
+{
+  "expected": [
+    { "id": "message-id", "text": "Review this repository", "mode": "followUp" }
+  ],
+  "next": [
+    { "id": "message-id", "text": "Review the tests first", "mode": "steer" }
+  ]
+}
+```
+
+`queue.updated` 按发送顺序携带 `{ id, text, mode }`。`followUp` 表示等待当前
+轮次完成，`steer` 表示尚未被当前轮次消费的引导消息；两者在被消费前均可
+编辑或删除。
 
 ### Entries 与 Tree
 

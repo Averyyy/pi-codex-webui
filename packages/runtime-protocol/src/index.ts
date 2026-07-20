@@ -38,6 +38,31 @@ export const runtimeModelSchema = z.object({
   maxTokens: z.number().int().positive(),
 })
 
+export const queuedPromptModeSchema = z.enum(["followUp", "steer"])
+
+export const queuedPromptItemSchema = z.object({
+  id: z.string().uuid(),
+  text: z.string().min(1).max(100_000),
+  mode: queuedPromptModeSchema,
+})
+
+export const queuedPromptItemsSchema = z
+  .array(queuedPromptItemSchema)
+  .max(100)
+  .superRefine((items, context) => {
+    const ids = new Set<string>()
+    for (const [index, item] of items.entries()) {
+      if (ids.has(item.id)) {
+        context.addIssue({
+          code: "custom",
+          message: "Queued prompt IDs must be unique.",
+          path: [index, "id"],
+        })
+      }
+      ids.add(item.id)
+    }
+  })
+
 export const runtimeSnapshotSchema = z.object({
   webSessionId: z.string().min(1),
   nativeSessionId: z.string().min(1),
@@ -53,6 +78,7 @@ export const runtimeSnapshotSchema = z.object({
   activeTools: z.array(z.string()),
   isStreaming: z.boolean(),
   isCompacting: z.boolean(),
+  queuedPrompts: queuedPromptItemsSchema.default([]),
 })
 
 export const mcpToolDefinitionSchema = z.object({
@@ -138,6 +164,16 @@ export const mcpCatalogSchema = z.object({
 export const promptAcceptedSchema = z.object({
   accepted: z.literal(true),
   queued: z.boolean(),
+})
+
+export const queueStateSchema = z.object({
+  items: queuedPromptItemsSchema,
+})
+
+export const queueUpdatedEventSchema = z.object({
+  steering: z.array(z.string()),
+  followUp: z.array(z.string()),
+  items: queuedPromptItemsSchema,
 })
 
 export const sessionStatsSchema = z.object({
@@ -689,6 +725,16 @@ const sessionRequestSchema = z.object({
   sessionId: z.string().min(1),
 })
 
+const replaceQueueMessageSchema = z.object({
+  type: z.literal("session.queue.replace"),
+  requestId: z.string().min(1),
+  sessionId: z.string().min(1),
+  payload: z.object({
+    expected: queuedPromptItemsSchema,
+    next: queuedPromptItemsSchema,
+  }),
+})
+
 const setModelMessageSchema = z.object({
   type: z.literal("session.set-model"),
   requestId: z.string().min(1),
@@ -967,6 +1013,7 @@ export const hostToWorkerMessageSchema = z.discriminatedUnion("type", [
   initializeMessageSchema,
   promptMessageSchema,
   sessionRequestSchema,
+  replaceQueueMessageSchema,
   setModelMessageSchema,
   setThinkingLevelMessageSchema,
   compactMessageSchema,
@@ -1113,6 +1160,9 @@ export type McpConfiguredValueView = z.infer<
 export type McpServerView = z.infer<typeof mcpServerViewSchema>
 export type McpCatalog = z.infer<typeof mcpCatalogSchema>
 export type PromptAccepted = z.infer<typeof promptAcceptedSchema>
+export type QueuedPromptMode = z.infer<typeof queuedPromptModeSchema>
+export type QueuedPromptItem = z.infer<typeof queuedPromptItemSchema>
+export type QueueState = z.infer<typeof queueStateSchema>
 export type SessionStats = z.infer<typeof sessionStatsSchema>
 export type SubagentStatus = z.infer<typeof subagentStatusSchema>
 export type SubagentRecord = z.infer<typeof subagentRecordSchema>

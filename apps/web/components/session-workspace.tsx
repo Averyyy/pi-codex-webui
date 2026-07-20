@@ -55,6 +55,7 @@ import {
 import { cn } from "@workspace/ui/lib/utils"
 
 import { ShellTerminal } from "@/components/shell-terminal"
+import { SessionStreamingProvider } from "@/components/session-streaming"
 import {
   SessionInspector,
   type SessionInspectorProps,
@@ -433,7 +434,7 @@ export function SessionWorkspace({
   )
 
   return (
-    <>
+    <SessionStreamingProvider>
       <ResizablePanelGroup
         orientation="horizontal"
         className={cn(
@@ -648,6 +649,6 @@ export function SessionWorkspace({
           {sidebarContent}
         </SheetContent>
       </Sheet>
-    </>
+    </SessionStreamingProvider>
   )
 }

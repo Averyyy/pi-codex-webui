@@ -14,6 +14,7 @@ export function runtimeErrorResponse(error: unknown) {
           : error.code === "SessionWriteLeaseConflict" ||
               error.code === "RuntimeNotActive" ||
               error.code === "RuntimeBusy" ||
+              error.code === "QueueConflict" ||
               error.code === "SessionOperationCancelled"
             ? 409
             : 422

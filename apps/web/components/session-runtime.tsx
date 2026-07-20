@@ -3,8 +3,10 @@
 import {
   useEffect,
   useEffectEvent,
+  useLayoutEffect,
   useRef,
   useState,
+  useTransition,
   type FormEvent,
 } from "react"
 import { useRouter } from "next/navigation"
@@ -40,6 +42,7 @@ import { Textarea } from "@workspace/ui/components/textarea"
 import type {
   ExtensionUIRequest,
   ExtensionUIResponse,
+  QueuedPromptItem,
   RuntimeSnapshot,
   RuntimeStatus,
   TuiSurfaceAction,
@@ -48,14 +51,15 @@ import type {
 } from "@workspace/runtime-protocol"
 import {
   extensionUIRequestSchema,
+  queueStateSchema,
+  queueUpdatedEventSchema,
   tuiSurfaceEventSchema,
   tuiSurfaceSnapshotsSchema,
 } from "@workspace/runtime-protocol"
 
-import { Markdown } from "@/components/markdown"
 import { PiTuiSurface } from "@/components/pi-tui-surface"
+import { PromptQueue } from "@/components/prompt-queue"
 import { GoalStatusBar } from "@/components/goal-status-bar"
-import { ConversationDisclosure } from "@/components/conversation-disclosure"
 import { ConversationCompactionStatus } from "@/components/conversation-compaction-status"
 import { ExtensionSlot } from "@/components/extension-slot"
 import {
@@ -70,21 +74,20 @@ import {
   nextThinkingLevel,
 } from "@/components/conversation-composer"
 import { SessionTreeViewer } from "@/components/session-tree-viewer"
+import {
+  SessionStreamingToolStatus,
+  useSessionStreaming,
+} from "@/components/session-streaming"
 import { stripAnsi } from "@/lib/ansi"
 import { notifyWhenHidden } from "@/lib/browser-notifications"
 import { compactionEndOutcome } from "@/lib/compaction-events"
-import { formatInlinePreview } from "@/lib/session-display"
 import type { PiGoalState } from "@/lib/pi-goal"
+import type { RuntimeStreamMessage } from "@/lib/session-stream-store"
 import { isVisibleTuiSurface } from "@/lib/tui-surface"
 
 interface RuntimeEvent {
   type: string
   payload: unknown
-}
-
-interface PiMessage {
-  role: string
-  content: unknown
 }
 
 type ActiveExtensionRequest = Extract<
@@ -170,59 +173,36 @@ function messageFromPayload(payload: unknown) {
   ) {
     throw new Error("Runtime emitted an invalid Pi message event.")
   }
-  return message as PiMessage
-}
-
-function streamingContent(message: PiMessage) {
-  if (!Array.isArray(message.content)) return { text: "", thinking: "" }
-  let text = ""
-  let thinking = ""
-  for (const part of message.content) {
-    if (typeof part !== "object" || part === null || !("type" in part)) {
-      throw new Error("Runtime emitted an invalid assistant content part.")
-    }
-    if (
-      part.type === "text" &&
-      "text" in part &&
-      typeof part.text === "string"
-    ) {
-      text += part.text
-    }
-    if (
-      part.type === "thinking" &&
-      "thinking" in part &&
-      typeof part.thinking === "string"
-    ) {
-      thinking += part.thinking
+  const record = message as Record<string, unknown>
+  for (const [key, type] of [
+    ["toolCallId", "string"],
+    ["toolName", "string"],
+    ["isError", "boolean"],
+    ["errorMessage", "string"],
+    ["display", "boolean"],
+  ] as const) {
+    if (record[key] !== undefined && typeof record[key] !== type) {
+      throw new Error(`Runtime emitted an invalid ${key}.`)
     }
   }
-  return { text, thinking }
+  return record as unknown as RuntimeStreamMessage
 }
 
-function toolName(payload: unknown) {
+function toolExecution(payload: unknown) {
   if (
     typeof payload !== "object" ||
     payload === null ||
+    !("toolCallId" in payload) ||
+    typeof payload.toolCallId !== "string" ||
     !("toolName" in payload) ||
     typeof payload.toolName !== "string"
   ) {
     throw new Error("Runtime emitted an invalid tool event.")
   }
-  return payload.toolName
-}
-
-function queueSize(payload: unknown) {
-  if (
-    typeof payload !== "object" ||
-    payload === null ||
-    !("steering" in payload) ||
-    !Array.isArray(payload.steering) ||
-    !("followUp" in payload) ||
-    !Array.isArray(payload.followUp)
-  ) {
-    throw new Error("Runtime emitted an invalid queue event.")
-  }
-  return payload.steering.length + payload.followUp.length
+  return payload as {
+    toolCallId: string
+    toolName: string
+  } & Record<string, unknown>
 }
 
 function retryDescription(payload: unknown) {
@@ -255,27 +235,27 @@ export function SessionRuntime({
   initialGoalState: PiGoalState | null
 }) {
   const router = useRouter()
+  const stream = useSessionStreaming()
+  const [, startTranscriptTransition] = useTransition()
   const [status, setStatus] = useState(initialStatus)
   const [snapshot, setSnapshot] = useState(initialSnapshot)
   const [draft, setDraft] = useState("")
   const composerImages = useComposerImages()
   const [submitting, setSubmitting] = useState(false)
   const [updating, setUpdating] = useState(false)
+  const [queueUpdating, setQueueUpdating] = useState(false)
   const [compacting, setCompacting] = useState(false)
   const [compactionNotice, setCompactionNotice] = useState<
     "running" | "complete" | null
   >(null)
   const [treeOpen, setTreeOpen] = useState(false)
-  const [streamingBehavior, setStreamingBehavior] = useState<
-    "steer" | "followUp"
-  >("followUp")
   const [goalDialogOpen, setGoalDialogOpen] = useState(false)
   const [goalObjective, setGoalObjective] = useState("")
   const [goalTokenBudget, setGoalTokenBudget] = useState("")
   const [error, setError] = useState<string | null>(null)
-  const [streaming, setStreaming] = useState({ text: "", thinking: "" })
-  const [activeTool, setActiveTool] = useState<string | null>(null)
-  const [queuedMessages, setQueuedMessages] = useState(0)
+  const [queuedMessages, setQueuedMessages] = useState<QueuedPromptItem[]>(
+    initialSnapshot?.queuedPrompts ?? []
+  )
   const [retrying, setRetrying] = useState<string | null>(null)
   const [extensionRequest, setExtensionRequest] =
     useState<ActiveExtensionRequest | null>(null)
@@ -295,6 +275,10 @@ export function SessionRuntime({
   const pendingSurfaceEvents = useRef(new Map<string, PendingSurfaceEvent[]>())
   const closedSurfaces = useRef(new Set<string>())
   const wasBusy = useRef(false)
+  const agentRunActive = useRef(initialStatus === "busy")
+  const streamRevision = useRef(0)
+  const completedStreamRevision = useRef<number | null>(null)
+  const committedEventCursor = useRef(initialEventCursor)
   const selectedModel = snapshot?.model
   const imagesSupported = selectedModel
     ? snapshot.availableModels.some(
@@ -304,6 +288,15 @@ export function SessionRuntime({
           model.input.includes("image")
       )
     : false
+
+  useLayoutEffect(() => {
+    if (committedEventCursor.current === initialEventCursor) return
+    committedEventCursor.current = initialEventCursor
+    const completed = completedStreamRevision.current
+    if (completed === null) return
+    completedStreamRevision.current = null
+    if (streamRevision.current === completed) stream.clear(true)
+  }, [initialEventCursor, stream])
 
   async function mutate<T>(
     path: string,
@@ -344,11 +337,12 @@ export function SessionRuntime({
 
     setSubmitting(true)
     setError(null)
+    stream.requestFollow()
     try {
       await mutate(`/api/v1/sessions/${sessionId}/messages`, "POST", {
         message: text || "请查看附加图片。",
         images: promptImages(images),
-        streamingBehavior,
+        streamingBehavior: "followUp",
       })
       if (options.clearDraft) {
         setDraft((current) => (current.trim() === text ? "" : current))
@@ -410,25 +404,40 @@ export function SessionRuntime({
     void loadTuiSurfaces().catch((failure: unknown) =>
       setError(failure instanceof Error ? failure.message : String(failure))
     )
+    const handoffTranscript = () => {
+      completedStreamRevision.current = streamRevision.current
+      startTranscriptTransition(() => router.refresh())
+    }
     const handle = (source: Event) => {
       const event = JSON.parse(
         (source as MessageEvent<string>).data
       ) as RuntimeEvent
       if (event.type === "runtime.starting") {
+        streamRevision.current += 1
+        agentRunActive.current = false
+        completedStreamRevision.current = null
+        stream.clear(true)
         setStatus("starting")
         setTuiSurfaces({})
         pendingSurfaceEvents.current.clear()
         closedSurfaces.current.clear()
       }
       if (event.type === "runtime.ready") {
+        const nextSnapshot = event.payload as RuntimeSnapshot
         setStatus("ready")
-        setSnapshot(event.payload as RuntimeSnapshot)
+        setSnapshot(nextSnapshot)
+        setQueuedMessages(nextSnapshot.queuedPrompts)
         setError(null)
         void loadTuiSurfaces().catch((failure: unknown) =>
           setError(failure instanceof Error ? failure.message : String(failure))
         )
       }
       if (event.type === "runtime.busy") {
+        if (!agentRunActive.current) {
+          agentRunActive.current = true
+          streamRevision.current += 1
+          completedStreamRevision.current = null
+        }
         wasBusy.current = true
         setStatus("busy")
       }
@@ -441,15 +450,29 @@ export function SessionRuntime({
       }
       if (event.type === "runtime.stopping") setStatus("stopping")
       if (event.type === "runtime.stopped") {
+        if (agentRunActive.current) {
+          agentRunActive.current = false
+          handoffTranscript()
+        } else if (completedStreamRevision.current === null) {
+          stream.clear(true)
+        }
         setStatus("stopped")
         setSnapshot(null)
+        setQueuedMessages([])
         setTuiSurfaces({})
         pendingSurfaceEvents.current.clear()
         closedSurfaces.current.clear()
       }
       if (event.type === "runtime.crashed") {
+        if (agentRunActive.current) {
+          agentRunActive.current = false
+          handoffTranscript()
+        } else if (completedStreamRevision.current === null) {
+          stream.clear(true)
+        }
         wasBusy.current = false
         setStatus("crashed")
+        setQueuedMessages([])
         setTuiSurfaces({})
         pendingSurfaceEvents.current.clear()
         closedSurfaces.current.clear()
@@ -459,28 +482,38 @@ export function SessionRuntime({
           "历史内容仍可读取，可回到 session 显式重启。"
         )
       }
-      if (
-        event.type === "session.message.start" ||
-        event.type === "session.message.update"
-      ) {
+      if (event.type === "session.message.start") {
         const message = messageFromPayload(event.payload)
-        if (message?.role === "assistant")
-          setStreaming(streamingContent(message))
+        if (!message) throw new Error("Runtime omitted a started message.")
+        if (!agentRunActive.current) {
+          agentRunActive.current = true
+          streamRevision.current += 1
+          completedStreamRevision.current = null
+        }
+        stream.startMessage(message)
+      }
+      if (event.type === "session.message.update") {
+        const message = messageFromPayload(event.payload)
+        if (!message) throw new Error("Runtime omitted an updated message.")
+        stream.updateMessage(message)
       }
       if (event.type === "session.message.end") {
         const message = messageFromPayload(event.payload)
-        if (message?.role === "assistant") {
-          setStreaming({ text: "", thinking: "" })
-          router.refresh()
-        }
+        if (!message) throw new Error("Runtime omitted a completed message.")
+        stream.endMessage(message)
       }
-      if (event.type === "session.entry.appended") router.refresh()
-      if (event.type === "session.completed") {
-        setStatus("ready")
-        setStreaming({ text: "", thinking: "" })
-        setActiveTool(null)
-        setRetrying(null)
+      if (
+        event.type === "session.entry.appended" &&
+        !agentRunActive.current &&
+        completedStreamRevision.current === null
+      ) {
         router.refresh()
+      }
+      if (event.type === "session.completed") {
+        agentRunActive.current = false
+        setStatus("ready")
+        setRetrying(null)
+        handoffTranscript()
       }
       if (event.type === "session.leaf.changed") {
         if (
@@ -501,17 +534,52 @@ export function SessionRuntime({
         ) {
           setDraft(event.payload.editorText)
         }
+        agentRunActive.current = false
+        completedStreamRevision.current = null
+        stream.clear(true)
         router.refresh()
       }
-      if (
-        event.type === "tool.execution.start" ||
-        event.type === "tool.execution.update"
-      ) {
-        setActiveTool(toolName(event.payload))
+      if (event.type === "tool.execution.start") {
+        const tool = toolExecution(event.payload)
+        if (!("args" in tool)) {
+          throw new Error("Runtime omitted started tool arguments.")
+        }
+        stream.startTool({
+          toolCallId: tool.toolCallId,
+          toolName: tool.toolName,
+          args: tool.args,
+        })
       }
-      if (event.type === "tool.execution.end") setActiveTool(null)
+      if (event.type === "tool.execution.update") {
+        const tool = toolExecution(event.payload)
+        if (!("args" in tool) || !("partialResult" in tool)) {
+          throw new Error("Runtime omitted a partial tool result.")
+        }
+        stream.updateTool({
+          toolCallId: tool.toolCallId,
+          toolName: tool.toolName,
+          args: tool.args,
+          partialResult: tool.partialResult,
+        })
+      }
+      if (event.type === "tool.execution.end") {
+        const tool = toolExecution(event.payload)
+        if (
+          !("result" in tool) ||
+          !("isError" in tool) ||
+          typeof tool.isError !== "boolean"
+        ) {
+          throw new Error("Runtime omitted a completed tool result.")
+        }
+        stream.endTool({
+          toolCallId: tool.toolCallId,
+          toolName: tool.toolName,
+          result: tool.result,
+          isError: tool.isError,
+        })
+      }
       if (event.type === "queue.updated") {
-        setQueuedMessages(queueSize(event.payload))
+        setQueuedMessages(queueUpdatedEventSchema.parse(event.payload).items)
       }
       if (event.type === "compaction.start") {
         setCompacting(true)
@@ -633,6 +701,8 @@ export function SessionRuntime({
         }
       }
       if (event.type === "resync.required") {
+        completedStreamRevision.current = null
+        stream.clear(true)
         router.refresh()
         void loadTuiSurfaces().catch((failure: unknown) =>
           setError(failure instanceof Error ? failure.message : String(failure))
@@ -646,7 +716,7 @@ export function SessionRuntime({
     }
     events.onopen = () => setError(null)
     return () => events.close()
-  }, [initialEventCursor, router, sessionId])
+  }, [initialEventCursor, router, sessionId, stream])
 
   useEffect(() => {
     if (!extensionRequest || !("timeout" in extensionRequest)) return
@@ -733,11 +803,23 @@ export function SessionRuntime({
     }
   }
 
-  function selectStreamingBehavior(value: string) {
-    if (value !== "steer" && value !== "followUp") {
-      throw new Error("Pi returned an invalid queue behavior.")
+  async function replaceQueuedMessages(next: QueuedPromptItem[]) {
+    setQueueUpdating(true)
+    setError(null)
+    try {
+      const state = queueStateSchema.parse(
+        await mutate(`/api/v1/sessions/${sessionId}/queue`, "PUT", {
+          expected: queuedMessages,
+          next,
+        })
+      )
+      setQueuedMessages(state.items)
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : String(failure))
+      throw failure
+    } finally {
+      setQueueUpdating(false)
     }
-    setStreamingBehavior(value)
   }
 
   async function compact() {
@@ -795,7 +877,6 @@ export function SessionRuntime({
     snapshot?.activeTools.includes("goal_complete") &&
     snapshot.activeTools.includes("goal_blocked")
   )
-  const hasStreamingContent = streaming.text || streaming.thinking
   const widgets = Object.entries(extensionWidgets)
   const surfaces = Object.values(tuiSurfaces)
   const editorSurface = surfaces.find((surface) => surface.mode === "editor")
@@ -837,22 +918,6 @@ export function SessionRuntime({
     <div className="z-10 shrink-0 border-t bg-background/95 px-4 py-3 backdrop-blur sm:px-6 sm:py-4">
       <div className="mx-auto grid w-full max-w-[52rem] min-w-0 gap-3">
         {inlineSurfaces("header").map(renderTuiSurface)}
-        {hasStreamingContent ? (
-          <div className="flex max-h-64 min-w-0 flex-col gap-2 overflow-y-auto border-l pl-3 text-sm">
-            {streaming.thinking ? (
-              <ConversationDisclosure
-                label="思考中"
-                preview={formatInlinePreview(streaming.thinking)}
-                icon={<LoaderCircleIcon className="animate-spin" />}
-                ariaLabel="展开正在生成的思考"
-                contentClassName="text-xs text-muted-foreground"
-              >
-                <p className="whitespace-pre-wrap">{streaming.thinking}</p>
-              </ConversationDisclosure>
-            ) : null}
-            {streaming.text ? <Markdown>{streaming.text}</Markdown> : null}
-          </div>
-        ) : null}
         {compactionNotice ? (
           <ConversationCompactionStatus state={compactionNotice} />
         ) : null}
@@ -873,12 +938,13 @@ export function SessionRuntime({
           onCommand={(args) => sendMessage(`/goal ${args}`)}
         />
         <ExtensionSlot name="composer.above" excludeViewIds={["goal.card"]} />
+        <PromptQueue items={queuedMessages} onReplace={replaceQueuedMessages} />
         <ConversationComposer
           value={draft}
           onValueChange={setDraft}
           onSubmit={submit}
           submitting={submitting}
-          sendDisabled={status === "crashed"}
+          sendDisabled={status === "crashed" || queueUpdating}
           images={composerImages.images}
           imageError={composerImages.error}
           imagesSupported={imagesSupported}
@@ -957,16 +1023,7 @@ export function SessionRuntime({
               >
                 {STATUS_LABELS[status]}
               </Badge>
-              {activeTool ? (
-                <span className="text-xs text-muted-foreground">
-                  正在执行 {activeTool}
-                </span>
-              ) : null}
-              {queuedMessages ? (
-                <span className="text-xs text-muted-foreground">
-                  队列 {queuedMessages}
-                </span>
-              ) : null}
+              <SessionStreamingToolStatus />
               {retrying ? (
                 <span className="text-xs text-muted-foreground">
                   {retrying}
@@ -982,20 +1039,6 @@ export function SessionRuntime({
           }
           endActions={
             <>
-              {isBusy ? (
-                <Select
-                  value={streamingBehavior}
-                  onValueChange={selectStreamingBehavior}
-                >
-                  <SelectTrigger size="sm" aria-label="消息队列方式">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent position="popper" side="top">
-                    <SelectItem value="followUp">完成后继续</SelectItem>
-                    <SelectItem value="steer">当前轮次补充</SelectItem>
-                  </SelectContent>
-                </Select>
-              ) : null}
               {isBusy ? (
                 <Button
                   type="button"

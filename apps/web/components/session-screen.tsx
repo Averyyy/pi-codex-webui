@@ -7,6 +7,7 @@ import { SessionDiagnostics } from "@/components/session-diagnostics"
 import { SessionExtensionProvider } from "@/components/session-extension-provider"
 import { SessionOperations } from "@/components/session-operations"
 import { SessionRuntime } from "@/components/session-runtime"
+import { SessionStreamingMessage } from "@/components/session-streaming"
 import { SessionWorkspace } from "@/components/session-workspace"
 import { SubagentsProvider } from "@/components/subagents"
 import { SessionTranscript } from "@/components/transcript"
@@ -155,11 +156,23 @@ export async function SessionScreen({
                 key="conversation-before"
                 name="conversation.before"
               />
-              <SessionTranscript key="transcript" snapshot={snapshot} />
+              <SessionTranscript
+                key="transcript"
+                snapshot={snapshot}
+                sessionId={sessionId}
+                mutationToken={mutationToken}
+                interactionDisabled={
+                  !workspaceAvailable ||
+                  ["starting", "busy", "stopping", "crashed"].includes(
+                    runtime.status
+                  )
+                }
+              />
               <ExtensionSlot
                 key="conversation-after"
                 name="conversation.after"
               />
+              <SessionStreamingMessage key="streaming-message" />
             </div>
           }
           composer={

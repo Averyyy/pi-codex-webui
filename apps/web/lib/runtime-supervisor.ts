@@ -16,8 +16,10 @@ import {
 import path from "node:path"
 
 import {
-  promptAcceptedSchema,
   modelSettingsSchema,
+  promptAcceptedSchema,
+  queueStateSchema,
+  queueUpdatedEventSchema,
   resourceCatalogSchema,
   sessionExportResultSchema,
   sessionNavigationResultSchema,
@@ -36,6 +38,7 @@ import {
   type RuntimeStatus,
   type SubagentsSnapshot,
   type ModelSettingsProviderInput,
+  type QueuedPromptItem,
   type WebUiExtensionStatus,
   type WorkerToHostMessage,
 } from "@workspace/runtime-protocol"
@@ -365,6 +368,29 @@ export class RuntimeSupervisor {
     return snapshot
   }
 
+  async replacePromptQueue(
+    sessionId: string,
+    expected: QueuedPromptItem[],
+    next: QueuedPromptItem[]
+  ) {
+    const runtime = this.runtimes.get(sessionId)
+    if (!runtime || runtime.cleaned) {
+      throw new RuntimeRequestError(
+        "RuntimeNotActive",
+        "The Pi runtime is not active."
+      )
+    }
+    runtime.lastActivityAt = Date.now()
+    return queueStateSchema.parse(
+      await this.request(runtime, {
+        type: "session.queue.replace",
+        requestId: requestId(),
+        sessionId,
+        payload: { expected, next },
+      })
+    )
+  }
+
   async snapshot(sessionId: string) {
     const runtime = await this.activate(sessionId)
     const data = await this.request(runtime, {
@@ -491,7 +517,12 @@ export class RuntimeSupervisor {
     )
   }
 
-  async navigateTree(sessionId: string, entryId: string, summarize: boolean) {
+  async navigateTree(
+    sessionId: string,
+    entryId: string,
+    summarize: boolean,
+    options: { restoreEditor?: boolean; publishEvent?: boolean } = {}
+  ) {
     const runtime = await this.activateReadyRuntime(sessionId)
     const result = sessionNavigationResultSchema.parse(
       await this.request(
@@ -506,12 +537,48 @@ export class RuntimeSupervisor {
       )
     )
     runtime.snapshot = result.snapshot
-    this.eventHub.publish({
-      type: "session.leaf.changed",
-      sessionId,
-      payload: { leafId: result.leafId, editorText: result.editorText },
-    })
+    if (options.publishEvent !== false) {
+      this.eventHub.publish({
+        type: "session.leaf.changed",
+        sessionId,
+        payload: {
+          leafId: result.leafId,
+          ...(options.restoreEditor !== false && result.editorText !== undefined
+            ? { editorText: result.editorText }
+            : {}),
+        },
+      })
+    }
     return result
+  }
+
+  async editMessage(
+    sessionId: string,
+    entryId: string,
+    input: {
+      message: string
+      images: { type: "image"; data: string; mimeType: string }[]
+      streamingBehavior: "steer" | "followUp"
+    }
+  ) {
+    const runtime = await this.activateReadyRuntime(sessionId)
+    if (!hasAvailableSelectedModel(runtime.snapshot)) {
+      throw new RuntimeRequestError(
+        "ModelUnavailable",
+        "The selected model is unavailable. Configure its Provider credentials or choose an available model."
+      )
+    }
+    const navigation = await this.navigateTree(sessionId, entryId, false, {
+      restoreEditor: false,
+      publishEvent: false,
+    })
+    if (navigation.cancelled) {
+      throw new RuntimeRequestError(
+        "NavigationCancelled",
+        "Message editing was cancelled by the Pi runtime."
+      )
+    }
+    return this.prompt(sessionId, input)
   }
 
   async createSession(projectId: string, options: NewRuntimeOptions = {}) {
@@ -1644,6 +1711,12 @@ export class RuntimeSupervisor {
     }
     if (message.eventType === "agent_settled") {
       runtime.status = "ready"
+    }
+    if (message.eventType === "queue_update" && runtime.snapshot) {
+      runtime.snapshot = {
+        ...runtime.snapshot,
+        queuedPrompts: queueUpdatedEventSchema.parse(message.payload).items,
+      }
     }
     const publishDomainEvent = () =>
       this.eventHub.publish({

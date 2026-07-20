@@ -4,7 +4,8 @@ import { open } from "node:fs/promises"
 import path from "node:path"
 import { z } from "zod"
 
-import type { TranscriptEntry, TranscriptPart } from "@/lib/session-types"
+import { normalizeTranscriptParts } from "@/lib/message-content"
+import type { TranscriptEntry } from "@/lib/session-types"
 
 const headerSchema = z
   .object({
@@ -268,65 +269,6 @@ export function parsePiSession(file: string, content: string): ParsedPiSession {
   }
 }
 
-function normalizeParts(content: unknown): TranscriptPart[] {
-  if (typeof content === "string") return [{ type: "text", text: content }]
-  if (!Array.isArray(content)) {
-    return [{ type: "unsupported", partType: typeof content, value: content }]
-  }
-
-  return content.map((part): TranscriptPart => {
-    if (typeof part !== "object" || part === null || !("type" in part)) {
-      return { type: "unsupported", partType: typeof part, value: part }
-    }
-    if (
-      part.type === "text" &&
-      "text" in part &&
-      typeof part.text === "string"
-    ) {
-      return { type: "text", text: part.text }
-    }
-    if (
-      part.type === "thinking" &&
-      "thinking" in part &&
-      typeof part.thinking === "string"
-    ) {
-      return {
-        type: "thinking",
-        text: part.thinking,
-        redacted: "redacted" in part && part.redacted === true,
-      }
-    }
-    if (
-      part.type === "image" &&
-      "data" in part &&
-      typeof part.data === "string" &&
-      "mimeType" in part &&
-      typeof part.mimeType === "string"
-    ) {
-      return { type: "image", data: part.data, mimeType: part.mimeType }
-    }
-    if (
-      part.type === "toolCall" &&
-      "id" in part &&
-      typeof part.id === "string" &&
-      "name" in part &&
-      typeof part.name === "string" &&
-      "arguments" in part &&
-      typeof part.arguments === "object" &&
-      part.arguments !== null &&
-      !Array.isArray(part.arguments)
-    ) {
-      return {
-        type: "toolCall",
-        id: part.id,
-        name: part.name,
-        arguments: part.arguments as Record<string, unknown>,
-      }
-    }
-    return { type: "unsupported", partType: String(part.type), value: part }
-  })
-}
-
 function requiredString(value: unknown, context: string) {
   if (typeof value !== "string") {
     throw new Error(`${context} must be a string.`)
@@ -334,7 +276,9 @@ function requiredString(value: unknown, context: string) {
   return value
 }
 
-function messageEntry(entry: PiSessionEntry): TranscriptEntry | null {
+function messageEntry(
+  entry: PiSessionEntry
+): Extract<TranscriptEntry, { kind: "message" }> | null {
   const message = messageValue(entry)
   if (!message) return null
 
@@ -367,7 +311,7 @@ function messageEntry(entry: PiSessionEntry): TranscriptEntry | null {
     id: entry.id,
     timestamp: entry.timestamp,
     role: message.role,
-    parts: normalizeParts(message.content),
+    parts: normalizeTranscriptParts(message.content),
     isError: message.isError === true,
     toolCallId:
       typeof message.toolCallId === "string" ? message.toolCallId : undefined,
@@ -378,10 +322,75 @@ function messageEntry(entry: PiSessionEntry): TranscriptEntry | null {
   }
 }
 
+function userBranchNavigation(parsed: ParsedPiSession) {
+  const children = new Map<string, PiSessionEntry[]>()
+  const order = new Map(parsed.entries.map((entry, index) => [entry.id, index]))
+  const userSiblings = new Map<string | null, PiSessionEntry[]>()
+
+  for (const entry of parsed.entries) {
+    if (entry.parentId !== null) {
+      const siblings = children.get(entry.parentId) ?? []
+      siblings.push(entry)
+      children.set(entry.parentId, siblings)
+    }
+    const message = messageValue(entry)
+    if (message?.role === "user") {
+      const siblings = userSiblings.get(entry.parentId) ?? []
+      siblings.push(entry)
+      userSiblings.set(entry.parentId, siblings)
+    }
+  }
+
+  const latestLeafById = new Map<string, string>()
+  for (let index = parsed.entries.length - 1; index >= 0; index -= 1) {
+    const entry = parsed.entries[index]!
+    const descendants = children.get(entry.id) ?? []
+    let latestLeafId = entry.id
+    for (const descendant of descendants) {
+      const leafId = latestLeafById.get(descendant.id) ?? descendant.id
+      if ((order.get(leafId) ?? -1) > (order.get(latestLeafId) ?? -1)) {
+        latestLeafId = leafId
+      }
+    }
+    latestLeafById.set(entry.id, latestLeafId)
+  }
+
+  const result = new Map<
+    string,
+    NonNullable<Extract<TranscriptEntry, { kind: "message" }>["branch"]>
+  >()
+  for (const entry of parsed.activeBranch) {
+    const message = messageValue(entry)
+    if (message?.role !== "user") continue
+    const siblings = userSiblings.get(entry.parentId) ?? []
+    if (siblings.length < 2) continue
+    const index = siblings.findIndex((sibling) => sibling.id === entry.id)
+    const previous = siblings[index - 1]
+    const next = siblings[index + 1]
+    const previousEntryId = previous
+      ? latestLeafById.get(previous.id)
+      : undefined
+    const nextEntryId = next ? latestLeafById.get(next.id) : undefined
+    result.set(entry.id, {
+      index: index + 1,
+      total: siblings.length,
+      ...(previousEntryId && previousEntryId !== previous?.id
+        ? { previousEntryId }
+        : {}),
+      ...(nextEntryId && nextEntryId !== next?.id ? { nextEntryId } : {}),
+    })
+  }
+  return result
+}
+
 export function toTranscriptEntries(parsed: ParsedPiSession) {
+  const branchNavigation = userBranchNavigation(parsed)
   return parsed.activeBranch.flatMap((entry): TranscriptEntry[] => {
     const message = messageEntry(entry)
-    if (message) return [message]
+    if (message) {
+      const branch = branchNavigation.get(entry.id)
+      return [branch ? { ...message, branch } : message]
+    }
 
     if (entry.type === "model_change") {
       const provider = requiredString(
@@ -446,7 +455,7 @@ export function toTranscriptEntries(parsed: ParsedPiSession) {
           id: entry.id,
           timestamp: entry.timestamp,
           role: `custom:${customType}`,
-          parts: normalizeParts(entry.content),
+          parts: normalizeTranscriptParts(entry.content),
           details: entry.details,
         },
       ]

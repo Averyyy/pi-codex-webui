@@ -60,6 +60,12 @@ export type TranscriptEntry =
       toolName?: string
       details?: unknown
       metadata?: Record<string, unknown>
+      branch?: {
+        index: number
+        total: number
+        previousEntryId?: string
+        nextEntryId?: string
+      }
     }
   | {
       kind: "event"
