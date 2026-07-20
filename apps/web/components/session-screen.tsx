@@ -39,16 +39,16 @@ export async function SessionScreen({
   projectId: string | null
 }) {
   const eventCursor = getEventHub().cursor()
+  const supervisor = getRuntimeSupervisor()
+  const runtime = supervisor.state(sessionId)
   const [snapshot, config] = await Promise.all([
-    getSessionSnapshot(sessionId),
+    getSessionSnapshot(sessionId, runtime.snapshot?.leafId),
     loadConfig(),
   ])
   if (!snapshot || snapshot.session.projectId !== projectId) notFound()
 
   const standalone = projectId === null
   const workspaceAvailable = await directoryAvailable(snapshot.session.cwd)
-  const supervisor = getRuntimeSupervisor()
-  const runtime = supervisor.state(sessionId)
   const resources = workspaceAvailable
     ? await supervisor.resourceCatalog(snapshot.session.cwd)
     : null

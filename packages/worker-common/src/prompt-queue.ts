@@ -80,6 +80,13 @@ export class PromptQueue {
   }
 
   prepareReplacement(expected: QueuedPromptItem[], next: QueuedPromptItem[]) {
+    if (this.records.some((record) => !record.confirmed)) {
+      const error = new Error(
+        "消息正在加入队列；请等待队列更新后再执行此操作。"
+      )
+      error.name = "QueueConflict"
+      throw error
+    }
     if (!sameItems(this.snapshot(), expected)) {
       const error = new Error("消息队列已变化；请根据最新队列重新执行此操作。")
       error.name = "QueueConflict"

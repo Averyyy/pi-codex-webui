@@ -31,7 +31,7 @@ export default async function SearchPage({
   const results = query ? await searchSessions(query) : []
 
   return (
-    <main className="mx-auto flex w-full max-w-4xl min-w-0 flex-col gap-8 px-6 py-10 md:px-10 md:py-14">
+    <div className="mx-auto flex w-full max-w-4xl min-w-0 flex-col gap-8 px-6 py-10 md:px-10 md:py-14">
       <header className="flex items-center gap-3">
         <div className="grid size-10 place-items-center rounded-xl bg-muted">
           <SearchIcon className="size-5" />
@@ -127,6 +127,6 @@ export default async function SearchPage({
           </Empty>
         ) : null}
       </section>
-    </main>
+    </div>
   )
 }

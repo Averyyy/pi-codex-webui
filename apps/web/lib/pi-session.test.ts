@@ -181,6 +181,20 @@ test("exposes user-message branch position and branch-tip navigation", () => {
       nextEntryId: "assistant-edited",
     }
   )
+
+  const selectedBranch = parsePiSession(
+    file,
+    jsonl(header, firstQuestion, firstAnswer, editedQuestion, editedAnswer),
+    "assistant-first"
+  )
+  assert.deepEqual(
+    selectedBranch.activeBranch.map((entry) => entry.id),
+    ["user-first", "assistant-first"]
+  )
+  assert.deepEqual(
+    toTranscriptEntries(selectedBranch).map((entry) => entry.id),
+    ["user-first", "assistant-first"]
+  )
 })
 
 test("incremental entry parsing preserves line numbers and metadata", () => {
@@ -222,6 +236,99 @@ test("incremental entry parsing preserves line numbers and metadata", () => {
   )
 })
 
+test("uses goal state as metadata without exposing its control prompt", () => {
+  const goalState = {
+    type: "custom",
+    id: "goal-state-1",
+    parentId: null,
+    timestamp: "2026-07-13T00:00:01.000Z",
+    customType: "goal-state",
+    data: {
+      goal: {
+        id: "goal-1",
+        text: "Fix every frontend issue",
+        status: "active",
+        startedAt: 1,
+        updatedAt: 2,
+        iteration: 0,
+        tokensUsed: 0,
+        timeUsedSeconds: 0,
+      },
+    },
+  }
+  const controlPrompt = {
+    type: "message",
+    id: "goal-prompt-1",
+    parentId: "goal-state-1",
+    timestamp: "2026-07-13T00:00:02.000Z",
+    message: {
+      role: "user",
+      timestamp: Date.parse("2026-07-13T00:00:02.000Z"),
+      content:
+        "Internal goal instructions\n\n<!-- pi-goal-prompt:owned-marker -->",
+    },
+  }
+  const assistant = {
+    type: "message",
+    id: "assistant-goal-1",
+    parentId: "goal-wrap-up-1",
+    timestamp: "2026-07-13T00:00:03.000Z",
+    message: {
+      role: "assistant",
+      timestamp: Date.parse("2026-07-13T00:00:03.000Z"),
+      content: "Working on it.",
+    },
+  }
+  const wrapUp = {
+    type: "message",
+    id: "goal-wrap-up-1",
+    parentId: "goal-prompt-1",
+    timestamp: "2026-07-13T00:00:02.500Z",
+    message: {
+      role: "custom",
+      customType: "goal-budget-wrap-up",
+      content: "Internal budget wrap-up instructions",
+      display: true,
+      details: { goalId: "goal-1" },
+    },
+  }
+
+  const parsed = parsePiSession(
+    file,
+    jsonl(header, goalState, controlPrompt, wrapUp, assistant)
+  )
+
+  assert.equal(parsed.firstMessage, "Fix every frontend issue")
+  assert.equal(parsed.messageCount, 1)
+  assert.deepEqual(
+    toTranscriptEntries(parsed).map((entry) => entry.id),
+    ["assistant-goal-1"]
+  )
+  assert.equal(searchableText(parsed.entries[0]!), "Fix every frontend issue")
+  assert.equal(searchableText(parsed.entries[1]!), "")
+  assert.equal(searchableText(parsed.entries[2]!), "")
+})
+
+test("keeps display-false custom messages out of transcripts and search", () => {
+  const hidden = {
+    type: "message",
+    id: "hidden-custom-1",
+    parentId: null,
+    timestamp: "2026-07-13T00:00:01.000Z",
+    message: {
+      role: "custom",
+      customType: "internal-status",
+      content: "internal only",
+      display: false,
+    },
+  }
+  const parsed = parsePiSession(file, jsonl(header, hidden))
+
+  assert.equal(parsed.messageCount, 0)
+  assert.deepEqual(toTranscriptEntries(parsed), [])
+  assert.equal(searchableText(parsed.entries[0]!), "")
+})
+
 test("rejects a session branch whose parent does not exist", () => {
   const orphan = {
     type: "message",
@@ -234,5 +341,9 @@ test("rejects a session branch whose parent does not exist", () => {
   assert.throws(
     () => parsePiSession(file, jsonl(header, orphan)),
     /references missing parent missing/
+  )
+  assert.throws(
+    () => parsePiSession(file, jsonl(header, orphan), "unknown-leaf"),
+    /active leaf unknown-leaf does not exist/
   )
 })

@@ -27,6 +27,21 @@ test("streams only events for the subscribed session", async () => {
   await reader.cancel()
 })
 
+test("streams every session through an explicit wildcard subscription", async () => {
+  const hub = new EventHub()
+  const reader = hub
+    .stream(null, null, new AbortController().signal)
+    .getReader()
+
+  await reader.read()
+  hub.publish({ type: "session.updated", sessionId: "session-a", payload: {} })
+  hub.publish({ type: "session.updated", sessionId: "session-b", payload: {} })
+
+  assert.match(decoder.decode((await reader.read()).value), /session-a/)
+  assert.match(decoder.decode((await reader.read()).value), /session-b/)
+  await reader.cancel()
+})
+
 test("replays retained events after Last-Event-ID", async () => {
   const hub = new EventHub()
   hub.publish({ type: "first", sessionId: "session-a", payload: {} })

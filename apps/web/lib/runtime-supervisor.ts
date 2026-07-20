@@ -568,6 +568,7 @@ export class RuntimeSupervisor {
         "The selected model is unavailable. Configure its Provider credentials or choose an available model."
       )
     }
+    const originalLeafId = (await this.tree(sessionId)).leafId
     const navigation = await this.navigateTree(sessionId, entryId, false, {
       restoreEditor: false,
       publishEvent: false,
@@ -578,7 +579,27 @@ export class RuntimeSupervisor {
         "Message editing was cancelled by the Pi runtime."
       )
     }
-    return this.prompt(sessionId, input)
+    try {
+      return await this.prompt(sessionId, input)
+    } catch (error) {
+      try {
+        const rollback = await this.navigateTree(
+          sessionId,
+          originalLeafId ?? entryId,
+          false,
+          { restoreEditor: false }
+        )
+        if (rollback.cancelled) {
+          throw new Error("Pi cancelled the message-edit rollback.")
+        }
+      } catch (rollbackError) {
+        throw new AggregateError(
+          [error, rollbackError],
+          "Message editing failed and the original session branch could not be restored."
+        )
+      }
+      throw error
+    }
   }
 
   async createSession(projectId: string, options: NewRuntimeOptions = {}) {

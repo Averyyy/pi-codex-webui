@@ -242,6 +242,9 @@ export function SessionRuntime({
   const [draft, setDraft] = useState("")
   const composerImages = useComposerImages()
   const [submitting, setSubmitting] = useState(false)
+  const [streamingBehavior, setStreamingBehavior] = useState<
+    "steer" | "followUp"
+  >("followUp")
   const [updating, setUpdating] = useState(false)
   const [queueUpdating, setQueueUpdating] = useState(false)
   const [compacting, setCompacting] = useState(false)
@@ -342,7 +345,7 @@ export function SessionRuntime({
       await mutate(`/api/v1/sessions/${sessionId}/messages`, "POST", {
         message: text || "请查看附加图片。",
         images: promptImages(images),
-        streamingBehavior: "followUp",
+        streamingBehavior,
       })
       if (options.clearDraft) {
         setDraft((current) => (current.trim() === text ? "" : current))
@@ -822,6 +825,13 @@ export function SessionRuntime({
     }
   }
 
+  function selectStreamingBehavior(value: string) {
+    if (value !== "steer" && value !== "followUp") {
+      throw new Error("Pi returned an invalid queue behavior.")
+    }
+    setStreamingBehavior(value)
+  }
+
   async function compact() {
     setError(null)
     try {
@@ -938,13 +948,19 @@ export function SessionRuntime({
           onCommand={(args) => sendMessage(`/goal ${args}`)}
         />
         <ExtensionSlot name="composer.above" excludeViewIds={["goal.card"]} />
-        <PromptQueue items={queuedMessages} onReplace={replaceQueuedMessages} />
+        <PromptQueue
+          items={queuedMessages}
+          onReplace={replaceQueuedMessages}
+          disabled={submitting || queueUpdating}
+        />
         <ConversationComposer
           value={draft}
           onValueChange={setDraft}
           onSubmit={submit}
           submitting={submitting}
-          sendDisabled={status === "crashed" || queueUpdating}
+          sendDisabled={
+            status === "crashed" || queueUpdating || composerImages.loading
+          }
           images={composerImages.images}
           imageError={composerImages.error}
           imagesSupported={imagesSupported}
@@ -1024,6 +1040,16 @@ export function SessionRuntime({
                 {STATUS_LABELS[status]}
               </Badge>
               <SessionStreamingToolStatus />
+              {composerImages.loading ? (
+                <span
+                  role="status"
+                  aria-live="polite"
+                  className="flex items-center gap-1.5 text-xs text-muted-foreground"
+                >
+                  <LoaderCircleIcon className="size-3 animate-spin" />
+                  正在读取图片…
+                </span>
+              ) : null}
               {retrying ? (
                 <span className="text-xs text-muted-foreground">
                   {retrying}
@@ -1039,6 +1065,20 @@ export function SessionRuntime({
           }
           endActions={
             <>
+              {isBusy ? (
+                <Select
+                  value={streamingBehavior}
+                  onValueChange={selectStreamingBehavior}
+                >
+                  <SelectTrigger size="sm" aria-label="消息队列方式">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent position="popper" side="top">
+                    <SelectItem value="followUp">完成后继续</SelectItem>
+                    <SelectItem value="steer">当前轮次补充</SelectItem>
+                  </SelectContent>
+                </Select>
+              ) : null}
               {isBusy ? (
                 <Button
                   type="button"

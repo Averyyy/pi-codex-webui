@@ -154,13 +154,7 @@ export function UserMessage({
         )}
       </div>
       {!editing ? (
-        <div
-          className={
-            entry.branch
-              ? "flex min-h-7 items-center gap-0.5"
-              : "flex min-h-7 items-center gap-0.5 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100"
-          }
-        >
+        <div className="flex min-h-7 items-center gap-0.5">
           {entry.branch ? (
             <>
               <Button

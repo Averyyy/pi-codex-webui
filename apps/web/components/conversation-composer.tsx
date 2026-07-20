@@ -155,7 +155,9 @@ export function ConversationComposer({
         return
       }
       if (
-        (event.key === "Enter" && !event.nativeEvent.isComposing) ||
+        (event.key === "Enter" &&
+          !event.shiftKey &&
+          !event.nativeEvent.isComposing) ||
         (event.key === "Tab" && !event.shiftKey)
       ) {
         const command = matchingCommands.find((item) => !item.disabled)

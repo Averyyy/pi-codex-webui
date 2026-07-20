@@ -5,6 +5,7 @@ import path from "node:path"
 import { z } from "zod"
 
 import { normalizeTranscriptParts } from "@/lib/message-content"
+import { isPiGoalControlMessage, latestPiGoalState } from "@/lib/pi-goal"
 import type { TranscriptEntry } from "@/lib/session-types"
 
 const headerSchema = z
@@ -183,7 +184,7 @@ function textFromContent(content: unknown) {
     .join(" ")
 }
 
-function activeBranch(entries: PiSessionEntry[]) {
+function activeBranch(entries: PiSessionEntry[], activeLeafId?: string | null) {
   if (entries.length === 0) return []
 
   const byId = new Map<string, PiSessionEntry>()
@@ -195,7 +196,12 @@ function activeBranch(entries: PiSessionEntry[]) {
   }
   const visited = new Set<string>()
   const branch: PiSessionEntry[] = []
-  let current: PiSessionEntry | undefined = entries.at(-1)
+  let current: PiSessionEntry | undefined = activeLeafId
+    ? byId.get(activeLeafId)
+    : entries.at(-1)
+  if (activeLeafId && !current) {
+    throw new Error(`Session active leaf ${activeLeafId} does not exist.`)
+  }
 
   while (current) {
     if (visited.has(current.id)) {
@@ -232,14 +238,26 @@ export function summarizePiEntries(
           : undefined
     }
 
+    const goalState = latestPiGoalState([entry])
+    if (!firstMessage && goalState?.goal.text.trim()) {
+      firstMessage = goalState.goal.text.trim()
+    }
+
     const message = messageValue(entry)
     if (!message) continue
-    messageCount += 1
-    if (message.role !== "user" && message.role !== "assistant") continue
 
     if (typeof message.timestamp === "number") {
       lastActivity = Math.max(lastActivity, message.timestamp)
     }
+    if (
+      isPiGoalControlMessage(message) ||
+      (message.role === "custom" && message.display === false)
+    ) {
+      continue
+    }
+    messageCount += 1
+    if (message.role !== "user" && message.role !== "assistant") continue
+
     if (!firstMessage && message.role === "user") {
       firstMessage = textFromContent(message.content)
     }
@@ -253,7 +271,11 @@ export function summarizePiEntries(
   }
 }
 
-export function parsePiSession(file: string, content: string): ParsedPiSession {
+export function parsePiSession(
+  file: string,
+  content: string,
+  activeLeafId?: string | null
+): ParsedPiSession {
   const { header, entries } = parseLines(file, content)
   const metadata = summarizePiEntries(entries, {
     firstMessage: "",
@@ -264,7 +286,7 @@ export function parsePiSession(file: string, content: string): ParsedPiSession {
   return {
     header,
     entries,
-    activeBranch: activeBranch(entries),
+    activeBranch: activeBranch(entries, activeLeafId),
     ...metadata,
   }
 }
@@ -282,6 +304,9 @@ function messageEntry(
   const message = messageValue(entry)
   if (!message) return null
 
+  if (isPiGoalControlMessage(message)) {
+    return null
+  }
   if (message.role === "custom" && message.display === false) return null
   if (message.role === "bashExecution") {
     const command = requiredString(
@@ -334,7 +359,7 @@ function userBranchNavigation(parsed: ParsedPiSession) {
       children.set(entry.parentId, siblings)
     }
     const message = messageValue(entry)
-    if (message?.role === "user") {
+    if (message?.role === "user" && !isPiGoalControlMessage(message)) {
       const siblings = userSiblings.get(entry.parentId) ?? []
       siblings.push(entry)
       userSiblings.set(entry.parentId, siblings)
@@ -361,7 +386,9 @@ function userBranchNavigation(parsed: ParsedPiSession) {
   >()
   for (const entry of parsed.activeBranch) {
     const message = messageValue(entry)
-    if (message?.role !== "user") continue
+    if (message?.role !== "user" || isPiGoalControlMessage(message)) {
+      continue
+    }
     const siblings = userSiblings.get(entry.parentId) ?? []
     if (siblings.length < 2) continue
     const index = siblings.findIndex((sibling) => sibling.id === entry.id)
@@ -391,6 +418,7 @@ export function toTranscriptEntries(parsed: ParsedPiSession) {
       const branch = branchNavigation.get(entry.id)
       return [branch ? { ...message, branch } : message]
     }
+    if (entry.type === "message") return []
 
     if (entry.type === "model_change") {
       const provider = requiredString(
@@ -444,7 +472,8 @@ export function toTranscriptEntries(parsed: ParsedPiSession) {
         },
       ]
     }
-    if (entry.type === "custom_message" && entry.display !== false) {
+    if (entry.type === "custom_message") {
+      if (entry.display === false || isPiGoalControlMessage(entry)) return []
       const customType = requiredString(
         entry.customType,
         `Session entry ${entry.id} customType`
@@ -478,6 +507,12 @@ export function toTranscriptEntries(parsed: ParsedPiSession) {
 export function searchableText(entry: PiSessionEntry) {
   const message = messageValue(entry)
   if (message) {
+    if (
+      isPiGoalControlMessage(message) ||
+      (message.role === "custom" && message.display === false)
+    ) {
+      return ""
+    }
     const values = [textFromContent(message.content)]
     if (message.role === "bashExecution") {
       values.push(
@@ -516,8 +551,11 @@ export function searchableText(entry: PiSessionEntry) {
     return requiredString(entry.summary, `Session entry ${entry.id} summary`)
   }
   if (entry.type === "custom_message") {
+    if (entry.display === false || isPiGoalControlMessage(entry)) return ""
     return textFromContent(entry.content)
   }
+  const goalState = latestPiGoalState([entry])
+  if (goalState) return goalState.goal.text
   return ""
 }
 

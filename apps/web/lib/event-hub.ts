@@ -12,7 +12,7 @@ export interface WebEvent {
 
 type EventInput = Omit<WebEvent, "id" | "seq" | "timestamp">
 type Subscriber = {
-  sessionIds: Set<string>
+  sessionIds: Set<string> | null
   send: (event: WebEvent) => void
 }
 
@@ -24,7 +24,11 @@ declare global {
 }
 
 function matches(subscriber: Subscriber, event: WebEvent) {
-  return !event.sessionId || subscriber.sessionIds.has(event.sessionId)
+  return (
+    !event.sessionId ||
+    subscriber.sessionIds === null ||
+    subscriber.sessionIds.has(event.sessionId)
+  )
 }
 
 function serialize(event: WebEvent, eventName = event.type) {
@@ -66,12 +70,12 @@ export class EventHub {
   }
 
   stream(
-    sessionIds: string[],
+    sessionIds: string[] | null,
     lastEventId: string | null,
     signal: AbortSignal,
     eventName?: string
   ) {
-    const subscriptions = new Set(sessionIds)
+    const subscriptions = sessionIds === null ? null : new Set(sessionIds)
     let subscriber: Subscriber | undefined
     let heartbeat: NodeJS.Timeout | undefined
     let removeAbortListener: (() => void) | undefined

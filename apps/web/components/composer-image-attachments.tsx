@@ -1,11 +1,16 @@
 "use client"
 
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { XIcon } from "lucide-react"
 
 import { Button } from "@workspace/ui/components/button"
 
-import type { PromptImage } from "@/lib/prompt-images"
+import {
+  MAX_PROMPT_IMAGES,
+  MAX_PROMPT_IMAGE_BASE64_LENGTH,
+  promptImageBase64Length,
+  type PromptImage,
+} from "@/lib/prompt-images"
 
 export type ComposerImage = PromptImage & {
   id: string
@@ -43,27 +48,63 @@ function readImage(file: File) {
 export function useComposerImages() {
   const [images, setImages] = useState<ComposerImage[]>([])
   const [error, setError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+  const imagesRef = useRef<ComposerImage[]>([])
+  const pendingCountRef = useRef(0)
+  const revisionRef = useRef(0)
 
   async function addImages(files: File[]) {
     setError(null)
+    if (
+      imagesRef.current.length + pendingCountRef.current + files.length >
+      MAX_PROMPT_IMAGES
+    ) {
+      setError(`每条消息最多添加 ${MAX_PROMPT_IMAGES} 张图片。`)
+      return
+    }
+    const oversized = files.find(
+      (file) =>
+        promptImageBase64Length(file.size) > MAX_PROMPT_IMAGE_BASE64_LENGTH
+    )
+    if (oversized) {
+      setError(`图片 ${oversized.name} 太大，无法添加。`)
+      return
+    }
+
+    pendingCountRef.current += files.length
+    setLoading(true)
+    const revision = revisionRef.current
     try {
-      const added = await Promise.all(files.map(readImage))
-      setImages((current) => [...current, ...added])
+      const added: ComposerImage[] = []
+      for (const file of files) added.push(await readImage(file))
+      if (revision !== revisionRef.current) return
+      const next = [...imagesRef.current, ...added]
+      imagesRef.current = next
+      setImages(next)
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure))
+      if (revision === revisionRef.current) {
+        setError(failure instanceof Error ? failure.message : String(failure))
+      }
+    } finally {
+      pendingCountRef.current -= files.length
+      if (pendingCountRef.current === 0) setLoading(false)
     }
   }
 
   function removeImage(id: string) {
-    setImages((current) => current.filter((image) => image.id !== id))
+    const next = imagesRef.current.filter((image) => image.id !== id)
+    imagesRef.current = next
+    setImages(next)
   }
 
   function clearImages() {
+    revisionRef.current += 1
+    imagesRef.current = []
     setImages([])
     setError(null)
   }
 
-  return { images, error, addImages, removeImage, clearImages }
+  return { images, error, loading, addImages, removeImage, clearImages }
 }
 
 export function promptImages(images: ComposerImage[]): PromptImage[] {
@@ -104,7 +145,7 @@ export function ComposerImagePreviews({
                 type="button"
                 variant="secondary"
                 size="icon-xs"
-                className="absolute top-1 right-1 rounded-full opacity-0 group-focus-within:opacity-100 group-hover:opacity-100"
+                className="absolute top-1 right-1 rounded-full"
                 onClick={() => onRemove?.(image.id)}
                 aria-label={`移除 ${image.name}`}
               >

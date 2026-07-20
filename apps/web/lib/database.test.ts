@@ -87,7 +87,13 @@ test("database v1 migration preserves sessions and adds runtime bindings", async
   legacy.close()
 
   const migrated = await getDatabase()
-  assert.equal(migrated.prepare("PRAGMA user_version").get()?.user_version, 7)
+  assert.equal(migrated.prepare("PRAGMA user_version").get()?.user_version, 9)
+  assert.equal(
+    migrated
+      .prepare("SELECT indexed_lines FROM sessions WHERE id = 'session-1'")
+      .get()?.indexed_lines,
+    0
+  )
   assert.deepEqual(
     {
       ...migrated
@@ -231,7 +237,13 @@ test("database v2 migration backfills cwd and permits standalone sessions", asyn
   legacy.close()
 
   const migrated = await getDatabase()
-  assert.equal(migrated.prepare("PRAGMA user_version").get()?.user_version, 7)
+  assert.equal(migrated.prepare("PRAGMA user_version").get()?.user_version, 9)
+  assert.equal(
+    migrated
+      .prepare("SELECT indexed_lines FROM sessions WHERE id = 'session-2'")
+      .get()?.indexed_lines,
+    0
+  )
   assert.deepEqual(
     {
       ...migrated

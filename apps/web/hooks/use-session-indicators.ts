@@ -52,6 +52,11 @@ export function useSessionIndicators({
     () => sessions.map((session) => session.id).join("\0"),
     [sessions]
   )
+  const sessionIdSet = useMemo(
+    () => new Set(sessionKey ? sessionKey.split("\0") : []),
+    [sessionKey]
+  )
+  const hasSessions = sessionIdSet.size > 0
   const initialRunningKey = [...initialRunningSessionIds].sort().join("\0")
   const initialUnreadKey = useMemo(
     () =>
@@ -145,6 +150,7 @@ export function useSessionIndicators({
     }
     if (!event.sessionId) return
     const sessionId = event.sessionId
+    if (!sessionIdSet.has(sessionId)) return
 
     if (RUNNING_EVENT_TYPES.has(event.type)) {
       setRunningOverrides((current) => setOverride(current, sessionId, true))
@@ -173,12 +179,8 @@ export function useSessionIndicators({
   }, [activeSessionId, persistSessionRead])
 
   useEffect(() => {
-    if (!sessionKey) return
-    const search = new URLSearchParams()
-    for (const sessionId of sessionKey.split("\0")) {
-      search.append("sessionId", sessionId)
-    }
-    const events = new EventSource(`/api/v1/events?${search}`)
+    if (!hasSessions) return
+    const events = new EventSource("/api/v1/events?scope=all")
     const eventTypes = [
       ...RUNNING_EVENT_TYPES,
       ...STOPPED_EVENT_TYPES,
@@ -189,7 +191,7 @@ export function useSessionIndicators({
       events.addEventListener(eventType, handleSessionEvent)
     }
     return () => events.close()
-  }, [sessionKey])
+  }, [hasSessions])
 
   return { runningSessionIds, unreadSessionIds }
 }

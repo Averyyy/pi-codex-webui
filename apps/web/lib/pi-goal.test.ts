@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 
-import { latestPiGoalState } from "./pi-goal"
+import { isPiGoalControlMessage, latestPiGoalState } from "./pi-goal"
 
 const goal = {
   id: "goal-1",
@@ -31,5 +31,42 @@ test("a cleared goal hides the persistent bar", () => {
       { type: "custom", customType: "goal-state", data: { goal: null } },
     ]),
     null
+  )
+})
+
+test("recognizes only Pi Goal's explicit control markers", () => {
+  assert.equal(
+    isPiGoalControlMessage({
+      role: "user",
+      content: "Run the goal.\n\n<!-- pi-goal-prompt:5d152a75-5f48 -->",
+    }),
+    true
+  )
+  assert.equal(
+    isPiGoalControlMessage({
+      role: "user",
+      content: [
+        {
+          type: "text",
+          text: "Continue.\n\n<!-- pi-goal-continuation:goal-1:2:marker -->",
+        },
+      ],
+    }),
+    true
+  )
+  assert.equal(
+    isPiGoalControlMessage({
+      role: "custom",
+      customType: "goal-budget-wrap-up",
+      content: "Internal budget instructions",
+    }),
+    true
+  )
+  assert.equal(
+    isPiGoalControlMessage({
+      role: "user",
+      content: "<!-- ordinary-comment:value -->",
+    }),
+    false
   )
 })

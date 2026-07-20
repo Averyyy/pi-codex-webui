@@ -1,7 +1,11 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 
-import { promptImagesSchema } from "./prompt-images"
+import {
+  MAX_PROMPT_IMAGE_BASE64_LENGTH,
+  promptImageBase64Length,
+  promptImagesSchema,
+} from "./prompt-images"
 
 const image = {
   type: "image" as const,
@@ -29,5 +33,20 @@ test("prompt images reject non-image media types", () => {
     promptImagesSchema.safeParse([{ ...image, mimeType: "text/plain" }])
       .success,
     false
+  )
+})
+
+test("computes the encoded length before reading image bytes", () => {
+  assert.equal(promptImageBase64Length(0), 0)
+  assert.equal(promptImageBase64Length(1), 4)
+  assert.equal(promptImageBase64Length(3), 4)
+  assert.equal(promptImageBase64Length(4), 8)
+  assert.equal(
+    promptImageBase64Length(15_000_000),
+    MAX_PROMPT_IMAGE_BASE64_LENGTH
+  )
+  assert.equal(
+    promptImageBase64Length(15_000_001) > MAX_PROMPT_IMAGE_BASE64_LENGTH,
+    true
   )
 })

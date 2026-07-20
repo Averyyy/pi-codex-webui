@@ -38,9 +38,11 @@ import type { QueuedPromptItem } from "@workspace/runtime-protocol"
 export function PromptQueue({
   items,
   onReplace,
+  disabled = false,
 }: {
   items: QueuedPromptItem[]
   onReplace: (next: QueuedPromptItem[]) => Promise<void>
+  disabled?: boolean
 }) {
   const [editing, setEditing] = useState<QueuedPromptItem | null>(null)
   const [editText, setEditText] = useState("")
@@ -92,10 +94,10 @@ export function PromptQueue({
             {items.length} 条消息将按发送顺序处理
           </CardDescription>
         </CardHeader>
-        <CardContent className="flex flex-col gap-1">
-          {items.map((item) => {
+        <CardContent className="flex max-h-64 flex-col gap-1 overflow-y-auto">
+          {items.map((item, index) => {
             const steering = item.mode === "steer"
-            const disabled = updatingId !== null
+            const itemDisabled = disabled || updatingId !== null
             return (
               <div
                 key={item.id}
@@ -109,7 +111,7 @@ export function PromptQueue({
                 </Badge>
                 <p
                   className="min-w-0 flex-1 truncate text-sm"
-                  title={item.text}
+                  title={item.text.slice(0, 200)}
                 >
                   {item.text}
                 </p>
@@ -118,7 +120,7 @@ export function PromptQueue({
                     type="button"
                     variant="ghost"
                     size="sm"
-                    disabled={disabled}
+                    disabled={itemDisabled}
                     onClick={() =>
                       void replace(
                         items.map((queued) =>
@@ -138,8 +140,8 @@ export function PromptQueue({
                   type="button"
                   variant="ghost"
                   size="icon-sm"
-                  aria-label={`编辑消息：${item.text}`}
-                  disabled={disabled}
+                  aria-label={`编辑第 ${index + 1} 条待处理消息`}
+                  disabled={itemDisabled}
                   onClick={() => openEditor(item)}
                 >
                   <PencilIcon />
@@ -148,8 +150,8 @@ export function PromptQueue({
                   type="button"
                   variant="ghost"
                   size="icon-sm"
-                  aria-label={`删除消息：${item.text}`}
-                  disabled={disabled}
+                  aria-label={`删除第 ${index + 1} 条待处理消息`}
+                  disabled={itemDisabled}
                   onClick={() =>
                     void replace(
                       items.filter((queued) => queued.id !== item.id),
@@ -209,7 +211,10 @@ export function PromptQueue({
             <Button
               type="button"
               disabled={
-                updatingId !== null || !editingStillQueued || !editText.trim()
+                disabled ||
+                updatingId !== null ||
+                !editingStillQueued ||
+                !editText.trim()
               }
               onClick={() => void saveEdit()}
             >

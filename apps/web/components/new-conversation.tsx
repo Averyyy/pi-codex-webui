@@ -258,7 +258,7 @@ export function NewConversation({
   const modelUnavailable = error?.code === "ModelUnavailable"
 
   return (
-    <main className="flex min-h-[calc(100svh-3rem)] flex-col px-4 py-6 md:min-h-svh md:px-8 md:py-8">
+    <div className="flex min-h-[calc(100svh-3rem)] flex-col px-4 py-6 md:min-h-svh md:px-8 md:py-8">
       <section className="mx-auto flex w-full max-w-5xl flex-1 flex-col items-center justify-center gap-8 py-8 text-center">
         <div className="flex flex-col items-center gap-4">
           <SparklesIcon className="size-7 text-primary" />
@@ -325,7 +325,7 @@ export function NewConversation({
           ariaLabel="第一条消息"
           autoFocus
           submitting={submitting}
-          sendDisabled={loadingModels}
+          sendDisabled={loadingModels || composerImages.loading}
           images={composerImages.images}
           imageError={composerImages.error}
           imagesSupported={model?.input.includes("image") ?? false}
@@ -385,6 +385,15 @@ export function NewConversation({
                 >
                   <LoaderCircleIcon className="size-3 animate-spin" />
                   正在加载模型
+                </span>
+              ) : composerImages.loading ? (
+                <span
+                  role="status"
+                  aria-live="polite"
+                  className="flex items-center gap-1.5 text-xs text-muted-foreground"
+                >
+                  <LoaderCircleIcon className="size-3 animate-spin" />
+                  正在读取图片…
                 </span>
               ) : null}
             </>
@@ -458,6 +467,6 @@ export function NewConversation({
           }
         />
       </div>
-    </main>
+    </div>
   )
 }

@@ -67,6 +67,7 @@ export const runtimeSnapshotSchema = z.object({
   webSessionId: z.string().min(1),
   nativeSessionId: z.string().min(1),
   nativeSessionFile: z.string().min(1),
+  leafId: z.string().nullable(),
   cwd: z.string().min(1),
   sessionName: z.string().optional(),
   model: runtimeModelSchema

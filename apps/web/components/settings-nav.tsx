@@ -27,6 +27,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarRail,
+  useSidebar,
 } from "@workspace/ui/components/sidebar"
 
 import { useI18n } from "@/components/i18n-provider"
@@ -76,15 +77,17 @@ export function SettingsNav() {
   const pathname = usePathname()
   const router = useRouter()
   const { t } = useI18n()
+  const { isMobile, state } = useSidebar()
+  const navigationHidden = !isMobile && state === "collapsed"
 
   return (
     <Sidebar collapsible="offcanvas">
-      <SidebarHeader>
+      <SidebarHeader inert={navigationHidden} aria-hidden={navigationHidden}>
         <div className="flex h-10 items-center px-2 text-base font-semibold">
           pi-web-codex
         </div>
       </SidebarHeader>
-      <SidebarContent>
+      <SidebarContent inert={navigationHidden} aria-hidden={navigationHidden}>
         <SidebarGroup>
           <SidebarGroupLabel>{t("settings.label")}</SidebarGroupLabel>
           <SidebarGroupContent>
@@ -110,7 +113,7 @@ export function SettingsNav() {
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
-      <SidebarFooter>
+      <SidebarFooter inert={navigationHidden} aria-hidden={navigationHidden}>
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton asChild isActive tooltip={t("settings.label")}>

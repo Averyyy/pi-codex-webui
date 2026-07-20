@@ -73,3 +73,25 @@ test("stale edits fail instead of overwriting a newer queue", () => {
     (error: Error) => error.name === "QueueConflict"
   )
 })
+
+test("queue replacement cannot drop a prompt that is still being admitted", () => {
+  const queue = new PromptQueue()
+  queue.begin("followUp", "first", [])
+  const visible = queue.reconcile({ steering: [], followUp: ["first"] })
+  queue.begin("followUp", "second", [
+    { type: "image", data: "image-data", mimeType: "image/png" },
+  ])
+
+  assert.throws(
+    () => queue.prepareReplacement(visible, visible),
+    (error: Error) =>
+      error.name === "QueueConflict" && /正在加入队列/.test(error.message)
+  )
+
+  const reconciled = queue.reconcile({
+    steering: [],
+    followUp: ["first", "second"],
+  })
+  assert.equal(reconciled.length, 2)
+  assert.equal(reconciled[1]?.text, "second")
+})

@@ -31,6 +31,32 @@ export const piGoalStateSchema = z.object({
 export type PiGoalState = z.infer<typeof piGoalStateSchema>
 export type PiGoalStatus = z.infer<typeof goalStatusSchema>
 
+const piGoalControlMarker =
+  /<!--\s*pi-goal-(?:prompt|continuation):[^\s>]+\s*-->/
+
+function hasPiGoalControlMarker(content: unknown) {
+  if (typeof content === "string") return piGoalControlMarker.test(content)
+  if (!Array.isArray(content)) return false
+  return content.some(
+    (part) =>
+      typeof part === "object" &&
+      part !== null &&
+      "type" in part &&
+      part.type === "text" &&
+      "text" in part &&
+      typeof part.text === "string" &&
+      piGoalControlMarker.test(part.text)
+  )
+}
+
+export function isPiGoalControlMessage(message: unknown) {
+  if (typeof message !== "object" || message === null) return false
+  if ("customType" in message && message.customType === "goal-budget-wrap-up") {
+    return true
+  }
+  return "content" in message && hasPiGoalControlMarker(message.content)
+}
+
 export function latestPiGoalState(entries: unknown[]) {
   for (let index = entries.length - 1; index >= 0; index -= 1) {
     const entry = entries[index]

@@ -33,12 +33,6 @@ import {
   SidebarRail,
   useSidebar,
 } from "@workspace/ui/components/sidebar"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@workspace/ui/components/tooltip"
-
 import { WorkspaceNavProject } from "@/components/workspace-nav-project"
 import { WorkspaceNavSession } from "@/components/workspace-nav-session"
 import { useSessionIndicators } from "@/hooks/use-session-indicators"
@@ -74,7 +68,8 @@ export function WorkspaceNav({
 }) {
   const pathname = usePathname()
   const router = useRouter()
-  const { isMobile, setOpenMobile } = useSidebar()
+  const { isMobile, setOpenMobile, state } = useSidebar()
+  const navigationHidden = !isMobile && state === "collapsed"
   const sidebarContentRef = useRef<HTMLDivElement>(null)
   const [projectsExpanded, setProjectsExpanded] = useState(false)
   const [tasksOpen, setTasksOpen] = useState(pathname.startsWith("/tasks/"))
@@ -202,7 +197,11 @@ export function WorkspaceNav({
   return (
     <>
       <Sidebar collapsible="offcanvas">
-        <SidebarHeader className="px-3 pt-3">
+        <SidebarHeader
+          className="px-3 pt-3"
+          inert={navigationHidden}
+          aria-hidden={navigationHidden}
+        >
           <div className="flex h-9 items-center justify-between">
             <Link
               href="/"
@@ -218,7 +217,11 @@ export function WorkspaceNav({
           </div>
         </SidebarHeader>
 
-        <SidebarContent ref={sidebarContentRef}>
+        <SidebarContent
+          ref={sidebarContentRef}
+          inert={navigationHidden}
+          aria-hidden={navigationHidden}
+        >
           <SidebarGroup className="pb-1">
             <SidebarGroupContent>
               <SidebarMenu>
@@ -267,19 +270,14 @@ export function WorkspaceNav({
 
           <SidebarGroup className="py-1">
             <SidebarGroupLabel>项目</SidebarGroupLabel>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <SidebarGroupAction
-                  type="button"
-                  aria-label={addingProject ? "正在选择项目" : "添加项目"}
-                  disabled={addingProject}
-                  onClick={() => void addProject()}
-                >
-                  <PlusIcon />
-                </SidebarGroupAction>
-              </TooltipTrigger>
-              <TooltipContent side="right">添加项目</TooltipContent>
-            </Tooltip>
+            <SidebarGroupAction
+              type="button"
+              aria-label={addingProject ? "正在选择项目" : "添加项目"}
+              disabled={addingProject}
+              onClick={() => void addProject()}
+            >
+              <PlusIcon />
+            </SidebarGroupAction>
             <SidebarGroupContent>
               <SidebarMenu>
                 {visibleProjects.map((project) => (
@@ -353,7 +351,7 @@ export function WorkspaceNav({
           ) : null}
         </SidebarContent>
 
-        <SidebarFooter>
+        <SidebarFooter inert={navigationHidden} aria-hidden={navigationHidden}>
           <SidebarMenu>
             <SidebarMenuItem>
               <SidebarMenuButton asChild tooltip="设置">

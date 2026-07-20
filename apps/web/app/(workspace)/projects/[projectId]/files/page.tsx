@@ -76,7 +76,7 @@ export default async function ProjectFilesPage({
   } catch (error) {
     if (!(error instanceof ProjectFileError)) throw error
     return (
-      <main className="mx-auto flex w-full max-w-6xl flex-col gap-8 px-4 py-8 sm:px-6 md:px-10 md:py-14">
+      <div className="mx-auto flex w-full max-w-6xl flex-col gap-8 px-4 py-8 sm:px-6 md:px-10 md:py-14">
         <ProjectHeader
           project={project}
           branch={git.available ? git.branch : null}
@@ -87,12 +87,12 @@ export default async function ProjectFilesPage({
             <CardDescription>{error.message}</CardDescription>
           </CardHeader>
         </Card>
-      </main>
+      </div>
     )
   }
 
   return (
-    <main className="mx-auto flex w-full max-w-6xl flex-col gap-8 px-4 py-8 sm:px-6 md:px-10 md:py-14">
+    <div className="mx-auto flex w-full max-w-6xl flex-col gap-8 px-4 py-8 sm:px-6 md:px-10 md:py-14">
       <ProjectHeader
         project={project}
         branch={git.available ? git.branch : null}
@@ -166,6 +166,6 @@ export default async function ProjectFilesPage({
           </CardContent>
         )}
       </Card>
-    </main>
+    </div>
   )
 }

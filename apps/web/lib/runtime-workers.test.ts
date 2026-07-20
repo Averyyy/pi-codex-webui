@@ -107,6 +107,7 @@ test("Pi Client duplicates into its own worker without changing the source", asy
       target: { mode: "new" },
     },
   })
+  assert.equal(typeof piSnapshot.leafId, "string")
   assert.equal(piSnapshot.activeTools.includes("mcp__fixture__echo"), true)
   await stopWorker(pi)
 

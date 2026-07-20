@@ -7,9 +7,13 @@ export async function GET(request: Request) {
   const url = new URL(request.url)
   const replayAfter =
     request.headers.get("last-event-id") ?? url.searchParams.get("after")
+  const sessionIds =
+    url.searchParams.get("scope") === "all"
+      ? null
+      : url.searchParams.getAll("sessionId")
   return new Response(
     getEventHub().stream(
-      url.searchParams.getAll("sessionId"),
+      sessionIds,
       replayAfter,
       request.signal,
       url.searchParams.get("inspect") === "1" ? "protocol.event" : undefined

@@ -28,7 +28,7 @@ export default async function ProjectPage({
   const git = await readProjectGitStatus(project.path)
 
   return (
-    <main className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-4 py-8 sm:px-6 md:px-10 md:py-14">
+    <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-4 py-8 sm:px-6 md:px-10 md:py-14">
       <ProjectHeader
         project={project}
         branch={git.available ? git.branch : null}
@@ -64,6 +64,6 @@ export default async function ProjectPage({
           </Link>
         ))}
       </section>
-    </main>
+    </div>
   )
 }

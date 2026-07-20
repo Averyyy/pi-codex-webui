@@ -449,7 +449,10 @@ export async function deleteArchivedSession(sessionId: string) {
   return true
 }
 
-export async function getSessionSnapshot(sessionId: string) {
+export async function getSessionSnapshot(
+  sessionId: string,
+  activeLeafId?: string | null
+) {
   await syncPiSessionIndex()
   const database = await getDatabase()
   const row = database
@@ -473,7 +476,8 @@ export async function getSessionSnapshot(sessionId: string) {
   const { content } = await readStablePiSessionFile(row.native_session_file)
   const parsed = parsePiSession(
     row.native_session_file,
-    new TextDecoder("utf-8", { fatal: true }).decode(content)
+    new TextDecoder("utf-8", { fatal: true }).decode(content),
+    activeLeafId
   )
   if (parsed.header.id !== row.native_session_id) {
     throw new Error(

@@ -233,6 +233,7 @@ function snapshot(session: AgentSession): RuntimeSnapshot {
     webSessionId,
     nativeSessionId: session.sessionId,
     nativeSessionFile,
+    leafId: session.sessionManager.getLeafId(),
     cwd: currentRuntime().cwd,
     sessionName: session.sessionName,
     model: model
