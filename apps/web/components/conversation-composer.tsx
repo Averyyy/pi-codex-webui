@@ -114,6 +114,8 @@ export function ConversationComposer({
     availableCommands,
     commandQuery
   )
+  const submissionDisabled =
+    (!value.trim() && images.length === 0) || submitting || sendDisabled
 
   function closeCommandMenu() {
     setCommandMenuOpen(false)
@@ -152,7 +154,10 @@ export function ConversationComposer({
         closeCommandMenu()
         return
       }
-      if (event.key === "Enter" || (event.key === "Tab" && !event.shiftKey)) {
+      if (
+        (event.key === "Enter" && !event.nativeEvent.isComposing) ||
+        (event.key === "Tab" && !event.shiftKey)
+      ) {
         const command = matchingCommands.find((item) => !item.disabled)
         if (command) {
           event.preventDefault()
@@ -171,6 +176,15 @@ export function ConversationComposer({
     ) {
       event.preventDefault()
       onCycleThinkingLevel()
+      return
+    }
+    if (
+      event.key === "Enter" &&
+      !event.shiftKey &&
+      !event.nativeEvent.isComposing
+    ) {
+      event.preventDefault()
+      if (!submissionDisabled) event.currentTarget.form?.requestSubmit()
     }
   }
 
@@ -259,11 +273,7 @@ export function ConversationComposer({
               type="submit"
               size="icon"
               className="rounded-full"
-              disabled={
-                (!value.trim() && images.length === 0) ||
-                submitting ||
-                sendDisabled
-              }
+              disabled={submissionDisabled}
               aria-label="发送"
             >
               {submitting ? (
