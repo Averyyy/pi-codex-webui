@@ -230,8 +230,7 @@
   [data-slot="context-menu-content"],
   [data-slot="context-menu-sub-content"],
   [data-slot="select-content"],
-  [data-slot="hover-card-content"],
-  [data-slot="tooltip-content"]
+  [data-slot="hover-card-content"]
 ) {
   --glass-current-fill: var(--glass-fill);
   --glass-drop-shadow: 0 6px 20px var(--glass-shadow);
@@ -325,8 +324,7 @@
   [data-slot="context-menu-content"],
   [data-slot="context-menu-sub-content"],
   [data-slot="select-content"],
-  [data-slot="hover-card-content"],
-  [data-slot="tooltip-content"]
+  [data-slot="hover-card-content"]
 ) {
   --glass-current-fill: var(--glass-fill-floating);
   --glass-drop-shadow: 0 18px 48px var(--glass-shadow);
@@ -420,8 +418,7 @@
     [data-slot="context-menu-content"],
     [data-slot="context-menu-sub-content"],
     [data-slot="select-content"],
-    [data-slot="hover-card-content"],
-    [data-slot="tooltip-content"]
+    [data-slot="hover-card-content"]
   ) {
     background-color: var(--popover);
     -webkit-backdrop-filter: none;
