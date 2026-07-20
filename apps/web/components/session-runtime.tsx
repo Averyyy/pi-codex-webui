@@ -868,7 +868,7 @@ export function SessionRuntime({
             {
               id: "compact",
               label: "压缩",
-              description: "压缩当前对话的上下文",
+              description: "主动压缩",
               icon: Minimize2Icon,
               disabled: settingsDisabled,
               onSelect: () => void compact(),
