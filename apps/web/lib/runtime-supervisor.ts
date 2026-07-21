@@ -464,6 +464,11 @@ export class RuntimeSupervisor {
     return snapshot
   }
 
+  async reload(sessionId: string) {
+    const runtime = await this.activateReadyRuntime(sessionId)
+    return this.reloadRuntimeResources(runtime)
+  }
+
   async compact(sessionId: string, instructions?: string) {
     const runtime = await this.activate(sessionId)
     runtime.lastActivityAt = Date.now()

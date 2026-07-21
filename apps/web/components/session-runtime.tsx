@@ -1166,6 +1166,28 @@ export function SessionRuntime({
     }
   }
 
+  async function reload() {
+    if (updatingRef.current) return
+    updatingRef.current = true
+    setUpdating(true)
+    setError(null)
+    try {
+      const nextSnapshot = await mutate<RuntimeSnapshot>(
+        `/api/v1/sessions/${sessionId}/reload`,
+        "POST"
+      )
+      setSnapshot(nextSnapshot)
+      setQueuedMessages(nextSnapshot.queuedPrompts)
+      toast.success("已重新加载 Pi 扩展、技能、提示词和上下文文件。")
+      router.refresh()
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : String(failure))
+    } finally {
+      updatingRef.current = false
+      setUpdating(false)
+    }
+  }
+
   async function replaceQueuedMessages(next: QueuedPromptItem[]) {
     if (queueUpdatingRef.current || abortingRef.current) return
     queueUpdatingRef.current = true
@@ -1293,6 +1315,10 @@ export function SessionRuntime({
 
   const isBusy = status === "busy"
   const settingsDisabled = status !== "ready" || updating || compacting
+  const reloadDisabled =
+    ["starting", "busy", "stopping", "crashed"].includes(status) ||
+    updating ||
+    compacting
   const goalTokenBudgetValid =
     !goalTokenBudget ||
     (Number.isSafeInteger(Number(goalTokenBudget)) &&
@@ -1416,6 +1442,14 @@ export function SessionRuntime({
               icon: Minimize2Icon,
               disabled: settingsDisabled,
               onSelect: () => void compact(),
+            },
+            {
+              id: "reload",
+              label: "重新加载",
+              description: "重新加载 Pi 扩展、技能、提示词和上下文",
+              icon: RefreshCwIcon,
+              disabled: reloadDisabled,
+              onSelect: () => void reload(),
             },
             {
               id: "tree",

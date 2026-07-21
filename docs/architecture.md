@@ -524,6 +524,7 @@ GET /api/v1/sessions/:sessionId/entries?afterEntryId=e_123
 POST /api/v1/sessions/:sessionId/fork
 POST /api/v1/sessions/:sessionId/clone
 POST /api/v1/sessions/:sessionId/compact
+POST /api/v1/sessions/:sessionId/reload
 POST /api/v1/sessions/:sessionId/export
 POST /api/v1/sessions/:sessionId/share
 ```
