@@ -7,6 +7,7 @@ import test from "node:test"
 import type {
   Extension,
   ExtensionCommandContext,
+  ExtensionContext,
   LoadExtensionsResult,
 } from "@earendil-works/pi-coding-agent"
 import type {
@@ -115,6 +116,35 @@ function commandContext(): ExtensionCommandContext {
   } as unknown as ExtensionCommandContext
 }
 
+function registerTool(
+  target: Extension,
+  name: string,
+  execute: (
+    toolCallId: string,
+    params: unknown,
+    signal: AbortSignal | undefined,
+    onUpdate: unknown,
+    context: ExtensionContext
+  ) => Promise<unknown>
+) {
+  target.tools.set(name, {
+    definition: {
+      name,
+      description: `${name} tool`,
+      parameters: {},
+      execute,
+    },
+  } as never)
+}
+
+function deferred() {
+  let resolve!: () => void
+  const promise = new Promise<void>((accept) => {
+    resolve = accept
+  })
+  return { promise, resolve }
+}
+
 test("command adapter errors execute the original Pi command", async () => {
   const files = await fixture(`
     export default (web) => web.registerCommandAdapter({
@@ -135,6 +165,7 @@ test("command adapter errors execute the original Pi command", async () => {
     }),
     emitView: () => {},
     emitStatus: (status) => statuses.push(status),
+    emitTargetEvent: () => {},
   })
   try {
     createExtensionInstrumentor(() => host)({
@@ -170,6 +201,7 @@ test("command adapters can rewrite arguments for the original command", async ()
     }),
     emitView: () => {},
     emitStatus: () => {},
+    emitTargetEvent: () => {},
   })
   try {
     createExtensionInstrumentor(() => host)({
@@ -201,6 +233,7 @@ test("a built-in adapter worker is not imported when its target is absent", asyn
     }),
     emitView: () => {},
     emitStatus: (status) => statuses.push(status),
+    emitTargetEvent: () => {},
   })
   try {
     await host.initialize([])
@@ -240,6 +273,7 @@ test("client activation timeout closes the native view before TUI fallback", asy
     }),
     emitView: (event) => events.push(event),
     emitStatus: () => {},
+    emitTargetEvent: () => {},
     activationTimeoutMs: 10,
   })
   try {
@@ -254,6 +288,87 @@ test("client activation timeout closes the native view before TUI fallback", asy
       ["open", "close"]
     )
     assert.deepEqual(host.snapshots(), [])
+  } finally {
+    host.dispose()
+    await rm(files.root, { recursive: true, force: true })
+  }
+})
+
+test("RPC custom messages open native cards without waiting for a client mount", async () => {
+  const files = await fixture(`
+    export default (web) => web.registerRendererAdapter({
+      id: "notice.native",
+      render: ({ payload }) => ({
+        viewId: "notice.card",
+        placement: "conversation.after",
+        state: payload.message
+      })
+    })
+  `)
+  const events: WebUiViewEvent[] = []
+  const statuses: WebUiExtensionStatus[] = []
+  const target = extension(files.targetPath, () => {})
+  target.messageRenderers.set("notice", () => undefined as never)
+  const host = new WebUiAdapterHost({
+    descriptors: [
+      descriptor(files.workerPath, {
+        contributes: {
+          rendererAdapters: [
+            {
+              kind: "message",
+              name: "notice",
+              handler: "notice.native",
+            },
+          ],
+        },
+      }),
+    ],
+    session: () => ({
+      cwd: "/tmp/project",
+      listSessions: async () => [],
+      switchSession: async () => ({ cancelled: false }),
+    }),
+    emitView: (event) => events.push(event),
+    emitStatus: (status) => statuses.push(status),
+    emitTargetEvent: () => {},
+    activationTimeoutMs: 10,
+  })
+  const message = {
+    role: "custom",
+    customType: "notice",
+    content: "Native content",
+    display: true,
+    timestamp: 1,
+  }
+  try {
+    await host.initialize([target])
+    host.tryRenderMessage("notice", message, {
+      entryId: "entry-1",
+      customType: "notice",
+      messageTimestamp: 1,
+    })
+    await new Promise((resolve) => setTimeout(resolve, 20))
+
+    const opened = events[0]
+    assert.equal(opened?.kind, "open")
+    assert.equal(host.snapshots().length, 1)
+    assert.deepEqual(
+      opened?.kind === "open" ? opened.view.state : undefined,
+      message
+    )
+    assert.deepEqual(
+      opened?.kind === "open" ? opened.view.replacesEntry : undefined,
+      {
+        entryId: "entry-1",
+        customType: "notice",
+        messageTimestamp: 1,
+      }
+    )
+    if (opened?.kind === "open") {
+      host.clientStatus("target", opened.view.instanceId, "disposed")
+    }
+    assert.equal(host.snapshots().length, 1)
+    assert.equal(statuses.at(-1)?.state, "compatible-by-probe")
   } finally {
     host.dispose()
     await rm(files.root, { recursive: true, force: true })
@@ -294,6 +409,7 @@ test("an external adapter wins over a compatible built-in", async () => {
     }),
     emitView: () => {},
     emitStatus: (status) => statuses.push(status),
+    emitTargetEvent: () => {},
   })
   try {
     createExtensionInstrumentor(() => host)({
@@ -336,6 +452,7 @@ test("equal-priority compatible adapters conflict instead of guessing", async ()
     }),
     emitView: () => {},
     emitStatus: (status) => statuses.push(status),
+    emitTargetEvent: () => {},
   })
   try {
     createExtensionInstrumentor(() => host)({
@@ -397,6 +514,7 @@ test("tool execution is attributed to renderer adapters", async () => {
     }),
     emitView: (event) => events.push(event),
     emitStatus: () => {},
+    emitTargetEvent: () => {},
   })
   try {
     createExtensionInstrumentor(() => host)({
@@ -454,6 +572,7 @@ test("status renderers keep one persistent view and close it when status clears"
     }),
     emitView: (event) => events.push(event),
     emitStatus: () => {},
+    emitTargetEvent: () => {},
   })
   const statusInvocation = {
     owner: {
@@ -476,6 +595,600 @@ test("status renderers keep one persistent view and close it when status clears"
       ["open", "update", "close"]
     )
     assert.equal(host.snapshots().length, 0)
+  } finally {
+    host.dispose()
+    await rm(files.root, { recursive: true, force: true })
+  }
+})
+
+test("tool execution adapters can handle a target tool and emit target events", async () => {
+  const files = await fixture(`
+    export default (web) => web.registerToolExecutionAdapter({
+      id: "interactive.execute",
+      probe: () => ({ compatible: true }),
+      execute(request, context) {
+        context.emitTargetEvent("ask_user_question:requested", {
+          toolCallId: request.toolCallId,
+          params: request.params
+        })
+        return {
+          handled: true,
+          result: {
+            content: [{ type: "text", text: "answered in WebUI" }],
+            details: { source: "webui" }
+          }
+        }
+      }
+    })
+  `)
+  const target = extension(files.targetPath, () => {})
+  let originalCalls = 0
+  registerTool(target, "interactive", async () => {
+    originalCalls += 1
+    return { content: [{ type: "text", text: "original" }] }
+  })
+  const targetEvents: Array<{ name: string; payload: unknown }> = []
+  const host = new WebUiAdapterHost({
+    descriptors: [
+      descriptor(files.workerPath, {
+        contributes: {
+          toolExecutionAdapters: [
+            { tool: "interactive", handler: "interactive.execute" },
+          ],
+        },
+      }),
+    ],
+    session: () => ({
+      cwd: "/tmp/project",
+      listSessions: async () => [],
+      switchSession: async () => ({ cancelled: false }),
+    }),
+    emitView: () => {},
+    emitStatus: () => {},
+    emitTargetEvent: (name, payload) => targetEvents.push({ name, payload }),
+  })
+  try {
+    createExtensionInstrumentor(() => host)({
+      extensions: [target],
+    } as LoadExtensionsResult)
+    await host.initialize([target])
+    const execute = target.tools.get("interactive")?.definition.execute
+    assert.ok(execute)
+    const result = await execute(
+      "tool-call-1",
+      { question: "Continue?" },
+      new AbortController().signal,
+      undefined,
+      {} as ExtensionContext
+    )
+    assert.equal(originalCalls, 0)
+    assert.deepEqual(result, {
+      content: [{ type: "text", text: "answered in WebUI" }],
+      details: { source: "webui" },
+    })
+    assert.deepEqual(targetEvents, [
+      {
+        name: "ask_user_question:requested",
+        payload: {
+          toolCallId: "tool-call-1",
+          params: { question: "Continue?" },
+        },
+      },
+    ])
+  } finally {
+    host.dispose()
+    await rm(files.root, { recursive: true, force: true })
+  }
+})
+
+test("tool execution adapters can rewrite params before the original tool", async () => {
+  const files = await fixture(`
+    export default (web) => web.registerToolExecutionAdapter({
+      id: "target.execute",
+      execute(_request, context) {
+        void context.openView({
+          viewId: "target.transient",
+          placement: "conversation.after",
+          state: {}
+        })
+        return { handled: false, params: { mode: "rewritten" } }
+      }
+    })
+  `)
+  const target = extension(files.targetPath, () => {})
+  let originalParams: unknown
+  const events: WebUiViewEvent[] = []
+  registerTool(target, "target_tool", async (_id, params) => {
+    originalParams = params
+    return { content: [] }
+  })
+  const host = new WebUiAdapterHost({
+    descriptors: [
+      descriptor(files.workerPath, {
+        contributes: {
+          toolExecutionAdapters: [
+            { tool: "target_tool", handler: "target.execute" },
+          ],
+        },
+      }),
+    ],
+    session: () => ({
+      cwd: "/tmp/project",
+      listSessions: async () => [],
+      switchSession: async () => ({ cancelled: false }),
+    }),
+    emitView: (event) => events.push(event),
+    emitStatus: () => {},
+    emitTargetEvent: () => {},
+  })
+  try {
+    createExtensionInstrumentor(() => host)({
+      extensions: [target],
+    } as LoadExtensionsResult)
+    await host.initialize([target])
+    await target.tools
+      .get("target_tool")
+      ?.definition.execute(
+        "tool-call-2",
+        { mode: "original" },
+        undefined,
+        undefined,
+        {} as ExtensionContext
+      )
+    assert.deepEqual(originalParams, { mode: "rewritten" })
+    assert.deepEqual(
+      events.map((event) => event.kind),
+      ["open", "close"]
+    )
+    assert.deepEqual(host.snapshots(), [])
+  } finally {
+    host.dispose()
+    await rm(files.root, { recursive: true, force: true })
+  }
+})
+
+test("invalid handled tool results fail the adapter and execute the original tool", async () => {
+  const files = await fixture(`
+    export default (web) => web.registerToolExecutionAdapter({
+      id: "target.execute",
+      execute: () => ({
+        handled: true,
+        result: { content: "not-an-array" }
+      })
+    })
+  `)
+  const statuses: WebUiExtensionStatus[] = []
+  const target = extension(files.targetPath, () => {})
+  let originalCalls = 0
+  registerTool(target, "target_tool", async () => {
+    originalCalls += 1
+    return { content: [{ type: "text", text: "original" }] }
+  })
+  const host = new WebUiAdapterHost({
+    descriptors: [
+      descriptor(files.workerPath, {
+        contributes: {
+          toolExecutionAdapters: [
+            { tool: "target_tool", handler: "target.execute" },
+          ],
+        },
+      }),
+    ],
+    session: () => ({
+      cwd: "/tmp/project",
+      listSessions: async () => [],
+      switchSession: async () => ({ cancelled: false }),
+    }),
+    emitView: () => {},
+    emitStatus: (status) => statuses.push(status),
+    emitTargetEvent: () => {},
+  })
+  try {
+    createExtensionInstrumentor(() => host)({
+      extensions: [target],
+    } as LoadExtensionsResult)
+    await host.initialize([target])
+    const result = await target.tools
+      .get("target_tool")
+      ?.definition.execute(
+        "tool-call-3",
+        {},
+        undefined,
+        undefined,
+        {} as ExtensionContext
+      )
+    assert.equal(originalCalls, 1)
+    assert.deepEqual(result, {
+      content: [{ type: "text", text: "original" }],
+    })
+    assert.equal(statuses.at(-1)?.state, "error")
+    assert.match(statuses.at(-1)?.reason ?? "", /array content result/)
+  } finally {
+    host.dispose()
+    await rm(files.root, { recursive: true, force: true })
+  }
+})
+
+test("tool adapter errors after context side effects do not execute the original tool", async (t) => {
+  const scenarios = [
+    {
+      name: "emitTargetEvent",
+      effect: 'context.emitTargetEvent("target:changed", {})',
+    },
+    {
+      name: "openView",
+      effect: `await context.openView({
+        viewId: "target.transient",
+        placement: "conversation.after",
+        state: {}
+      })`,
+    },
+    {
+      name: "updateView",
+      effect: 'context.updateView(instanceId, { phase: "changed" })',
+    },
+    {
+      name: "closeView",
+      effect: "context.closeView(instanceId)",
+    },
+    {
+      name: "invokeTargetTool",
+      effect: 'await context.invokeTargetTool("side_effect", {})',
+    },
+  ] as const
+
+  for (const scenario of scenarios) {
+    await t.test(scenario.name, async () => {
+      const files = await fixture(`
+        let instanceId
+        export default (web) => {
+          web.registerCommandAdapter({
+            id: "target.open",
+            async handle(_request, context) {
+              instanceId = await context.openView({
+                viewId: "target.control",
+                placement: "session.rightPanel",
+                state: {}
+              })
+              return { handled: true }
+            }
+          })
+          web.registerToolExecutionAdapter({
+            id: "target.execute",
+            async execute(_request, context) {
+              ${scenario.effect}
+              throw new Error("failed after side effect")
+            }
+          })
+        }
+      `)
+      const target = extension(files.targetPath, () => {})
+      let originalCalls = 0
+      let invokedTargetTools = 0
+      registerTool(target, "interactive", async () => {
+        originalCalls += 1
+        return { content: [{ type: "text", text: "original" }] }
+      })
+      registerTool(target, "side_effect", async () => {
+        invokedTargetTools += 1
+        return { content: [{ type: "text", text: "changed" }] }
+      })
+      const statuses: WebUiExtensionStatus[] = []
+      const host = new WebUiAdapterHost({
+        descriptors: [
+          descriptor(files.workerPath, {
+            contributes: {
+              commandAdapters: [{ command: "target", handler: "target.open" }],
+              toolExecutionAdapters: [
+                { tool: "interactive", handler: "target.execute" },
+              ],
+            },
+          }),
+        ],
+        session: () => ({
+          cwd: "/tmp/project",
+          listSessions: async () => [],
+          switchSession: async () => ({ cancelled: false }),
+        }),
+        emitView: () => {},
+        emitStatus: (status) => statuses.push(status),
+        emitTargetEvent: () => {},
+      })
+      try {
+        createExtensionInstrumentor(() => host)({
+          extensions: [target],
+        } as LoadExtensionsResult)
+        await host.initialize([target])
+        await target.commands.get("target")?.handler("", commandContext())
+        const view = host.snapshots()[0]
+        assert.ok(view)
+        host.clientStatus("target", view.instanceId, "ready")
+
+        const result = await target.tools
+          .get("interactive")
+          ?.definition.execute(
+            "tool-call-side-effect",
+            {},
+            undefined,
+            undefined,
+            {} as ExtensionContext
+          )
+
+        assert.equal(originalCalls, 0)
+        assert.equal(
+          invokedTargetTools,
+          scenario.name === "invokeTargetTool" ? 1 : 0
+        )
+        assert.deepEqual(result, {
+          content: [
+            {
+              type: "text",
+              text: "WebUI adapter failed after producing side effects: failed after side effect",
+            },
+          ],
+          isError: true,
+        })
+        assert.equal(statuses.at(-1)?.state, "error")
+      } finally {
+        host.dispose()
+        await rm(files.root, { recursive: true, force: true })
+      }
+    })
+  }
+})
+
+test("view actions retain the opening target context for restricted tool invocation", async () => {
+  const files = await fixture(`
+    export default (web) => {
+      web.registerCommandAdapter({
+        id: "target.open",
+        handle(_request, context) {
+          void context.openView({
+            viewId: "target.control",
+            placement: "session.rightPanel",
+            state: {}
+          })
+          return { handled: true }
+        }
+      })
+      web.registerAction({
+        id: "target.invoke",
+        async handle({ input }, context) {
+          context.emitTargetEvent("target:invoked", input)
+          return context.invokeTargetTool(input.name, input.params)
+        }
+      })
+      web.registerToolExecutionAdapter({
+        id: "target.execute",
+        execute: () => ({
+          handled: true,
+          result: { content: [{ type: "text", text: "adapted" }] }
+        })
+      })
+    }
+  `)
+  const target = extension(files.targetPath, () => {})
+  let receivedContext: ExtensionContext | undefined
+  let receivedParams: unknown
+  registerTool(
+    target,
+    "target_tool",
+    async (_id, params, _signal, _update, ctx) => {
+      receivedParams = params
+      receivedContext = ctx
+      return { content: [{ type: "text", text: "done" }] }
+    }
+  )
+  const targetEvents: Array<{ name: string; payload: unknown }> = []
+  const host = new WebUiAdapterHost({
+    descriptors: [
+      descriptor(files.workerPath, {
+        contributes: {
+          commandAdapters: [{ command: "target", handler: "target.open" }],
+          toolExecutionAdapters: [
+            { tool: "target_tool", handler: "target.execute" },
+          ],
+        },
+      }),
+    ],
+    session: () => ({
+      cwd: "/tmp/project",
+      listSessions: async () => [],
+      switchSession: async () => ({ cancelled: false }),
+    }),
+    emitView: () => {},
+    emitStatus: () => {},
+    emitTargetEvent: (name, payload) => targetEvents.push({ name, payload }),
+  })
+  const openingContext = commandContext()
+  try {
+    createExtensionInstrumentor(() => host)({
+      extensions: [target],
+    } as LoadExtensionsResult)
+    await host.initialize([target])
+    await target.commands.get("target")?.handler("", openingContext)
+    const view = host.snapshots()[0]
+    assert.ok(view)
+    host.clientStatus("target", view.instanceId, "ready")
+    const result = await host.action(
+      "target",
+      view.instanceId,
+      "target.invoke",
+      { name: "target_tool", params: { answer: 42 } }
+    )
+    assert.deepEqual(result, {
+      content: [{ type: "text", text: "done" }],
+    })
+    assert.equal(receivedContext, openingContext)
+    assert.deepEqual(receivedParams, { answer: 42 })
+    assert.deepEqual(targetEvents, [
+      {
+        name: "target:invoked",
+        payload: { name: "target_tool", params: { answer: 42 } },
+      },
+    ])
+    await assert.rejects(
+      host.action("target", view.instanceId, "target.invoke", {
+        name: "foreign_tool",
+        params: {},
+      }),
+      /Target extension does not register tool foreign_tool/
+    )
+  } finally {
+    host.dispose()
+    await rm(files.root, { recursive: true, force: true })
+  }
+})
+
+test("a stale action cannot update or close a reopened view", async () => {
+  const files = await fixture(`
+    export default (web) => {
+      web.registerCommandAdapter({
+        id: "target.open",
+        handle(_request, context) {
+          void context.openView({
+            viewId: "target.control",
+            placement: "session.rightPanel",
+            state: { phase: "ready" }
+          })
+          return { handled: true }
+        }
+      })
+      web.registerAction({
+        id: "target.slow",
+        async handle({ instanceId }, context) {
+          await context.invokeTargetTool("wait", {})
+          context.updateView(instanceId, { phase: "late" })
+          context.closeView(instanceId)
+          return "finished"
+        }
+      })
+    }
+  `)
+  const started = deferred()
+  const release = deferred()
+  const target = extension(files.targetPath, () => {})
+  registerTool(target, "wait", async () => {
+    started.resolve()
+    await release.promise
+    return { content: [] }
+  })
+  const events: WebUiViewEvent[] = []
+  const statuses: WebUiExtensionStatus[] = []
+  const host = new WebUiAdapterHost({
+    descriptors: [descriptor(files.workerPath)],
+    session: () => ({
+      cwd: "/tmp/project",
+      listSessions: async () => [],
+      switchSession: async () => ({ cancelled: false }),
+    }),
+    emitView: (event) => events.push(event),
+    emitStatus: (status) => statuses.push(status),
+    emitTargetEvent: () => {},
+  })
+  try {
+    createExtensionInstrumentor(() => host)({
+      extensions: [target],
+    } as LoadExtensionsResult)
+    await host.initialize([target])
+    await target.commands.get("target")?.handler("", commandContext())
+    const originalView = host.snapshots()[0]
+    assert.ok(originalView)
+    host.clientStatus("target", originalView.instanceId, "ready")
+
+    const pending = host.action(
+      "target",
+      originalView.instanceId,
+      "target.slow"
+    )
+    await started.promise
+    await host.action("target", originalView.instanceId, "__close")
+    await target.commands.get("target")?.handler("", commandContext())
+    const reopenedView = host.snapshots()[0]
+    assert.ok(reopenedView)
+    assert.notEqual(reopenedView.instanceId, originalView.instanceId)
+    host.clientStatus("target", reopenedView.instanceId, "ready")
+
+    release.resolve()
+    assert.equal(await pending, "finished")
+    assert.deepEqual(host.snapshots(), [reopenedView])
+    assert.deepEqual(
+      events.map((event) => event.kind),
+      ["open", "close", "open"]
+    )
+    assert.equal(
+      statuses.some((status) => status.state === "error"),
+      false
+    )
+  } finally {
+    release.resolve()
+    host.dispose()
+    await rm(files.root, { recursive: true, force: true })
+  }
+})
+
+test("non-status renderers update a stable upsertKey in place", async () => {
+  const files = await fixture(`
+    export default (web) => web.registerRendererAdapter({
+      id: "renderable.native",
+      render: ({ payload }) => ({
+        viewId: "renderable.view",
+        placement: "conversation.after",
+        upsertKey: payload.toolCallId,
+        state: payload
+      })
+    })
+  `)
+  const target = extension(files.targetPath, () => {})
+  registerTool(target, "renderable", async () => ({ content: [] }))
+  const events: WebUiViewEvent[] = []
+  const host = new WebUiAdapterHost({
+    descriptors: [
+      descriptor(files.workerPath, {
+        contributes: {
+          rendererAdapters: [
+            {
+              kind: "tool",
+              name: "renderable",
+              handler: "renderable.native",
+            },
+          ],
+        },
+      }),
+    ],
+    session: () => ({
+      cwd: "/tmp/project",
+      listSessions: async () => [],
+      switchSession: async () => ({ cancelled: false }),
+    }),
+    emitView: (event) => events.push(event),
+    emitStatus: () => {},
+    emitTargetEvent: () => {},
+  })
+  const renderInvocation = {
+    owner: {
+      extensionPath: files.targetPath,
+      resolvedPath: files.targetPath,
+      sourceInfo: target.sourceInfo,
+      packageName: "pi-target",
+      packageVersion: "1.1.0",
+    },
+    operation: { type: "tool.renderCall" as const, name: "renderable" },
+  }
+  try {
+    await host.initialize([target])
+    host.tryRender(renderInvocation, { toolCallId: "stable", phase: "start" })
+    host.tryRender(renderInvocation, { toolCallId: "stable", phase: "finish" })
+    assert.deepEqual(
+      events.map((event) => event.kind),
+      ["open", "update"]
+    )
+    assert.equal(host.snapshots().length, 1)
+    assert.deepEqual(host.snapshots()[0]?.state, {
+      toolCallId: "stable",
+      phase: "finish",
+    })
+    assert.equal(host.snapshots()[0]?.revision, 1)
   } finally {
     host.dispose()
     await rm(files.root, { recursive: true, force: true })

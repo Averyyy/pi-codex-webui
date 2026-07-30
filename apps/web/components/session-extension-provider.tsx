@@ -67,16 +67,20 @@ export function SessionExtensionProvider({
   projectId,
   mutationToken,
   initialCatalog,
+  initialViews,
   children,
 }: {
   sessionId: string
   projectId: string | null
   mutationToken: string
   initialCatalog: WebUiExtensionCatalogView
+  initialViews: WebUiViewSnapshot[]
   children: ReactNode
 }) {
   const [catalog, setCatalog] = useState(initialCatalog)
-  const [views, setViews] = useState<Record<string, WebUiViewSnapshot>>({})
+  const [views, setViews] = useState<Record<string, WebUiViewSnapshot>>(() =>
+    Object.fromEntries(initialViews.map((view) => [view.instanceId, view]))
+  )
   const viewLoadBuffers = useRef(new Set<WebUiViewEvent[]>())
   const viewLoadGeneration = useRef(0)
   const viewLoadSequence = useRef(0)

@@ -2,6 +2,7 @@
 
 import {
   memo,
+  useContext,
   useDeferredValue,
   useEffect,
   useLayoutEffect,
@@ -9,6 +10,7 @@ import {
 } from "react"
 import { LoaderCircleIcon } from "lucide-react"
 
+import { SessionExtensionContext } from "@/components/session-extension-provider"
 import { ConversationMessageParts } from "@/components/conversation-message-parts"
 import {
   useStreamingActiveTools,
@@ -16,6 +18,7 @@ import {
   useStreamingMessages,
 } from "@/components/session-streaming-context"
 import type { StreamingMessageView } from "@/lib/session-stream-store"
+import { replacesStreamingMessage } from "@/lib/webui-message-replacements"
 
 export {
   SessionStreamingProvider,
@@ -81,7 +84,13 @@ const StreamingMessage = memo(function StreamingMessage({
 })
 
 export function SessionStreamingMessage() {
-  const messages = useStreamingMessages()
+  const streamedMessages = useStreamingMessages()
+  const extensions = useContext(SessionExtensionContext)
+  const messages = extensions
+    ? streamedMessages.filter(
+        (message) => !replacesStreamingMessage(extensions.views, message)
+      )
+    : streamedMessages
   const activeTools = useStreamingActiveTools()
   const followRequest = useStreamingFollowRequest()
   const contentRef = useRef<HTMLDivElement>(null)

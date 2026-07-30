@@ -14,6 +14,10 @@ test("testing harness collects worker and client registrations", async () => {
         id: "example.open",
         handle: () => ({ handled: true }),
       })
+      web.registerToolExecutionAdapter({
+        id: "example.execute",
+        execute: () => ({ handled: false }),
+      })
     })
   )
   const client = await loadClientExtensionForTest(
@@ -25,5 +29,6 @@ test("testing harness collects worker and client registrations", async () => {
     })
   )
   assert.equal(worker.commands.has("example.open"), true)
+  assert.equal(worker.toolExecutions.has("example.execute"), true)
   assert.equal(client.views.has("example.view"), true)
 })

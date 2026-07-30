@@ -45,6 +45,10 @@ test("Codex quick settings hand the selected option to the original command", as
     },
     updateView: () => {},
     closeView: () => {},
+    invokeTargetTool: async () => {
+      throw new Error("not used")
+    },
+    emitTargetEvent: () => {},
   } satisfies WorkerAdapterContext
   const request = {
     invocation: {

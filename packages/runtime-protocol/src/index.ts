@@ -505,6 +505,14 @@ export const webUiExtensionContributionSchema = z.object({
         })
       )
       .optional(),
+    toolExecutionAdapters: z
+      .array(
+        z.object({
+          tool: z.string().min(1),
+          handler: z.string().min(1),
+        })
+      )
+      .optional(),
     rendererAdapters: z
       .array(
         z.object({
@@ -542,6 +550,13 @@ export const webUiViewSnapshotSchema = z.object({
   state: z.unknown(),
   title: z.string().optional(),
   blocking: z.boolean(),
+  replacesEntry: z
+    .object({
+      entryId: z.string().min(1),
+      customType: z.string().min(1),
+      messageTimestamp: z.number().finite(),
+    })
+    .optional(),
 })
 
 export const webUiViewSnapshotsSchema = z.array(webUiViewSnapshotSchema)

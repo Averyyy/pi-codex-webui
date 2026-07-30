@@ -38,8 +38,10 @@ import { SubagentBridge } from "./subagents.js"
 import { createFooterData, TuiSurfaceManager } from "./tui-surfaces.js"
 import {
   createExtensionInstrumentor,
+  extensionContext,
   extensionInvocation,
 } from "./extension-instrumentation.js"
+import { RpcCustomMessageRenderer } from "./custom-message-rendering.js"
 import { WebUiAdapterHost } from "./webui-adapter-host.js"
 import { PromptQueue, type QueuedPromptRecord } from "./prompt-queue.js"
 
@@ -426,7 +428,8 @@ function createExtensionUIContext() {
             owner: invocation.owner,
             operation: { type: "status.render", key: statusKey },
           },
-          { statusText }
+          { statusText },
+          extensionContext.getStore()
         )
       }
     },
@@ -552,6 +555,9 @@ async function bindSession(session: AgentSession) {
     },
   })
   unsubscribe?.()
+  const customMessageRenderer = new RpcCustomMessageRenderer(
+    currentAdapterHost()
+  )
   unsubscribe = session.subscribe((event: AgentSessionEvent) => {
     if (event.type === "queue_update") {
       if (!suppressPromptQueueEvents) {
@@ -561,7 +567,16 @@ async function bindSession(session: AgentSession) {
       return
     }
     sendSessionEvent(event.type, event)
+    if (event.type === "message_end") {
+      queueMicrotask(() =>
+        customMessageRenderer.renderCompleted(
+          event.message,
+          session.sessionManager.getBranch()
+        )
+      )
+    }
   })
+  customMessageRenderer.restore(session.sessionManager.getBranch())
 }
 
 async function initialize(
@@ -679,6 +694,7 @@ async function initialize(
           payload: status,
         })
       },
+      emitTargetEvent: (name, payload) => eventBus.emit(name, payload),
     })
     const services = await codingAgent.createAgentSessionServices({
       cwd: options.cwd,

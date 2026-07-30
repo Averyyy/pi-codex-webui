@@ -11,11 +11,11 @@ import { loadWorkerExtensionForTest } from "@pi-web-codex/extension-sdk/testing"
 import initialize from "./worker.js"
 
 const owner: ExtensionOwner = {
-  extensionPath: "/pi-goal/src/goal.ts",
-  resolvedPath: "/pi-goal/src/goal.ts",
+  extensionPath: "/pi-goal/src/index.ts",
+  resolvedPath: "/pi-goal/src/index.ts",
   sourceInfo: { source: "pi-goal", scope: "user", origin: "package" },
   packageName: "@narumitw/pi-goal",
-  packageVersion: "0.20.0",
+  packageVersion: "0.39.0",
 }
 
 const goal = {
@@ -52,6 +52,10 @@ function fixture() {
     openView: async () => "view",
     updateView: () => {},
     closeView: () => {},
+    invokeTargetTool: async () => {
+      throw new Error("not used")
+    },
+    emitTargetEvent: () => {},
   } satisfies WorkerAdapterContext
   return { context, prompts }
 }

@@ -10,6 +10,7 @@ import { ConversationDisclosure } from "@/components/conversation-disclosure"
 import { ConversationMessageParts } from "@/components/conversation-message-parts"
 import { Markdown } from "@/components/markdown"
 import { UserMessage } from "@/components/user-message"
+import { WebUiMessageFallback } from "@/components/webui-message-fallback"
 import { stripAnsi } from "@/lib/ansi"
 import type { ToolResultView } from "@/lib/message-content"
 import { formatInlinePreview, formatTimestamp } from "@/lib/session-display"
@@ -263,7 +264,10 @@ export function SessionTranscript({
         ) {
           return null
         }
-        return entry.kind === "message" ? (
+        if (entry.kind !== "message") {
+          return <Event key={entry.id} entry={entry} />
+        }
+        const message = (
           <Message
             key={entry.id}
             entry={entry}
@@ -273,8 +277,13 @@ export function SessionTranscript({
             workspaceUnavailable={workspaceUnavailable}
             initialRuntimeStatus={initialRuntimeStatus}
           />
+        )
+        return entry.role.startsWith("custom:") ? (
+          <WebUiMessageFallback key={entry.id} entryId={entry.id}>
+            {message}
+          </WebUiMessageFallback>
         ) : (
-          <Event key={entry.id} entry={entry} />
+          message
         )
       })}
     </div>

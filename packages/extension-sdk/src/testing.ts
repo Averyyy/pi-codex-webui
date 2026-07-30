@@ -3,6 +3,7 @@ import type {
   CommandAdapterRegistration,
   ExternalViewRenderer,
   RendererAdapterRegistration,
+  ToolExecutionAdapterRegistration,
   WorkerActionRegistration,
   WorkerExtensionInitializer,
 } from "./index.js"
@@ -21,16 +22,19 @@ export async function loadWorkerExtensionForTest(
   initialize: WorkerExtensionInitializer
 ) {
   const commands = new Map<string, CommandAdapterRegistration>()
+  const toolExecutions = new Map<string, ToolExecutionAdapterRegistration>()
   const actions = new Map<string, WorkerActionRegistration>()
   const renderers = new Map<string, RendererAdapterRegistration>()
   await initialize({
     registerCommandAdapter: (registration) =>
       registerUnique(commands, registration),
+    registerToolExecutionAdapter: (registration) =>
+      registerUnique(toolExecutions, registration),
     registerAction: (registration) => registerUnique(actions, registration),
     registerRendererAdapter: (registration) =>
       registerUnique(renderers, registration),
   })
-  return { commands, actions, renderers }
+  return { commands, toolExecutions, actions, renderers }
 }
 
 export async function loadClientExtensionForTest(

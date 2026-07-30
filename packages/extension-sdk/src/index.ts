@@ -35,6 +35,7 @@ export interface WebUiExtensionContribution {
   style?: string
   contributes: {
     commandAdapters?: Array<{ command: string; handler: string }>
+    toolExecutionAdapters?: Array<{ tool: string; handler: string }>
     rendererAdapters?: Array<{
       kind: "tool" | "message" | "entry" | "status"
       name: string
@@ -98,6 +99,7 @@ export interface OpenViewInput {
   state: unknown
   title?: string
   blocking?: boolean
+  upsertKey?: string
 }
 
 export interface WorkerSessionApi {
@@ -132,6 +134,8 @@ export interface WorkerAdapterContext {
   openView(input: OpenViewInput): Promise<unknown>
   updateView(instanceId: string, state: unknown, title?: string): void
   closeView(instanceId: string, result?: unknown): void
+  invokeTargetTool(name: string, params: unknown): Promise<ToolExecutionResult>
+  emitTargetEvent(name: string, payload: unknown): void
 }
 
 export interface CommandAdapterRegistration {
@@ -146,6 +150,34 @@ export interface CommandAdapterRegistration {
 
 export type CommandAdapterResult =
   { handled: true; value?: unknown } | { handled: false; args?: string }
+
+export interface ToolExecutionResult {
+  content: unknown[]
+  details?: unknown
+  isError?: boolean
+  [key: string]: unknown
+}
+
+export interface WorkerToolExecutionRequest {
+  invocation: ExtensionInvocation
+  toolCallId: string
+  params: unknown
+  signal: AbortSignal | undefined
+}
+
+export interface ToolExecutionAdapterRegistration {
+  id: string
+  probe?(context: TargetCapabilities): CompatibilityProbeResult
+  validate?(request: WorkerToolExecutionRequest): CompatibilityProbeResult
+  execute(
+    request: WorkerToolExecutionRequest,
+    context: WorkerAdapterContext
+  ): Promise<ToolExecutionAdapterResult> | ToolExecutionAdapterResult
+}
+
+export type ToolExecutionAdapterResult =
+  | { handled: true; result: ToolExecutionResult }
+  | { handled: false; params?: unknown }
 
 export interface WorkerActionRequest {
   instanceId: string
@@ -176,6 +208,7 @@ export interface RendererAdapterRegistration {
 
 export interface WorkerExtensionApi {
   registerCommandAdapter(adapter: CommandAdapterRegistration): void
+  registerToolExecutionAdapter(adapter: ToolExecutionAdapterRegistration): void
   registerAction(action: WorkerActionRegistration): void
   registerRendererAdapter(adapter: RendererAdapterRegistration): void
 }

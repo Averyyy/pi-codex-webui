@@ -41,9 +41,10 @@ export async function SessionScreen({
   const eventCursor = getEventHub().cursor()
   const supervisor = getRuntimeSupervisor()
   const runtime = supervisor.state(sessionId)
-  const [snapshot, config] = await Promise.all([
+  const [snapshot, config, initialWebUiViews] = await Promise.all([
     getSessionSnapshot(sessionId, runtime.snapshot?.leafId),
     loadConfig(),
+    runtime.snapshot ? supervisor.webUiViews(sessionId) : Promise.resolve([]),
   ])
   if (!snapshot || snapshot.session.projectId !== projectId) notFound()
 
@@ -81,6 +82,7 @@ export async function SessionScreen({
       projectId={projectId}
       mutationToken={mutationToken}
       initialCatalog={webUiExtensions}
+      initialViews={initialWebUiViews}
     >
       <SubagentsProvider
         sessionId={sessionId}

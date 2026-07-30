@@ -6,6 +6,7 @@ import test from "node:test"
 
 import { readWebUiAsset } from "./webui-extensions/asset-resolver.js"
 import { discoverWebUiExtensions } from "./webui-extensions/discovery.js"
+import { webUiExtensionContributionSchema } from "./webui-extensions/manifest.js"
 
 async function writeAdapter(
   packageRoot: string,
@@ -52,6 +53,25 @@ async function writeAdapter(
     ),
   ])
 }
+
+test("manifest accepts a tool-execution-only adapter contribution", () => {
+  const contribution = webUiExtensionContributionSchema.parse({
+    id: "target-tool",
+    target: { packageName: "pi-target" },
+    runtimes: ["pi"],
+    worker: "./dist/worker.mjs",
+    client: "./dist/client.mjs",
+    contributes: {
+      toolExecutionAdapters: [
+        { tool: "target_tool", handler: "target.execute" },
+      ],
+    },
+  })
+
+  assert.deepEqual(contribution.contributes.toolExecutionAdapters, [
+    { tool: "target_tool", handler: "target.execute" },
+  ])
+})
 
 test("registry discovery unifies built-in, external, development, and trusted project packages", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "pi-webui-discovery-"))

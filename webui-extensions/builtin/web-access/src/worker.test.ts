@@ -23,7 +23,7 @@ function fixture(viewResult: unknown) {
           origin: "package",
         },
         packageName: "pi-web-access",
-        packageVersion: "0.13.0",
+        packageVersion: "0.15.0",
       },
       commands: new Set(["websearch", "curator"]),
       tools: new Set(["web_search", "fetch_content", "get_search_content"]),
@@ -42,6 +42,10 @@ function fixture(viewResult: unknown) {
     },
     updateView: () => {},
     closeView: () => {},
+    invokeTargetTool: async () => {
+      throw new Error("not used")
+    },
+    emitTargetEvent: () => {},
   } satisfies WorkerAdapterContext
   const request = (name: string, args = "") =>
     ({

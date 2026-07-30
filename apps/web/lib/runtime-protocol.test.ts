@@ -102,6 +102,11 @@ test("WebUI view and client messages remain protocol validated", () => {
     revision: 0,
     state: { conversations: [] },
     blocking: true,
+    replacesEntry: {
+      entryId: "entry-1",
+      customType: "skill-loaded",
+      messageTimestamp: 42,
+    },
   }
   assert.equal(
     workerToHostMessageSchema.parse({

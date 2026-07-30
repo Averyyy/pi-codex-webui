@@ -58,6 +58,15 @@ const contributesSchema = z
       )
       .max(100)
       .optional(),
+    toolExecutionAdapters: z
+      .array(
+        z.object({
+          tool: z.string().min(1).max(128),
+          handler: z.string().min(1).max(128),
+        })
+      )
+      .max(100)
+      .optional(),
     rendererAdapters: z
       .array(
         z.object({
@@ -72,6 +81,7 @@ const contributesSchema = z
   .refine(
     (value) =>
       (value.commandAdapters?.length ?? 0) +
+        (value.toolExecutionAdapters?.length ?? 0) +
         (value.rendererAdapters?.length ?? 0) >
       0,
     "Adapter must contribute at least one handler."

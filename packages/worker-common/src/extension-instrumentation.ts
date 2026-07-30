@@ -6,12 +6,14 @@ import type {
 } from "@pi-web-codex/extension-sdk"
 import type {
   Extension,
+  ExtensionContext,
   LoadExtensionsResult,
 } from "@earendil-works/pi-coding-agent"
 
 import type { WebUiAdapterHost } from "./webui-adapter-host.js"
 
 export const extensionInvocation = new AsyncLocalStorage<ExtensionInvocation>()
+export const extensionContext = new AsyncLocalStorage<ExtensionContext>()
 
 const instrumented = new WeakSet<Extension>()
 
@@ -38,9 +40,10 @@ function instrumentExtension(
       name,
       handlers.map((handler) => (...args) => {
         const host = getHost()
+        const context = args.at(-1) as ExtensionContext
         return extensionInvocation.run(
           invocation(host, extension, { type: "event", name }),
-          () => handler(...args)
+          () => extensionContext.run(context, () => handler(...args))
         )
       })
     )
@@ -51,11 +54,13 @@ function instrumentExtension(
     command.handler = async (args, context) => {
       const host = getHost()
       const current = invocation(host, extension, { type: "command", name })
-      return extensionInvocation.run(current, async () => {
-        const adapted = await host.tryHandleCommand(current, args, context)
-        if (adapted.handled) return
-        return original(adapted.args ?? args, context)
-      })
+      return extensionInvocation.run(current, () =>
+        extensionContext.run(context, async () => {
+          const adapted = await host.tryHandleCommand(current, args, context)
+          if (adapted.handled) return
+          return original(adapted.args ?? args, context)
+        })
+      )
     }
   }
 
@@ -65,7 +70,7 @@ function instrumentExtension(
       const host = getHost()
       return extensionInvocation.run(
         invocation(host, extension, { type: "shortcut", name }),
-        () => original(context)
+        () => extensionContext.run(context, () => original(context))
       )
     }
   }
@@ -85,24 +90,40 @@ function instrumentExtension(
         type: "tool.execute",
         name,
       })
-      return extensionInvocation.run(current, async () => {
-        host.tryRender(
-          invocation(host, extension, { type: "tool.renderCall", name }),
-          { toolCallId, params }
-        )
-        const result = await execute(
-          toolCallId,
-          params,
-          signal,
-          onUpdate,
-          context
-        )
-        host.tryRender(
-          invocation(host, extension, { type: "tool.renderResult", name }),
-          { toolCallId, params, result }
-        )
-        return result
-      })
+      return extensionInvocation.run(current, () =>
+        extensionContext.run(context, async () => {
+          const adapted = await host.tryHandleToolExecution(
+            current,
+            toolCallId,
+            params,
+            signal,
+            context
+          )
+          const effectiveParams = adapted.handled
+            ? params
+            : (adapted.params ?? params)
+          host.tryRender(
+            invocation(host, extension, { type: "tool.renderCall", name }),
+            { toolCallId, params: effectiveParams },
+            context
+          )
+          const result = adapted.handled
+            ? (adapted.result as Awaited<ReturnType<typeof execute>>)
+            : await execute(
+                toolCallId,
+                effectiveParams as never,
+                signal,
+                onUpdate,
+                context
+              )
+          host.tryRender(
+            invocation(host, extension, { type: "tool.renderResult", name }),
+            { toolCallId, params: effectiveParams, result },
+            context
+          )
+          return result
+        })
+      )
     }
     if (definition.renderCall) {
       const renderCall = definition.renderCall

@@ -71,6 +71,10 @@ test("conversation adapter uses Pi session metadata and switches only to a liste
     },
     updateView: () => {},
     closeView: () => {},
+    invokeTargetTool: async () => {
+      throw new Error("not used")
+    },
+    emitTargetEvent: () => {},
   }
   const request = {
     invocation: {

@@ -111,6 +111,38 @@ test("keeps the complete live run until the transcript handoff", () => {
   assert.equal(store.getTool("tool-1"), null)
 })
 
+test("keeps custom-message identity for native renderer replacement", () => {
+  const frames = new TestFrames()
+  const store = new SessionStreamStore(frames)
+
+  store.startMessage({
+    role: "custom",
+    customType: "skill-loaded",
+    timestamp: 42,
+    content: "Loaded",
+    display: true,
+  })
+  store.endMessage({
+    role: "custom",
+    customType: "skill-loaded",
+    timestamp: 42,
+    content: "Loaded",
+    display: true,
+  })
+  frames.flush()
+
+  assert.deepEqual(store.getMessages(), [
+    {
+      id: 1,
+      role: "custom",
+      customType: "skill-loaded",
+      timestamp: 42,
+      parts: [{ type: "text", text: "Loaded" }],
+      complete: true,
+    },
+  ])
+})
+
 test("tracks parallel tools independently and streams partial results", () => {
   const frames = new TestFrames()
   const store = new SessionStreamStore(frames)

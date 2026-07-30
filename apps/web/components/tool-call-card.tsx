@@ -18,7 +18,9 @@ import {
   type ConversationDisclosureTone,
 } from "@/components/conversation-disclosure"
 import { ConversationTextParts } from "@/components/conversation-text-parts"
+import { HashlineEditToolCard } from "@/components/hashline-edit-tool-card"
 import { useStreamingTool } from "@/components/session-streaming-context"
+import { hashlineEditToolKind } from "@/lib/hashline-edit-tool"
 import type { ToolResultView } from "@/lib/message-content"
 import type { TranscriptPart } from "@/lib/session-types"
 import {
@@ -181,6 +183,21 @@ export function ToolCallCard({
     return (
       <WebAccessToolCard
         name={effectivePart.name}
+        part={effectivePart}
+        result={result}
+        running={running}
+        failed={failed}
+      />
+    )
+  }
+  const hashlineKind = hashlineEditToolKind(
+    effectivePart.name,
+    effectivePart.arguments
+  )
+  if (hashlineKind) {
+    return (
+      <HashlineEditToolCard
+        kind={hashlineKind}
         part={effectivePart}
         result={result}
         running={running}

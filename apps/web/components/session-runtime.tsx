@@ -250,11 +250,13 @@ function messageFromPayload(payload: unknown) {
   }
   const record = message as Record<string, unknown>
   for (const [key, type] of [
+    ["customType", "string"],
     ["toolCallId", "string"],
     ["toolName", "string"],
     ["isError", "boolean"],
     ["errorMessage", "string"],
     ["display", "boolean"],
+    ["timestamp", "number"],
   ] as const) {
     if (record[key] !== undefined && typeof record[key] !== type) {
       throw new Error(`Runtime emitted an invalid ${key}.`)

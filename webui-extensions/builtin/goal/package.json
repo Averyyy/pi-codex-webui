@@ -33,10 +33,10 @@
         "name": "Goal Web UI",
         "target": {
           "packageName": "@narumitw/pi-goal",
-          "extensionPath": "**/src/goal.ts",
-          "version": ">=0.20.0 <1.0.0",
+          "extensionPath": "**/src/index.ts",
+          "version": ">=0.39.0 <0.40.0",
           "testedVersions": [
-            "0.20.0"
+            "0.39.0"
           ],
           "compatibility": {
             "mode": "probe",

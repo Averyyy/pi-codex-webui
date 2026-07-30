@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { execFile, spawn } from "node:child_process"
-import { mkdtemp, mkdir, readFile, rm } from "node:fs/promises"
+import { mkdtemp, mkdir, readFile, readdir, rm } from "node:fs/promises"
 import { createServer } from "node:net"
 import { tmpdir } from "node:os"
 import path from "node:path"
@@ -53,15 +53,59 @@ function waitForReady(child) {
   })
 }
 
+async function requiredBuiltinReleaseFiles() {
+  const builtinRoot = path.join(root, "webui-extensions", "builtin")
+  const directories = await readdir(builtinRoot, { withFileTypes: true })
+  const required = []
+  for (const directory of directories) {
+    if (!directory.isDirectory()) continue
+    const packageJsonPath = path.join(
+      builtinRoot,
+      directory.name,
+      "package.json"
+    )
+    const packageJson = JSON.parse(await readFile(packageJsonPath, "utf8"))
+    const extensions = packageJson.piWebCodex?.extensions
+    if (!Array.isArray(extensions)) continue
+    required.push(
+      path.posix.join(
+        "package/dist/webui-extensions",
+        directory.name,
+        "package.json"
+      )
+    )
+    for (const extension of extensions) {
+      for (const key of ["worker", "client"]) {
+        const asset = extension[key]
+        assert.equal(
+          typeof asset,
+          "string",
+          `${packageJsonPath} is missing ${key}.`
+        )
+        const relativeAsset = asset.replaceAll("\\", "/").replace(/^\.\//, "")
+        assert.equal(
+          path.posix.isAbsolute(relativeAsset) ||
+            relativeAsset.split("/").includes(".."),
+          false,
+          `${packageJsonPath} has an invalid ${key} path: ${asset}`
+        )
+        required.push(
+          path.posix.join(
+            "package/dist/webui-extensions",
+            directory.name,
+            relativeAsset
+          )
+        )
+      }
+    }
+  }
+  return required
+}
+
 async function inspectTarball(tarball) {
   const required = new Set([
     "package/dist/app/apps/web/server.js",
-    "package/dist/webui-extensions/codex-conversion/dist/client.mjs",
-    "package/dist/webui-extensions/codex-conversion/dist/worker.mjs",
-    "package/dist/webui-extensions/conversation/dist/client.mjs",
-    "package/dist/webui-extensions/conversation/dist/worker.mjs",
-    "package/dist/webui-extensions/web-access/dist/client.mjs",
-    "package/dist/webui-extensions/web-access/dist/worker.mjs",
+    ...(await requiredBuiltinReleaseFiles()),
     "package/dist/workers/pi/dist/worker.mjs",
     "package/dist/workers/pi-client/dist/worker.mjs",
   ])

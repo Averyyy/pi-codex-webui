@@ -9,6 +9,8 @@ import type { RuntimeStatus } from "@workspace/runtime-protocol"
 export interface RuntimeStreamMessage {
   role: string
   content: unknown
+  customType?: string
+  timestamp?: number
   toolCallId?: string
   toolName?: string
   details?: unknown
@@ -23,6 +25,8 @@ export interface StreamingMessageView {
   parts: TranscriptPart[]
   complete: boolean
   errorMessage?: string
+  customType?: string
+  timestamp?: number
 }
 
 export interface StreamingToolView {
@@ -219,6 +223,10 @@ export class SessionStreamStore {
           role: message.role,
           parts: normalizeTranscriptParts(message.content),
           complete,
+          ...(message.customType ? { customType: message.customType } : {}),
+          ...(message.timestamp !== undefined
+            ? { timestamp: message.timestamp }
+            : {}),
           ...(message.errorMessage
             ? { errorMessage: message.errorMessage }
             : {}),
