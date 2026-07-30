@@ -33,12 +33,12 @@ export default async function SearchPage({
   return (
     <div className="mx-auto flex w-full max-w-4xl min-w-0 flex-col gap-8 px-6 py-10 md:px-10 md:py-14">
       <header className="flex items-center gap-3">
-        <div className="grid size-10 place-items-center rounded-xl bg-muted">
+        <div className="grid size-10 shrink-0 place-items-center rounded-xl bg-muted">
           <SearchIcon className="size-5" />
         </div>
-        <div>
+        <div className="min-w-0">
           <h1 className="text-2xl font-semibold tracking-tight">搜索</h1>
-          <p className="mt-1 text-muted-foreground">
+          <p className="mt-1 break-words text-muted-foreground">
             {query
               ? `“${query}” 找到 ${results.length} 个匹配结果`
               : "搜索对话标题、消息与工具记录"}
@@ -70,37 +70,49 @@ export default async function SearchPage({
       </form>
 
       <section className="grid gap-3" aria-label="搜索结果">
-        {results.map((result) => (
-          <Link
-            key={`${result.sessionId}:${result.entryId}`}
-            href={`${
-              result.projectId === null
-                ? `/tasks/${result.sessionId}`
-                : `/projects/${result.projectId}/sessions/${result.sessionId}`
-            }#entry-${result.entryId}`}
-            className="group min-w-0 rounded-xl focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-          >
-            <Card className="gap-3 transition-colors group-hover:bg-muted/50">
-              <CardHeader className="flex-row items-start justify-between gap-4">
-                <div className="min-w-0">
-                  <CardTitle className="truncate">
-                    {result.sessionTitle ||
-                      result.sessionFirstMessage ||
-                      result.sessionId}
-                  </CardTitle>
-                  <CardDescription className="mt-1">
-                    {result.projectName ?? "独立任务"} ·{" "}
-                    {formatTimestamp(result.timestamp)}
-                  </CardDescription>
-                </div>
-                <Badge variant="secondary">{result.entryType}</Badge>
-              </CardHeader>
-              <CardContent className="text-sm leading-6 break-words whitespace-pre-wrap">
-                {result.snippet}
-              </CardContent>
-            </Card>
-          </Link>
-        ))}
+        {results.map((result) => {
+          const sessionHref =
+            result.projectId === null
+              ? `/tasks/${result.sessionId}`
+              : `/projects/${result.projectId}/sessions/${result.sessionId}`
+          const resultHref =
+            result.entryId === null
+              ? sessionHref
+              : `${sessionHref}#entry-${result.entryId}`
+          return (
+            <Link
+              key={`${result.sessionId}:${
+                result.entryId === null
+                  ? "session-title"
+                  : `entry:${result.entryId}`
+              }`}
+              href={resultHref}
+              className="group min-w-0 rounded-xl focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+            >
+              <Card className="gap-3 transition-colors group-hover:bg-muted/50">
+                <CardHeader className="flex-row items-start justify-between gap-4">
+                  <div className="min-w-0">
+                    <CardTitle className="truncate">
+                      {result.sessionTitle ||
+                        result.sessionFirstMessage ||
+                        result.sessionId}
+                    </CardTitle>
+                    <CardDescription className="mt-1">
+                      {result.projectName ?? "独立任务"} ·{" "}
+                      {formatTimestamp(result.timestamp)}
+                    </CardDescription>
+                  </div>
+                  <Badge variant="secondary">
+                    {result.entryId === null ? "标题" : result.entryType}
+                  </Badge>
+                </CardHeader>
+                <CardContent className="text-sm leading-6 break-words whitespace-pre-wrap">
+                  {result.snippet}
+                </CardContent>
+              </Card>
+            </Link>
+          )
+        })}
         {!query ? (
           <Empty className="min-h-64 border">
             <EmptyHeader>

@@ -34,7 +34,9 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@workspace/ui/components/dropdown-menu"
+import { FieldError } from "@workspace/ui/components/field"
 import { Input } from "@workspace/ui/components/input"
+import { Label } from "@workspace/ui/components/label"
 import {
   Select,
   SelectContent,
@@ -434,12 +436,16 @@ export function SessionOperations({
                   名称会由 Pi 写入当前 JSONL。
                 </DialogDescription>
               </DialogHeader>
-              <Input
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                autoFocus
-                disabled={working || runtimeOperationDisabled}
-              />
+              <div className="grid gap-2">
+                <Label htmlFor="session-rename-name">Session 名称</Label>
+                <Input
+                  id="session-rename-name"
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                  autoFocus
+                  disabled={working || runtimeOperationDisabled}
+                />
+              </div>
               <DialogFooter>
                 <Button
                   type="submit"
@@ -599,12 +605,16 @@ export function SessionOperations({
                   Pi 会校验并创建一个新的 session；当前 session 保持不变。
                 </DialogDescription>
               </DialogHeader>
-              <Input
-                type="file"
-                accept=".jsonl,application/x-ndjson"
-                onChange={(event) => setFile(event.target.files?.[0] ?? null)}
-                disabled={working || runtimeOperationDisabled}
-              />
+              <div className="grid gap-2">
+                <Label htmlFor="session-import-file">Pi JSONL 文件</Label>
+                <Input
+                  id="session-import-file"
+                  type="file"
+                  accept=".jsonl,application/x-ndjson"
+                  onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+                  disabled={working || runtimeOperationDisabled}
+                />
+              </div>
               <DialogFooter>
                 <Button
                   type="submit"
@@ -619,7 +629,7 @@ export function SessionOperations({
             </form>
           ) : null}
 
-          {error ? <p className="text-sm text-destructive">{error}</p> : null}
+          {error ? <FieldError>{error}</FieldError> : null}
         </DialogContent>
       </Dialog>
     </>

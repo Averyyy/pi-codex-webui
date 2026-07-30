@@ -17,6 +17,7 @@ import {
   SheetTitle,
 } from "@workspace/ui/components/sheet"
 import type { WebUiViewSnapshot } from "@workspace/runtime-protocol"
+import { cn } from "@workspace/ui/lib/utils"
 
 import { SessionExtensionContext } from "@/components/session-extension-provider"
 import { WebUiViewHost } from "@/components/webui-view-host"
@@ -55,19 +56,23 @@ export function ExtensionOverlayHosts() {
             }}
           >
             <DialogContent
-              className={
+              className={cn(
+                "flex max-h-[calc(100svh-2rem)] w-[calc(100vw-2rem)] min-w-0 flex-col overflow-hidden",
                 view.placement === "session.overlay"
-                  ? "sm:max-w-4xl"
-                  : undefined
-              }
+                  ? "max-w-4xl sm:max-w-4xl"
+                  : "max-w-2xl sm:max-w-2xl"
+              )}
             >
-              <DialogHeader>
+              <DialogHeader className="shrink-0">
                 <DialogTitle>{view.title ?? "Pi extension"}</DialogTitle>
                 <DialogDescription className="sr-only">
                   Interactive WebUI extension view.
                 </DialogDescription>
               </DialogHeader>
-              <WebUiViewHost view={view} />
+              <WebUiViewHost
+                view={view}
+                className="min-h-0 flex-1 overflow-auto overscroll-contain"
+              />
             </DialogContent>
           </Dialog>
         ))}
@@ -81,14 +86,17 @@ export function ExtensionOverlayHosts() {
               if (!open) close(view)
             }}
           >
-            <SheetContent>
-              <SheetHeader>
+            <SheetContent className="min-w-0 gap-0 overflow-hidden">
+              <SheetHeader className="shrink-0">
                 <SheetTitle>{view.title ?? "Pi extension"}</SheetTitle>
                 <SheetDescription className="sr-only">
                   Interactive WebUI extension panel.
                 </SheetDescription>
               </SheetHeader>
-              <WebUiViewHost view={view} />
+              <WebUiViewHost
+                view={view}
+                className="min-h-0 flex-1 overflow-auto overscroll-contain"
+              />
             </SheetContent>
           </Sheet>
         ))}

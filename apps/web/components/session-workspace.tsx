@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState, type ReactNode } from "react"
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import dynamic from "next/dynamic"
 import {
   BotIcon,
@@ -46,7 +46,6 @@ import {
   SheetTitle,
 } from "@workspace/ui/components/sheet"
 import { Skeleton } from "@workspace/ui/components/skeleton"
-import { Tabs, TabsList, TabsTrigger } from "@workspace/ui/components/tabs"
 import {
   Tooltip,
   TooltipContent,
@@ -90,6 +89,8 @@ const TAB_METADATA: Record<WorkspaceTab, { label: string; icon: LucideIcon }> =
     subagents: { label: "子智能体", icon: BotIcon },
   }
 
+const SIDE_BY_SIDE_MIN_WIDTH = 42 * 16
+
 function IconTooltip({
   label,
   children,
@@ -125,42 +126,44 @@ function PanelTabs({
   return (
     <div className="flex min-h-11 shrink-0 items-center gap-1 border-b px-2">
       {tabs.length && activeTab ? (
-        <Tabs
-          value={activeTab}
-          onValueChange={(value) => onSelect(value as WorkspaceTab)}
-          className="min-w-0 flex-1"
-        >
-          <TabsList
-            variant="line"
-            className="h-9 max-w-full gap-0 overflow-x-auto p-0"
-          >
-            {tabs.map((tab) => {
-              const metadata = TAB_METADATA[tab]
-              const Icon = metadata.icon
-              return (
-                <div
-                  key={tab}
-                  role="presentation"
-                  className="group/tab flex h-8 shrink-0 items-center rounded-md"
+        <div className="flex h-9 min-w-0 flex-1 items-center gap-0 overflow-x-auto">
+          {tabs.map((tab) => {
+            const metadata = TAB_METADATA[tab]
+            const Icon = metadata.icon
+            const active = activeTab === tab
+            return (
+              <div
+                key={tab}
+                className="group/tab flex h-8 shrink-0 items-center rounded-md"
+              >
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  data-workspace-tab={tab}
+                  aria-pressed={active}
+                  onClick={() => onSelect(tab)}
+                  className={cn(
+                    "relative h-8 flex-none gap-1.5 px-2 text-foreground/60 hover:text-foreground",
+                    "after:absolute after:inset-x-1 after:bottom-0 after:h-0.5 after:bg-foreground after:opacity-0",
+                    active && "text-foreground after:opacity-100"
+                  )}
                 >
-                  <TabsTrigger value={tab} className="h-8 flex-none px-2">
-                    <Icon data-icon="inline-start" />
-                    {metadata.label}
-                  </TabsTrigger>
-                  <Button
-                    variant="ghost"
-                    size="icon-xs"
-                    className="-ml-1 opacity-0 transition-opacity group-focus-within/tab:opacity-100 group-hover/tab:opacity-100 [@media(hover:none)]:opacity-100"
-                    aria-label={`关闭${metadata.label}标签页`}
-                    onClick={() => onCloseTab(tab)}
-                  >
-                    <XIcon />
-                  </Button>
-                </div>
-              )
-            })}
-          </TabsList>
-        </Tabs>
+                  <Icon />
+                  {metadata.label}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  className="-ml-1 opacity-0 transition-opacity group-focus-within/tab:opacity-100 group-hover/tab:opacity-100 [@media(hover:none)]:opacity-100"
+                  aria-label={`关闭${metadata.label}标签页`}
+                  onClick={() => onCloseTab(tab)}
+                >
+                  <XIcon />
+                </Button>
+              </div>
+            )
+          })}
+        </div>
       ) : (
         <span className="min-w-0 flex-1 px-2 text-xs text-muted-foreground">
           侧边栏
@@ -169,7 +172,12 @@ function PanelTabs({
 
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="icon-sm" aria-label="添加侧边栏标签页">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            data-workspace-add-tab
+            aria-label="添加侧边栏标签页"
+          >
             <PlusIcon />
           </Button>
         </DropdownMenuTrigger>
@@ -241,6 +249,8 @@ export function SessionWorkspace({
 }) {
   const sidePanelRef = usePanelRef()
   const bottomPanelRef = usePanelRef()
+  const workspaceElementRef = useRef<HTMLDivElement>(null)
+  const desktopLayoutRef = useRef<boolean | null>(null)
   const [isDesktop, setIsDesktop] = useState(false)
   const [sideOpen, setSideOpen] = useState(false)
   const [mobileSideOpen, setMobileSideOpen] = useState(false)
@@ -267,16 +277,26 @@ export function SessionWorkspace({
     useState<TerminalPlacement>(null)
 
   useEffect(() => {
-    const media = window.matchMedia("(min-width: 768px)")
-    const update = () => {
-      setIsDesktop(media.matches)
+    const element = workspaceElementRef.current
+    if (!element) return
+
+    const update = (width: number) => {
+      const nextIsDesktop = width >= SIDE_BY_SIDE_MIN_WIDTH
+      if (desktopLayoutRef.current === nextIsDesktop) return
+      desktopLayoutRef.current = nextIsDesktop
+      setIsDesktop(nextIsDesktop)
       sidePanelRef.current?.collapse()
       setSideOpen(false)
       setMobileSideOpen(false)
     }
-    update()
-    media.addEventListener("change", update)
-    return () => media.removeEventListener("change", update)
+
+    update(element.getBoundingClientRect().width)
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0]
+      if (entry) update(entry.contentRect.width)
+    })
+    observer.observe(element)
+    return () => observer.disconnect()
   }, [sidePanelRef])
 
   function showSidebar() {
@@ -313,14 +333,26 @@ export function SessionWorkspace({
   function closeTab(tab: WorkspaceTab) {
     const index = tabs.indexOf(tab)
     const remaining = tabs.filter((candidate) => candidate !== tab)
+    const nextActive =
+      activeTab === tab
+        ? (remaining[Math.min(index, remaining.length - 1)] ?? null)
+        : activeTab
     setTabs(remaining)
     if (tab === "terminal" && terminalPlacement === "sidebar") {
       setTerminalPlacement(null)
       void stopTerminal()
     }
     if (activeTab === tab) {
-      setActiveTab(remaining[Math.min(index, remaining.length - 1)] ?? null)
+      setActiveTab(nextActive)
     }
+    requestAnimationFrame(() => {
+      const target = nextActive
+        ? document.querySelector<HTMLButtonElement>(
+            `[data-workspace-tab="${nextActive}"]`
+          )
+        : document.querySelector<HTMLButtonElement>("[data-workspace-add-tab]")
+      target?.focus()
+    })
   }
 
   function showTerminalBelow() {
@@ -418,7 +450,13 @@ export function SessionWorkspace({
         onCloseTab={closeTab}
         onClosePanel={hideSidebar}
       />
-      <div className="min-h-0 flex-1 animate-in duration-150 fade-in-0 motion-reduce:animate-none">
+      <div
+        role="region"
+        aria-label={
+          activeTab ? `${TAB_METADATA[activeTab].label}视图` : "侧边栏视图"
+        }
+        className="min-h-0 flex-1 animate-in duration-150 fade-in-0 motion-reduce:animate-none"
+      >
         {activeTab === "review" && projectId && initialGit ? (
           <ProjectReviewPanel projectId={projectId} initialGit={initialGit} />
         ) : activeTab === "files" && projectId ? (
@@ -445,6 +483,7 @@ export function SessionWorkspace({
   return (
     <SessionStreamingProvider>
       <ResizablePanelGroup
+        elementRef={workspaceElementRef}
         orientation="horizontal"
         className={cn(
           "h-[calc(100svh-3rem)] min-w-0 overflow-hidden md:h-svh",
@@ -611,7 +650,7 @@ export function SessionWorkspace({
           aria-hidden={!sideOpen}
           className={cn(
             "transition-opacity duration-150",
-            sideOpen ? "hidden md:flex" : "hidden"
+            sideOpen && isDesktop ? "flex" : "hidden"
           )}
           onPointerDown={() => setHorizontalDragging(true)}
           onPointerUp={() => setHorizontalDragging(false)}
@@ -620,7 +659,7 @@ export function SessionWorkspace({
         <ResizablePanel
           id="workspace-sidebar"
           panelRef={sidePanelRef}
-          className="hidden md:block"
+          className={isDesktop ? "block" : "hidden"}
           defaultSize={0}
           minSize="20rem"
           maxSize="58%"

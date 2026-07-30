@@ -31,6 +31,13 @@ export const piGoalStateSchema = z.object({
 export type PiGoalState = z.infer<typeof piGoalStateSchema>
 export type PiGoalStatus = z.infer<typeof goalStatusSchema>
 
+export function resolvePiGoalState(
+  persistedState: PiGoalState | null,
+  liveView: { state: unknown } | undefined
+) {
+  return liveView ? piGoalStateSchema.parse(liveView.state) : persistedState
+}
+
 const piGoalControlMarker =
   /<!--\s*pi-goal-(?:prompt|continuation):[^\s>]+\s*-->/
 

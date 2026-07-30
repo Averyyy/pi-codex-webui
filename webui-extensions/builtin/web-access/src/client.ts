@@ -5,7 +5,7 @@ import { parseWebSearchState, parseWorkflowState } from "./contract.js"
 const styles = `
   :host { color: inherit; font: 14px/1.5 system-ui, sans-serif; }
   * { box-sizing: border-box; }
-  .root { display: grid; gap: 16px; min-width: min(560px, 80vw); }
+  .root { display: grid; width: 100%; min-width: 0; gap: 16px; }
   .intro { margin: 0; color: color-mix(in srgb, currentColor 65%, transparent); }
   textarea { min-height: 150px; resize: vertical; border: 1px solid color-mix(in srgb, currentColor 20%, transparent); border-radius: 10px; background: transparent; color: inherit; padding: 11px 12px; font: inherit; }
   textarea:focus-visible, button:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }

@@ -8,7 +8,7 @@ import type {
   ReactNode,
   Ref,
 } from "react"
-import { useRef, useState } from "react"
+import { useId, useRef, useState } from "react"
 import {
   ArrowUpIcon,
   ImagePlusIcon,
@@ -36,6 +36,7 @@ import {
 } from "@/components/composer-image-attachments"
 import {
   ComposerCommandMenu,
+  composerCommandItemId,
   composerSlashCommandQuery,
   filterComposerCommands,
   removeComposerSlashCommand,
@@ -87,7 +88,7 @@ export function ConversationComposer({
   settings?: ReactNode
   images?: ComposerImage[]
   imageError?: string | null
-  imagesSupported?: boolean
+  imagesSupported?: boolean | null
   onImagesAdd?: (files: File[]) => void | Promise<void>
   onImageRemove?: (id: string) => void
   onCycleThinkingLevel?: () => void
@@ -96,17 +97,24 @@ export function ConversationComposer({
   commands?: ComposerCommand[]
 }) {
   const imageInputRef = useRef<HTMLInputElement>(null)
+  const commandMenuId = useId()
   const [commandMenuOpen, setCommandMenuOpen] = useState(false)
   const [commandQuery, setCommandQuery] = useState("")
   const [openedWithSlash, setOpenedWithSlash] = useState(false)
+  const [activeCommandId, setActiveCommandId] = useState<string | null>(null)
   const availableCommands: ComposerCommand[] = [
     ...commands,
     {
       id: imageCommandId,
       label: "图片",
-      description: imagesSupported ? "添加到当前消息" : "当前模型不支持图片",
+      description:
+        imagesSupported === false
+          ? "当前模型不支持图片"
+          : imagesSupported === null
+            ? "添加到当前消息；发送时验证模型"
+            : "添加到当前消息",
       icon: ImagePlusIcon,
-      disabled: !imagesSupported || submitting || !onImagesAdd,
+      disabled: imagesSupported === false || submitting || !onImagesAdd,
       onSelect: noop,
     },
   ]
@@ -114,7 +122,14 @@ export function ConversationComposer({
     availableCommands,
     commandQuery
   )
-  const hasUnsupportedImages = images.length > 0 && !imagesSupported
+  const enabledMatchingCommands = matchingCommands.filter(
+    (command) => !command.disabled
+  )
+  const activeCommand =
+    enabledMatchingCommands.find((command) => command.id === activeCommandId) ??
+    enabledMatchingCommands[0] ??
+    null
+  const hasUnsupportedImages = images.length > 0 && imagesSupported === false
   const submissionDisabled =
     (!value.trim() && images.length === 0) ||
     submitting ||
@@ -125,6 +140,7 @@ export function ConversationComposer({
     setCommandMenuOpen(false)
     setCommandQuery("")
     setOpenedWithSlash(false)
+    setActiveCommandId(null)
   }
 
   function handleValueChange(nextValue: string) {
@@ -155,7 +171,38 @@ export function ConversationComposer({
   function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (openedWithSlash && commandMenuOpen) {
       if (event.key === "Escape") {
+        event.preventDefault()
         closeCommandMenu()
+        return
+      }
+      if (
+        event.key === "ArrowDown" ||
+        event.key === "ArrowUp" ||
+        event.key === "Home" ||
+        event.key === "End"
+      ) {
+        event.preventDefault()
+        if (enabledMatchingCommands.length === 0) return
+
+        const currentIndex = activeCommand
+          ? enabledMatchingCommands.findIndex(
+              (command) => command.id === activeCommand.id
+            )
+          : -1
+        const nextIndex =
+          event.key === "Home"
+            ? 0
+            : event.key === "End"
+              ? enabledMatchingCommands.length - 1
+              : event.key === "ArrowUp"
+                ? currentIndex <= 0
+                  ? enabledMatchingCommands.length - 1
+                  : currentIndex - 1
+                : currentIndex < 0 ||
+                    currentIndex === enabledMatchingCommands.length - 1
+                  ? 0
+                  : currentIndex + 1
+        setActiveCommandId(enabledMatchingCommands[nextIndex]?.id ?? null)
         return
       }
       if (
@@ -164,18 +211,17 @@ export function ConversationComposer({
           !event.nativeEvent.isComposing) ||
         (event.key === "Tab" && !event.shiftKey)
       ) {
-        const command = matchingCommands.find((item) => !item.disabled)
-        if (command) {
+        if (activeCommand) {
           event.preventDefault()
-          handleCommandSelect(command)
+          handleCommandSelect(activeCommand)
           return
         }
       }
     }
     if (
-      event.key === "Tab" &&
+      event.key.toLowerCase() === "r" &&
       event.shiftKey &&
-      !event.altKey &&
+      event.altKey &&
       !event.ctrlKey &&
       !event.metaKey &&
       onCycleThinkingLevel
@@ -205,7 +251,7 @@ export function ConversationComposer({
       toast.error("消息正在发送，请稍后添加图片。")
       return
     }
-    if (!imagesSupported) {
+    if (imagesSupported === false) {
       toast.error("当前模型不支持图片。")
       return
     }
@@ -228,15 +274,20 @@ export function ConversationComposer({
                   if (!open) {
                     setCommandQuery("")
                     setOpenedWithSlash(false)
+                    setActiveCommandId(null)
                   }
                 }}
                 commands={availableCommands}
                 query={commandQuery}
+                menuId={commandMenuId}
+                activeCommandId={activeCommand?.id ?? null}
                 preserveInputFocus={openedWithSlash}
                 onTriggerClick={() => {
                   setCommandQuery("")
                   setOpenedWithSlash(false)
+                  setActiveCommandId(null)
                 }}
+                onActiveCommandChange={setActiveCommandId}
                 onCommandSelect={handleCommandSelect}
               />
               <input
@@ -253,7 +304,7 @@ export function ConversationComposer({
                     toast.error("消息正在发送，请稍后添加图片。")
                     return
                   }
-                  if (!imagesSupported) {
+                  if (imagesSupported === false) {
                     toast.error("当前模型不支持图片。")
                     return
                   }
@@ -285,6 +336,18 @@ export function ConversationComposer({
           onPaste={handlePaste}
           placeholder={placeholder}
           aria-label={ariaLabel}
+          aria-controls={
+            openedWithSlash && commandMenuOpen ? commandMenuId : undefined
+          }
+          aria-expanded={openedWithSlash && commandMenuOpen ? true : undefined}
+          aria-haspopup={
+            openedWithSlash && commandMenuOpen ? "menu" : undefined
+          }
+          aria-activedescendant={
+            openedWithSlash && commandMenuOpen && activeCommand
+              ? composerCommandItemId(commandMenuId, activeCommand.id)
+              : undefined
+          }
           autoFocus={autoFocus}
           className="min-h-24 resize-none border-0 bg-transparent shadow-none focus-visible:ring-0 sm:min-h-20"
         />
@@ -423,8 +486,8 @@ export function ComposerThinkingSelect({
       <SelectTrigger
         size="sm"
         aria-label="Reasoning effort"
-        aria-keyshortcuts="Shift+Tab"
-        title="Shift+Tab 切换 reasoning effort"
+        aria-keyshortcuts="Alt+Shift+R"
+        title="Alt+Shift+R 切换 reasoning effort"
       >
         <SelectValue>Reasoning: {level}</SelectValue>
       </SelectTrigger>

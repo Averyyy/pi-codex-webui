@@ -294,6 +294,70 @@ test("client activation timeout closes the native view before TUI fallback", asy
   }
 })
 
+test("a mounted blocking view survives client disposal and remounts", async () => {
+  const files = await fixture(`
+    export default (web) => web.registerCommandAdapter({
+      id: "target.open",
+      probe: () => ({ compatible: true }),
+      async handle(_request, context) {
+        await context.openView({
+          viewId: "target.dialog",
+          placement: "session.dialog",
+          blocking: true,
+          state: {}
+        })
+        return { handled: true }
+      }
+    })
+  `)
+  const events: WebUiViewEvent[] = []
+  const statuses: WebUiExtensionStatus[] = []
+  let originalCalls = 0
+  const target = extension(files.targetPath, () => (originalCalls += 1))
+  const host = new WebUiAdapterHost({
+    descriptors: [descriptor(files.workerPath)],
+    session: () => ({
+      cwd: "/tmp/project",
+      listSessions: async () => [],
+      switchSession: async () => ({ cancelled: false }),
+    }),
+    emitView: (event) => events.push(event),
+    emitStatus: (status) => statuses.push(status),
+    emitTargetEvent: () => {},
+  })
+  try {
+    createExtensionInstrumentor(() => host)({
+      extensions: [target],
+    } as LoadExtensionsResult)
+    await host.initialize([target])
+    const pending = target.commands.get("target")?.handler("", commandContext())
+    await Promise.resolve()
+    const view = host.snapshots()[0]
+    assert.ok(view)
+
+    host.clientStatus("target", view.instanceId, "ready")
+    host.clientStatus("target", view.instanceId, "disposed")
+    assert.deepEqual(host.snapshots(), [view])
+    assert.equal(
+      statuses.some((status) => status.state === "error"),
+      false
+    )
+
+    host.clientStatus("target", view.instanceId, "ready")
+    await host.action("target", view.instanceId, "__close")
+    await pending
+    assert.equal(originalCalls, 0)
+    assert.deepEqual(host.snapshots(), [])
+    assert.deepEqual(
+      events.map((event) => event.kind),
+      ["open", "close"]
+    )
+  } finally {
+    host.dispose()
+    await rm(files.root, { recursive: true, force: true })
+  }
+})
+
 test("RPC custom messages open native cards without waiting for a client mount", async () => {
   const files = await fixture(`
     export default (web) => web.registerRendererAdapter({

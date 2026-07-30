@@ -39,6 +39,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@workspace/ui/components/select"
+import { Label } from "@workspace/ui/components/label"
 import { Textarea } from "@workspace/ui/components/textarea"
 import type {
   ExtensionUIRequest,
@@ -386,14 +387,16 @@ export function SessionRuntime({
   const selectedModel = snapshot?.model
   const extensionRequest = extensionRequests[0] ?? null
   const extensionValue = extensionRequest?.value ?? ""
-  const imagesSupported = selectedModel
-    ? snapshot.availableModels.some(
-        (model) =>
-          model.provider === selectedModel.provider &&
-          model.id === selectedModel.id &&
-          model.input.includes("image")
-      )
-    : false
+  const imagesSupported = snapshot
+    ? selectedModel
+      ? snapshot.availableModels.some(
+          (model) =>
+            model.provider === selectedModel.provider &&
+            model.id === selectedModel.id &&
+            model.input.includes("image")
+        )
+      : false
+    : null
 
   const updateRuntimeStatus = useCallback(
     (nextStatus: RuntimeStatus) => {
@@ -1368,33 +1371,35 @@ export function SessionRuntime({
 
   return (
     <div className="z-10 shrink-0 border-t bg-background/95 px-4 py-3 backdrop-blur sm:px-6 sm:py-4">
-      <div className="mx-auto grid w-full max-w-[52rem] min-w-0 gap-3">
-        {inlineSurfaces("header").map(renderTuiSurface)}
-        {compactionNotice ? (
-          <ConversationCompactionStatus state={compactionNotice} />
-        ) : null}
-        {inlineSurfaces("aboveEditor").map(renderTuiSurface)}
-        {widgets
-          .filter(([, widget]) => widget.placement === "aboveEditor")
-          .map(([key, widget]) => (
-            <pre
-              key={key}
-              className="overflow-x-auto rounded-lg border bg-muted/50 p-3 text-xs whitespace-pre-wrap"
-            >
-              {widget.lines.join("\n")}
-            </pre>
-          ))}
-        <GoalStatusBar
-          initialState={initialGoalState}
-          disabled={status === "starting" || status === "crashed"}
-          onCommand={(args) => sendMessage(`/goal ${args}`)}
-        />
-        <ExtensionSlot name="composer.above" excludeViewIds={["goal.card"]} />
-        <PromptQueue
-          items={queuedMessages}
-          onReplace={replaceQueuedMessages}
-          disabled={submitting || aborting || queueUpdating}
-        />
+      <div className="mx-auto flex w-full max-w-[52rem] min-w-0 flex-col gap-3">
+        <div className="grid max-h-[18svh] min-h-0 gap-3 overflow-y-auto overscroll-contain empty:hidden">
+          {inlineSurfaces("header").map(renderTuiSurface)}
+          {compactionNotice ? (
+            <ConversationCompactionStatus state={compactionNotice} />
+          ) : null}
+          {inlineSurfaces("aboveEditor").map(renderTuiSurface)}
+          {widgets
+            .filter(([, widget]) => widget.placement === "aboveEditor")
+            .map(([key, widget]) => (
+              <pre
+                key={key}
+                className="overflow-x-auto rounded-lg border bg-muted/50 p-3 text-xs whitespace-pre-wrap"
+              >
+                {widget.lines.join("\n")}
+              </pre>
+            ))}
+          <GoalStatusBar
+            initialState={initialGoalState}
+            disabled={status === "starting" || status === "crashed"}
+            onCommand={(args) => sendMessage(`/goal ${args}`)}
+          />
+          <ExtensionSlot name="composer.above" excludeViewIds={["goal.card"]} />
+          <PromptQueue
+            items={queuedMessages}
+            onReplace={replaceQueuedMessages}
+            disabled={submitting || aborting || queueUpdating}
+          />
+        </div>
         <ConversationComposer
           value={draft}
           onValueChange={setDraft}
@@ -1466,13 +1471,15 @@ export function SessionRuntime({
           ]}
           editor={
             editorSurface ? (
-              <PiTuiSurface
-                surface={editorSurface}
-                onAction={(action) =>
-                  actOnTuiSurface(editorSurface.surfaceId, action)
-                }
-                onError={(failure) => setError(failure.message)}
-              />
+              <div className="max-h-[30svh] overflow-y-auto overscroll-contain">
+                <PiTuiSurface
+                  surface={editorSurface}
+                  onAction={(action) =>
+                    actOnTuiSurface(editorSurface.surfaceId, action)
+                  }
+                  onError={(failure) => setError(failure.message)}
+                />
+              </div>
             ) : undefined
           }
           actions={
@@ -1595,40 +1602,44 @@ export function SessionRuntime({
           open={treeOpen}
           onOpenChange={setTreeOpen}
         />
-        <ExtensionSlot name="composer.below" />
-        {widgets
-          .filter(([, widget]) => widget.placement === "belowEditor")
-          .map(([key, widget]) => (
-            <pre
-              key={key}
-              className="overflow-x-auto rounded-lg border bg-muted/50 p-3 text-xs whitespace-pre-wrap"
-            >
-              {widget.lines.join("\n")}
-            </pre>
-          ))}
-        {inlineSurfaces("belowEditor").map(renderTuiSurface)}
-        {inlineSurfaces("footer").map(renderTuiSurface)}
-        {status === "crashed" ? (
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3">
-            <p className="text-sm text-destructive">
-              {error ?? "Pi worker 意外退出；历史 JSONL 仍可读取。"}
+        <div className="grid max-h-[18svh] min-h-0 gap-3 overflow-y-auto overscroll-contain empty:hidden">
+          {status === "crashed" ? (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3">
+              <p role="alert" className="text-sm text-destructive">
+                {error ?? "Pi worker 意外退出；历史 JSONL 仍可读取。"}
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => void restartRuntime()}
+                disabled={updating}
+              >
+                <RefreshCwIcon
+                  className={updating ? "animate-spin" : undefined}
+                />
+                重新启动 Runtime
+              </Button>
+            </div>
+          ) : error || connectionError ? (
+            <p role="alert" className="text-sm text-destructive">
+              {error ?? connectionError}
             </p>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => void restartRuntime()}
-              disabled={updating}
-            >
-              <RefreshCwIcon
-                className={updating ? "animate-spin" : undefined}
-              />
-              重新启动 Runtime
-            </Button>
-          </div>
-        ) : error || connectionError ? (
-          <p className="text-sm text-destructive">{error ?? connectionError}</p>
-        ) : null}
+          ) : null}
+          <ExtensionSlot name="composer.below" />
+          {widgets
+            .filter(([, widget]) => widget.placement === "belowEditor")
+            .map(([key, widget]) => (
+              <pre
+                key={key}
+                className="overflow-x-auto rounded-lg border bg-muted/50 p-3 text-xs whitespace-pre-wrap"
+              >
+                {widget.lines.join("\n")}
+              </pre>
+            ))}
+          {inlineSurfaces("belowEditor").map(renderTuiSurface)}
+          {inlineSurfaces("footer").map(renderTuiSurface)}
+        </div>
       </div>
 
       <Dialog open={goalDialogOpen} onOpenChange={setGoalDialogOpen}>
@@ -1696,6 +1707,12 @@ export function SessionRuntime({
                 ) : null}
               </DialogHeader>
 
+              {extensionRequest.method !== "confirm" ? (
+                <Label htmlFor="extension-request-value" className="sr-only">
+                  {extensionRequest.title}
+                </Label>
+              ) : null}
+
               {extensionRequest.method === "select" ? (
                 <Select
                   value={extensionValue}
@@ -1703,8 +1720,8 @@ export function SessionRuntime({
                   disabled={respondingRequestId !== null}
                 >
                   <SelectTrigger
+                    id="extension-request-value"
                     className="w-full"
-                    aria-label={extensionRequest.title}
                   >
                     <SelectValue />
                   </SelectTrigger>
@@ -1720,6 +1737,7 @@ export function SessionRuntime({
 
               {extensionRequest.method === "input" ? (
                 <Input
+                  id="extension-request-value"
                   value={extensionValue}
                   onChange={(event) => updateExtensionValue(event.target.value)}
                   placeholder={extensionRequest.placeholder}
@@ -1730,6 +1748,7 @@ export function SessionRuntime({
 
               {extensionRequest.method === "editor" ? (
                 <Textarea
+                  id="extension-request-value"
                   value={extensionValue}
                   onChange={(event) => updateExtensionValue(event.target.value)}
                   className="min-h-56"

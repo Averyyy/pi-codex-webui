@@ -1,12 +1,6 @@
 "use client"
 
-import {
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
-  type FormEvent,
-} from "react"
+import { useContext, useEffect, useMemo, useState, type FormEvent } from "react"
 import {
   ChevronDownIcon,
   CirclePauseIcon,
@@ -22,7 +16,7 @@ import { Textarea } from "@workspace/ui/components/textarea"
 
 import { SessionExtensionContext } from "@/components/session-extension-provider"
 import {
-  piGoalStateSchema,
+  resolvePiGoalState,
   type PiGoalState,
   type PiGoalStatus,
 } from "@/lib/pi-goal"
@@ -46,10 +40,7 @@ function duration(state: PiGoalState, now: number) {
     state.goal.status === "active" && state.goal.activeStartedAt
       ? Math.max(0, now - state.goal.activeStartedAt) / 1_000
       : 0
-  let seconds = Math.max(
-    0,
-    Math.floor(state.goal.timeUsedSeconds + live)
-  )
+  let seconds = Math.max(0, Math.floor(state.goal.timeUsedSeconds + live))
   const days = Math.floor(seconds / 86_400)
   seconds %= 86_400
   const hours = Math.floor(seconds / 3_600)
@@ -92,24 +83,22 @@ export function GoalStatusBar({
     throw new Error("GoalStatusBar requires SessionExtensionProvider.")
   }
   const extensionRuntime = extensions
-  const liveView = extensions.views.find(
-    (view) => view.viewId === "goal.card"
+  const liveView = extensions.views.find((view) => view.viewId === "goal.card")
+  const sourceState = useMemo(
+    () => resolvePiGoalState(initialState, liveView),
+    [initialState, liveView]
   )
-  const liveState = useMemo(
-    () => (liveView ? piGoalStateSchema.safeParse(liveView.state) : null),
-    [liveView]
-  )
-  const [state, setState] = useState<PiGoalState | null>(initialState)
+  const [state, setState] = useState<PiGoalState | null>(sourceState)
   const [expanded, setExpanded] = useState(false)
   const [editing, setEditing] = useState(false)
   const [pending, setPending] = useState(false)
   const [error, setError] = useState("")
   const [now, setNow] = useState(0)
-  const [previousLiveState, setPreviousLiveState] = useState(liveState)
+  const [previousSourceState, setPreviousSourceState] = useState(sourceState)
 
-  if (liveState !== previousLiveState) {
-    setPreviousLiveState(liveState)
-    if (liveState?.success) setState(liveState.data)
+  if (sourceState !== previousSourceState) {
+    setPreviousSourceState(sourceState)
+    setState(sourceState)
   }
 
   useEffect(() => {
@@ -125,8 +114,7 @@ export function GoalStatusBar({
     setError("")
     try {
       const accepted = liveView
-        ? ((await extensionRuntime.invoke(liveView, "goal.command", input)),
-          true)
+        ? (await extensionRuntime.invoke(liveView, "goal.command", input), true)
         : await onCommand(commandArgs(input))
       if (!accepted) return
       setState((current) => {
@@ -197,7 +185,7 @@ export function GoalStatusBar({
         <span className="min-w-0 flex-1 truncate text-sm text-muted-foreground">
           {state.goal.text}
         </span>
-        <span className="shrink-0 text-sm tabular-nums text-muted-foreground">
+        <span className="shrink-0 text-sm text-muted-foreground tabular-nums">
           {duration(state, now)}
         </span>
         <div className="flex shrink-0 items-center">
@@ -265,7 +253,11 @@ export function GoalStatusBar({
             }}
           >
             <ChevronDownIcon
-              className={expanded ? "rotate-180 transition-transform" : "transition-transform"}
+              className={
+                expanded
+                  ? "rotate-180 transition-transform"
+                  : "transition-transform"
+              }
             />
           </Button>
         </div>
@@ -273,7 +265,7 @@ export function GoalStatusBar({
 
       {expanded ? (
         <div className="border-t px-4 pb-4 pl-10">
-          <p className="mt-3 whitespace-pre-wrap text-sm text-muted-foreground">
+          <p className="mt-3 text-sm whitespace-pre-wrap text-muted-foreground">
             {state.goal.text}
           </p>
           <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">

@@ -21,6 +21,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@workspace/ui/components/dialog"
+import { FieldError } from "@workspace/ui/components/field"
 import { Input } from "@workspace/ui/components/input"
 import { Switch } from "@workspace/ui/components/switch"
 import { cn } from "@workspace/ui/lib/utils"
@@ -195,7 +196,7 @@ export function SessionTreeDialog({
         {tree && rows.length ? (
           <div
             className="relative min-w-0"
-            role="tree"
+            role="list"
             aria-label="Session entries"
             style={{ height: rows.length * rowHeight }}
           >
@@ -241,11 +242,7 @@ export function SessionTreeDialog({
                 <div
                   key={row.entry.id}
                   ref={row.current ? currentLeafRef : undefined}
-                  role="treeitem"
-                  aria-level={row.depth + 1}
-                  aria-selected={selected}
-                  aria-current={row.current ? "true" : undefined}
-                  aria-expanded={branching ? !row.folded : undefined}
+                  role="listitem"
                   className="absolute right-0 left-0"
                   style={{ top: index * rowHeight, height: rowHeight }}
                   data-entry-id={row.entry.id}
@@ -259,6 +256,7 @@ export function SessionTreeDialog({
                       style={{ left: x }}
                       onClick={() => toggleFold(row.entry.id)}
                       aria-label={row.folded ? "展开分支" : "折叠分支"}
+                      aria-expanded={!row.folded}
                     >
                       {row.folded ? (
                         <PlusIcon className="size-2.5" />
@@ -291,7 +289,10 @@ export function SessionTreeDialog({
                     )}
                     style={{ left: x + 12 }}
                     onClick={() => onSelectedEntryIdChange(row.entry.id)}
+                    aria-pressed={selected}
+                    aria-current={row.current ? "true" : undefined}
                   >
+                    <span className="sr-only">层级 {row.depth + 1}。</span>
                     <Icon className="size-3.5 shrink-0" aria-hidden="true" />
                     {labelBesideText ? (
                       <span className="shrink-0 rounded bg-muted-foreground/10 px-1.5 py-0.5 text-[10px] font-medium">
@@ -327,9 +328,7 @@ export function SessionTreeDialog({
       </div>
 
       {error ? (
-        <p className="shrink-0 border-t px-5 py-2 text-sm text-destructive">
-          {error}
-        </p>
+        <FieldError className="shrink-0 border-t px-5 py-2">{error}</FieldError>
       ) : null}
 
       <div className="flex shrink-0 flex-col gap-3 border-t bg-background px-4 py-3 sm:flex-row sm:items-center sm:justify-between">

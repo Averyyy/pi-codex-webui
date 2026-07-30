@@ -11,6 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@workspace/ui/components/dialog"
+import { FieldError } from "@workspace/ui/components/field"
 import { Input } from "@workspace/ui/components/input"
 import { Label } from "@workspace/ui/components/label"
 import {
@@ -79,12 +80,14 @@ export function CustomProviderForm({
   open,
   provider,
   working,
+  error,
   onOpenChange,
   onSave,
 }: {
   open: boolean
   provider: ModelSettingsProvider | null
   working: boolean
+  error?: string | null
   onOpenChange: (open: boolean) => void
   onSave: (value: ModelSettingsProviderInput) => void
 }) {
@@ -172,14 +175,16 @@ export function CustomProviderForm({
 
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="grid gap-2">
-              <Label>{t("settings.provider.api")}</Label>
+              <Label htmlFor="custom-provider-api">
+                {t("settings.provider.api")}
+              </Label>
               <Select
                 value={form.api}
                 onValueChange={(value) =>
                   field("api", value as ModelProviderApi)
                 }
               >
-                <SelectTrigger className="w-full">
+                <SelectTrigger id="custom-provider-api" className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -361,6 +366,7 @@ export function CustomProviderForm({
             </div>
           </div>
 
+          {error ? <FieldError>{error}</FieldError> : null}
           <DialogFooter className="mx-0 mb-0">
             <Button
               type="button"

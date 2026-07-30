@@ -11,6 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@workspace/ui/components/dialog"
+import { FieldError } from "@workspace/ui/components/field"
 import { Input } from "@workspace/ui/components/input"
 import { Label } from "@workspace/ui/components/label"
 import {
@@ -204,14 +205,14 @@ export function McpServerForm({
 
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="grid gap-2">
-              <Label>{t("settings.mcpForm.scope")}</Label>
+              <Label htmlFor="mcp-scope">{t("settings.mcpForm.scope")}</Label>
               <Select
                 value={form.scope}
                 onValueChange={(value) =>
                   field("scope", value as "global" | "project")
                 }
               >
-                <SelectTrigger className="w-full">
+                <SelectTrigger id="mcp-scope" className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -228,14 +229,16 @@ export function McpServerForm({
               ) : null}
             </div>
             <div className="grid gap-2">
-              <Label>{t("settings.mcpForm.transport")}</Label>
+              <Label htmlFor="mcp-transport">
+                {t("settings.mcpForm.transport")}
+              </Label>
               <Select
                 value={form.transportType}
                 onValueChange={(value) =>
                   field("transportType", value as "stdio" | "http")
                 }
               >
-                <SelectTrigger className="w-full">
+                <SelectTrigger id="mcp-transport" className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -331,7 +334,7 @@ export function McpServerForm({
             </label>
           </div>
 
-          {error ? <p className="text-sm text-destructive">{error}</p> : null}
+          {error ? <FieldError>{error}</FieldError> : null}
           <DialogFooter className="mx-0 mb-0">
             <Button
               type="button"

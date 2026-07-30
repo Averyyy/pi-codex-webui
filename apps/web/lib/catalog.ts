@@ -69,7 +69,7 @@ interface SearchRow {
   session_id: string
   session_title: string | null
   session_first_message: string
-  entry_id: string
+  entry_id: string | null
   entry_type: string
   timestamp: string
   snippet: string
@@ -631,7 +631,11 @@ export async function getSessionIdentityByNativeFile(
 export async function searchSessions(query: string) {
   await syncPiSessionIndex()
   const database = await getDatabase()
-  const literalQuery = `"${query.replaceAll('"', '""')}"`
+  const matchQuery = query
+    .trim()
+    .split(/\s+/u)
+    .map((token) => `"${token.replaceAll('"', '""')}"`)
+    .join(" AND ")
   const rows = database
     .prepare(
       `SELECT sessions.project_id,
@@ -639,7 +643,12 @@ export async function searchSessions(query: string) {
               sessions.id AS session_id,
               sessions.title AS session_title,
               sessions.first_message AS session_first_message,
-              session_search.entry_id,
+              CASE
+                WHEN session_search.entry_id = ''
+                  AND session_search.entry_type = 'session_title'
+                THEN NULL
+                ELSE session_search.entry_id
+              END AS entry_id,
               session_search.entry_type,
               session_search.timestamp,
               snippet(session_search, 4, '【', '】', '…', 24) AS snippet
@@ -651,7 +660,7 @@ export async function searchSessions(query: string) {
        ORDER BY rank, session_search.timestamp DESC
        LIMIT 100`
     )
-    .all(literalQuery) as unknown as SearchRow[]
+    .all(matchQuery) as unknown as SearchRow[]
   return rows.map((row): SessionSearchResult => ({
     projectId: row.project_id,
     projectName: row.project_name,

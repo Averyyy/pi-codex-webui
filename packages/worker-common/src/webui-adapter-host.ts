@@ -1172,7 +1172,7 @@ export class WebUiAdapterHost {
       clearTimeout(view.activationTimeout)
       return
     }
-    if (status === "disposed" && !view.snapshot.blocking) return
+    if (status === "disposed") return
     const error = new Error(message ?? `Adapter client ${status}.`)
     this.failView(instanceId, error)
     this.failAdapter(view.adapter, error)

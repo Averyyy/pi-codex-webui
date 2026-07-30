@@ -41,6 +41,7 @@ interface IndexedSessionRow {
 }
 
 const decoder = new TextDecoder("utf-8", { fatal: true })
+const sessionTitleSearchEntryType = "session_title"
 
 function hash(content: Uint8Array) {
   return createHash("sha256").update(content).digest("hex")
@@ -121,6 +122,31 @@ function insertEntries(
       )
     }
   }
+}
+
+function replaceSessionTitleSearch(
+  database: DatabaseSync,
+  sessionId: string,
+  title: string | null | undefined,
+  timestamp: string
+) {
+  database
+    .prepare(
+      `DELETE FROM session_search
+       WHERE session_id = ? AND entry_id = '' AND entry_type = ?`
+    )
+    .run(sessionId, sessionTitleSearchEntryType)
+
+  const text = title?.trim()
+  if (!text) return
+
+  database
+    .prepare(
+      `INSERT INTO session_search(
+         session_id, entry_id, entry_type, timestamp, text
+       ) VALUES (?, '', ?, ?, ?)`
+    )
+    .run(sessionId, sessionTitleSearchEntryType, timestamp, text)
 }
 
 function registeredProjectId(database: DatabaseSync, canonicalPath: string) {
@@ -235,6 +261,12 @@ async function replaceSession(
     database
       .prepare("DELETE FROM session_entries WHERE session_id = ?")
       .run(sessionId)
+    replaceSessionTitleSearch(
+      database,
+      sessionId,
+      parsed.title,
+      parsed.updatedAt
+    )
     insertEntries(database, sessionId, parsed.entries)
   })
 }
@@ -261,6 +293,12 @@ function appendSession(
 
   inTransaction(database, () => {
     insertEntries(database, existing.id, entries)
+    replaceSessionTitleSearch(
+      database,
+      existing.id,
+      metadata.title,
+      metadata.updatedAt
+    )
     database
       .prepare(
         `UPDATE sessions SET

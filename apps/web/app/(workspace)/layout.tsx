@@ -42,7 +42,11 @@ export default async function WorkspaceLayout({
         initialRunningSessionIds={initialRunningSessionIds}
         mutationToken={getMutationToken()}
       />
-      <SidebarInset className="min-h-svh overflow-hidden">
+      <SidebarInset
+        id="main-content"
+        tabIndex={-1}
+        className="min-h-svh overflow-hidden"
+      >
         <header className="flex h-12 shrink-0 items-center border-b px-3 md:hidden">
           <SidebarTrigger />
           <span className="ml-2 font-medium">pi-web-codex</span>

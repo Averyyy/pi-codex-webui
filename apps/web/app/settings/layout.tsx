@@ -23,7 +23,7 @@ export default function SettingsLayout({
       }
     >
       <SettingsNav />
-      <SidebarInset>
+      <SidebarInset id="main-content" tabIndex={-1}>
         <header className="flex h-12 shrink-0 items-center gap-2 border-b px-3">
           <SettingsBackButton />
           <SidebarTrigger className="md:hidden" />

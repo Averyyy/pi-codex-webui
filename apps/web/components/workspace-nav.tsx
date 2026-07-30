@@ -204,7 +204,7 @@ export function WorkspaceNav({
 
   return (
     <>
-      <Sidebar collapsible="offcanvas">
+      <Sidebar collapsible="offcanvas" role="navigation" aria-label="主导航">
         <SidebarHeader
           className="px-3 pt-3"
           inert={navigationHidden}

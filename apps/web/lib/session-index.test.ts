@@ -1,5 +1,13 @@
 import assert from "node:assert/strict"
-import { mkdir, mkdtemp, realpath, rm, stat, writeFile } from "node:fs/promises"
+import {
+  appendFile,
+  mkdir,
+  mkdtemp,
+  realpath,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import test from "node:test"
@@ -48,14 +56,25 @@ test("project availability accepts directories and suppresses only ENOENT", asyn
   }
 })
 
-function sessionJsonl(id: string, cwd: string, text: string) {
+function sessionJsonl(id: string, cwd: string, text: string, title?: string) {
   const timestamp = "2026-07-14T00:00:00.000Z"
-  return `${[
+  const entries = [
     { type: "session", version: 3, id, timestamp, cwd },
+    ...(title
+      ? [
+          {
+            type: "session_info",
+            id: `${id}-title`,
+            parentId: null,
+            timestamp,
+            name: title,
+          },
+        ]
+      : []),
     {
       type: "message",
       id: `${id}-message`,
-      parentId: null,
+      parentId: title ? `${id}-title` : null,
       timestamp,
       message: {
         role: "user",
@@ -64,8 +83,7 @@ function sessionJsonl(id: string, cwd: string, text: string) {
       },
     },
   ]
-    .map((entry) => JSON.stringify(entry))
-    .join("\n")}\n`
+  return `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`
 }
 
 test("standalone sessions survive reindexing and remain outside projects", async () => {
@@ -96,7 +114,12 @@ test("standalone sessions survive reindexing and remain outside projects", async
     await Promise.all([
       writeFile(
         projectFile,
-        sessionJsonl("native-project", projectCwd, "project message")
+        sessionJsonl(
+          "native-project",
+          projectCwd,
+          "project message",
+          'Release "quoted" roadmap'
+        )
       ),
       writeFile(
         taskFile,
@@ -123,6 +146,29 @@ test("standalone sessions survive reindexing and remain outside projects", async
     assert.equal(projectSession.hasUnreadCompletion, false)
     const projectId = projectSession.projectId
     assert.ok(projectId)
+
+    const [titleResult] = await searchSessions('"Release" roadmap')
+    assert.ok(titleResult)
+    assert.equal(titleResult.sessionId, projectSession.id)
+    assert.equal(titleResult.entryId, null)
+    assert.equal(titleResult.entryType, "session_title")
+
+    await appendFile(
+      projectFile,
+      `${JSON.stringify({
+        type: "session_info",
+        id: "native-project-title-updated",
+        parentId: "native-project-message",
+        timestamp: "2026-07-14T00:01:00.000Z",
+        name: "Updated launch title",
+      })}\n`
+    )
+    await syncPiSessionIndex()
+    assert.equal(
+      (await searchSessions("updated title"))[0]?.sessionId,
+      projectSession.id
+    )
+    assert.equal((await searchSessions("release roadmap")).length, 0)
 
     const database = await getDatabase()
     const sessionRowsBeforeRemoval = database
@@ -171,6 +217,10 @@ test("standalone sessions survive reindexing and remain outside projects", async
     assert.equal(
       (await searchSessions("project updated while unregistered"))[0]
         ?.sessionId,
+      projectSession.id
+    )
+    assert.equal(
+      (await searchSessions("project unregistered"))[0]?.sessionId,
       projectSession.id
     )
 

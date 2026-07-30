@@ -37,6 +37,7 @@ import {
 import {
   Field,
   FieldDescription,
+  FieldError,
   FieldGroup,
   FieldLabel,
 } from "@workspace/ui/components/field"
@@ -311,9 +312,9 @@ export function ModelSettings({
       </Card>
 
       {error ? (
-        <p className="rounded-lg bg-destructive/5 p-3 text-sm text-destructive">
+        <FieldError className="rounded-lg bg-destructive/5 p-3">
           {error}
-        </p>
+        </FieldError>
       ) : null}
 
       {visibleProviders.length ? (
@@ -464,6 +465,7 @@ export function ModelSettings({
           open
           provider={editingProvider}
           working={working !== null}
+          error={error}
           onOpenChange={setProviderDialogOpen}
           onSave={(value) => void saveProvider(value)}
         />

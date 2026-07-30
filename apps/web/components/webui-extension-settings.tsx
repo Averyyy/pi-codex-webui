@@ -274,7 +274,7 @@ export function WebUiExtensionSettings({
                               </Badge>
                             ) : null}
                           </div>
-                          <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-muted-foreground">
+                          <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-muted-foreground [&_dd]:min-w-0 [&_dd]:break-words">
                             <dt>{t("settings.webui.adapter")}</dt>
                             <dd>{candidate.packageVersion}</dd>
                             <dt>{t("settings.webui.target")}</dt>

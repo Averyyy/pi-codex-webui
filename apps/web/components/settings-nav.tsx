@@ -1,5 +1,6 @@
 "use client"
 
+import { useEffect } from "react"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import {
@@ -77,11 +78,15 @@ export function SettingsNav() {
   const pathname = usePathname()
   const router = useRouter()
   const { t } = useI18n()
-  const { isMobile, state } = useSidebar()
+  const { isMobile, setOpenMobile, state } = useSidebar()
   const navigationHidden = !isMobile && state === "collapsed"
 
+  useEffect(() => {
+    if (isMobile) setOpenMobile(false)
+  }, [isMobile, pathname, setOpenMobile])
+
   return (
-    <Sidebar collapsible="offcanvas">
+    <Sidebar collapsible="offcanvas" role="navigation" aria-label="设置导航">
       <SidebarHeader inert={navigationHidden} aria-hidden={navigationHidden}>
         <div className="flex h-10 items-center px-2 text-base font-semibold">
           pi-web-codex

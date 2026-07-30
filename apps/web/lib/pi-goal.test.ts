@@ -1,12 +1,16 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 
-import { isPiGoalControlMessage, latestPiGoalState } from "./pi-goal"
+import {
+  isPiGoalControlMessage,
+  latestPiGoalState,
+  resolvePiGoalState,
+} from "./pi-goal"
 
 const goal = {
   id: "goal-1",
   text: "Ship the persistent goal bar",
-  status: "active",
+  status: "active" as const,
   startedAt: 1,
   updatedAt: 2,
   iteration: 0,
@@ -32,6 +36,23 @@ test("a cleared goal hides the persistent bar", () => {
     ]),
     null
   )
+})
+
+test("the live goal view is authoritative and falls back to persisted state", () => {
+  const persisted = { goal, queue: [] }
+  const liveGoal = {
+    ...goal,
+    text: "Live objective",
+    updatedAt: 3,
+  }
+  assert.deepEqual(
+    resolvePiGoalState(persisted, {
+      state: { goal: liveGoal, queue: [] },
+    }),
+    { goal: liveGoal, queue: [] }
+  )
+  assert.deepEqual(resolvePiGoalState(persisted, undefined), persisted)
+  assert.equal(resolvePiGoalState(null, undefined), null)
 })
 
 test("recognizes only Pi Goal's explicit control markers", () => {

@@ -271,15 +271,18 @@ export function WorkspaceNavProject({
               <div className="group/project relative">
                 <HoverCard openDelay={500} closeDelay={100}>
                   <HoverCardTrigger asChild>
-                    <CollapsibleTrigger asChild>
-                      <SidebarMenuButton isActive={active} className="pr-14">
+                    <SidebarMenuButton
+                      asChild
+                      isActive={active}
+                      className="pr-24"
+                    >
+                      <Link href={projectPath}>
                         <FolderIcon />
                         <span className="min-w-0 flex-1 truncate">
                           {project.name}
                         </span>
-                        <ChevronRightIcon className="mr-12 shrink-0 transition-transform group-data-open/collapsible:rotate-90" />
-                      </SidebarMenuButton>
-                    </CollapsibleTrigger>
+                      </Link>
+                    </SidebarMenuButton>
                   </HoverCardTrigger>
                   <HoverCardContent side="right" align="start" className="w-80">
                     <div className="flex items-start gap-3">
@@ -301,6 +304,19 @@ export function WorkspaceNavProject({
                     </div>
                   </HoverCardContent>
                 </HoverCard>
+
+                {sessions.length > 0 ? (
+                  <CollapsibleTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      className="absolute top-0.5 right-[4.5rem]"
+                      aria-label={`展开或折叠 ${project.name} 对话列表`}
+                    >
+                      <ChevronRightIcon className="transition-transform group-data-open/collapsible:rotate-90" />
+                    </Button>
+                  </CollapsibleTrigger>
+                ) : null}
 
                 <div className="pointer-events-none absolute top-0.5 right-1 flex items-center rounded-md bg-sidebar-accent opacity-0 transition-opacity group-focus-within/project:pointer-events-auto group-focus-within/project:opacity-100 group-hover/project:pointer-events-auto group-hover/project:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100">
                   <DropdownMenu>

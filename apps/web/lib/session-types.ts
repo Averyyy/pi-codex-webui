@@ -93,7 +93,7 @@ export interface SessionSearchResult {
   sessionId: string
   sessionTitle: string | null
   sessionFirstMessage: string
-  entryId: string
+  entryId: string | null
   entryType: string
   timestamp: string
   snippet: string

@@ -30,6 +30,10 @@ export function removeComposerSlashCommand(value: string) {
   return match ? value.slice(0, match.index).trimEnd() : value
 }
 
+export function composerCommandItemId(menuId: string, commandId: string) {
+  return `${menuId}-command-${encodeURIComponent(commandId)}`
+}
+
 export function filterComposerCommands(
   commands: ComposerCommand[],
   query: string
@@ -59,19 +63,64 @@ export function ComposerCommandMenu({
   onOpenChange,
   commands,
   query,
+  menuId,
+  activeCommandId,
   preserveInputFocus,
   onTriggerClick,
+  onActiveCommandChange,
   onCommandSelect,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   commands: ComposerCommand[]
   query: string
+  menuId: string
+  activeCommandId: string | null
   preserveInputFocus: boolean
   onTriggerClick: () => void
+  onActiveCommandChange: (commandId: string) => void
   onCommandSelect: (command: ComposerCommand) => void
 }) {
   const visibleCommands = filterComposerCommands(commands, query)
+  const enabledCommands = visibleCommands.filter((command) => !command.disabled)
+
+  function moveCommandFocus(
+    event: React.KeyboardEvent<HTMLButtonElement>,
+    commandId: string
+  ) {
+    if (
+      event.key !== "ArrowDown" &&
+      event.key !== "ArrowUp" &&
+      event.key !== "Home" &&
+      event.key !== "End"
+    ) {
+      return
+    }
+
+    event.preventDefault()
+    if (enabledCommands.length === 0) return
+    const currentIndex = enabledCommands.findIndex(
+      (command) => command.id === commandId
+    )
+    const nextIndex =
+      event.key === "Home"
+        ? 0
+        : event.key === "End"
+          ? enabledCommands.length - 1
+          : event.key === "ArrowUp"
+            ? currentIndex <= 0
+              ? enabledCommands.length - 1
+              : currentIndex - 1
+            : currentIndex < 0 || currentIndex === enabledCommands.length - 1
+              ? 0
+              : currentIndex + 1
+    const nextCommand = enabledCommands[nextIndex]
+    if (!nextCommand) return
+    onActiveCommandChange(nextCommand.id)
+    document
+      .getElementById(composerCommandItemId(menuId, nextCommand.id))
+      ?.focus()
+  }
 
   return (
     <Popover open={open} onOpenChange={onOpenChange} modal={false}>
@@ -102,19 +151,27 @@ export function ComposerCommandMenu({
         <p className="px-2 py-1 text-xs font-medium text-muted-foreground">
           命令
         </p>
-        <div role="listbox" aria-label="命令" className="grid gap-0.5">
+        <div id={menuId} role="menu" aria-label="命令" className="grid gap-0.5">
           {visibleCommands.map((command) => {
             const Icon = command.icon
+            const active = command.id === activeCommandId
             return (
               <Button
                 key={command.id}
+                id={composerCommandItemId(menuId, command.id)}
+                role="menuitem"
                 type="button"
                 variant="ghost"
                 disabled={command.disabled}
                 onClick={() => onCommandSelect(command)}
+                onFocus={() => onActiveCommandChange(command.id)}
+                onKeyDown={(event) => moveCommandFocus(event, command.id)}
+                aria-current={active ? "true" : undefined}
+                data-active={active || undefined}
                 className={cn(
                   "h-auto w-full justify-start gap-2 rounded-md px-2 py-1.5 text-left font-normal",
-                  "hover:bg-accent hover:text-accent-foreground"
+                  "hover:bg-accent hover:text-accent-foreground",
+                  "data-[active=true]:bg-accent data-[active=true]:text-accent-foreground"
                 )}
               >
                 <Icon />

@@ -7,6 +7,7 @@ import type {
   ExternalViewRenderer,
 } from "@pi-web-codex/extension-sdk"
 import type { WebUiViewSnapshot } from "@workspace/runtime-protocol"
+import { cn } from "@workspace/ui/lib/utils"
 
 import { SessionExtensionContext } from "@/components/session-extension-provider"
 
@@ -45,7 +46,13 @@ function loadClient(url: string) {
   return loading
 }
 
-export function WebUiViewHost({ view }: { view: WebUiViewSnapshot }) {
+export function WebUiViewHost({
+  view,
+  className,
+}: {
+  view: WebUiViewSnapshot
+  className?: string
+}) {
   const runtime = useContext(SessionExtensionContext)
   const hostRef = useRef<HTMLDivElement>(null)
   const mountedRef = useRef<{
@@ -79,6 +86,8 @@ export function WebUiViewHost({ view }: { view: WebUiViewSnapshot }) {
     const controller = new AbortController()
     const shadowRoot = host.shadowRoot ?? host.attachShadow({ mode: "open" })
     const container = document.createElement("div")
+    container.style.cssText =
+      "box-sizing:border-box;width:100%;height:100%;min-width:0;min-height:0"
     shadowRoot.replaceChildren()
     if (styleUrl) {
       const link = document.createElement("link")
@@ -162,5 +171,5 @@ export function WebUiViewHost({ view }: { view: WebUiViewSnapshot }) {
     }
   }, [adapterKey, clientUrl, identity, invoke, report, styleUrl, viewId])
 
-  return <div ref={hostRef} className="min-w-0" />
+  return <div ref={hostRef} className={cn("min-w-0", className)} />
 }
