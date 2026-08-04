@@ -60,6 +60,7 @@ import {
   isSessionArchived,
   markSessionCompleted as markStoredSessionCompleted,
   markSessionStandalone,
+  restoreArchivedSession as restoreStoredArchivedSession,
 } from "@/lib/catalog"
 import { getEventHub, type EventHub } from "@/lib/event-hub"
 import { getMcpService } from "@/lib/mcp-service"
@@ -1191,6 +1192,18 @@ export class RuntimeSupervisor {
     return this.runSessionClosure(ids, async () => {
       for (const sessionId of ids) await this.stop(sessionId)
       return archiveStoredProjectSessions(projectId, ids)
+    })
+  }
+
+  restoreArchivedSession(sessionId: string) {
+    return this.runSessionClosure([sessionId], async () => {
+      if (!(await restoreStoredArchivedSession(sessionId))) {
+        throw new RuntimeRequestError(
+          "SessionNotFound",
+          "Archived session not found."
+        )
+      }
+      return { sessionId }
     })
   }
 

@@ -64,9 +64,10 @@ const messages = {
   },
   "settings.page.archive.title": { "zh-CN": "归档", "en-US": "Archive" },
   "settings.page.archive.description": {
-    "zh-CN": "归档对话不会出现在工作区列表；删除会永久移除对应的 Pi JSONL。",
+    "zh-CN":
+      "归档对话不会出现在工作区列表；可以恢复，或永久删除对应的 Pi JSONL。",
     "en-US":
-      "Archived conversations stay out of workspace lists; deleting one permanently removes its Pi JSONL.",
+      "Archived conversations stay out of workspace lists; restore one or permanently delete its Pi JSONL.",
   },
   "settings.page.models.title": { "zh-CN": "模型", "en-US": "Models" },
   "settings.page.models.description": {
@@ -259,6 +260,27 @@ const messages = {
     "en-US": "Standalone task",
   },
   "settings.archive.archivedAt": { "zh-CN": "归档于", "en-US": "Archived" },
+  "settings.archive.restore": { "zh-CN": "恢复", "en-US": "Restore" },
+  "settings.archive.restoring": {
+    "zh-CN": "恢复中…",
+    "en-US": "Restoring…",
+  },
+  "settings.archive.restoreSession": {
+    "zh-CN": "恢复对话：{title}",
+    "en-US": "Restore conversation: {title}",
+  },
+  "settings.archive.restoringSession": {
+    "zh-CN": "正在恢复对话：{title}",
+    "en-US": "Restoring conversation: {title}",
+  },
+  "settings.archive.restoreFailed": {
+    "zh-CN": "恢复归档对话失败。",
+    "en-US": "Failed to restore the archived conversation.",
+  },
+  "settings.archive.restored": {
+    "zh-CN": "归档对话已恢复。",
+    "en-US": "Archived conversation restored.",
+  },
   "settings.archive.delete": { "zh-CN": "删除", "en-US": "Delete" },
   "settings.archive.deleting": { "zh-CN": "删除中…", "en-US": "Deleting…" },
   "settings.archive.deleteSession": {

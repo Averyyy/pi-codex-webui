@@ -196,6 +196,14 @@ test("exposes user-message branch position and branch-tip navigation", () => {
     toTranscriptEntries(selectedBranch).map((entry) => entry.id),
     ["user-first", "assistant-first"]
   )
+
+  const rootBranch = parsePiSession(
+    file,
+    jsonl(header, firstQuestion, firstAnswer, editedQuestion, editedAnswer),
+    null
+  )
+  assert.deepEqual(rootBranch.activeBranch, [])
+  assert.deepEqual(toTranscriptEntries(rootBranch), [])
 })
 
 test("incremental entry parsing preserves line numbers and metadata", () => {

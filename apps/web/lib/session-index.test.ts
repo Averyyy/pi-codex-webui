@@ -31,6 +31,7 @@ import {
   markSessionRead,
   markSessionStandalone,
   removeWorkspaceProject,
+  restoreArchivedSession,
   searchSessions,
   setProjectPinned,
   setSessionPinned,
@@ -463,6 +464,12 @@ test("standalone sessions survive reindexing and remain outside projects", async
     assert.equal(await archiveSession(task.id), archivedAt)
     await syncPiSessionIndex()
     assert.equal((await listArchivedSessions())[0]?.id, task.id)
+    assert.equal(await restoreArchivedSession(task.id), true)
+    assert.equal(await isSessionArchived(task.id), false)
+    assert.equal((await listWorkspaceTasks())[0]?.id, task.id)
+    assert.equal(await restoreArchivedSession(task.id), false)
+    assert.ok(await archiveSession(task.id))
+    assert.equal(await isSessionArchived(task.id), true)
     assert.equal(await deleteArchivedSession(task.id), true)
     assert.deepEqual(await listArchivedSessions(), [])
     await assert.rejects(stat(taskFile))

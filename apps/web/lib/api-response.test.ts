@@ -26,6 +26,18 @@ test("responseJson reports the HTTP status for a non-JSON error", async () => {
   )
 })
 
+test("responseJson uses a localized fallback for a non-JSON error", async () => {
+  await assert.rejects(
+    responseJson(
+      new Response("Internal Server Error", { status: 500 }),
+      "Model settings operation failed."
+    ),
+    (error: unknown) =>
+      error instanceof ApiError &&
+      error.message === "Model settings operation failed."
+  )
+})
+
 test("responseJson rejects an invalid successful response", async () => {
   await assert.rejects(
     responseJson(new Response("not json")),

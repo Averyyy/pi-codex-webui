@@ -92,7 +92,7 @@ function InspectorContent({
   return (
     <div className="flex min-w-0 flex-col gap-4 p-4">
       <div className="flex min-w-0 items-center justify-between gap-3">
-        <h2 className="truncate text-sm font-medium">环境信息</h2>
+        <p className="truncate text-sm font-medium">环境信息</p>
         <Badge
           variant={
             runtimeStatus === "crashed"

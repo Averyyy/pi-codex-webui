@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState, useTransition } from "react"
+import { useMemo, useRef, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
 import { CheckCircle2Icon, LoaderCircleIcon, UnplugIcon } from "lucide-react"
 import { toast } from "sonner"
@@ -35,6 +35,7 @@ import {
 import { Switch } from "@workspace/ui/components/switch"
 
 import { useI18n } from "@/components/i18n-provider"
+import { responseJson } from "@/lib/api-response"
 
 interface RuntimeProfileView {
   id: string
@@ -84,6 +85,7 @@ export function RuntimeSettingsForm({
   const [diagnostic, setDiagnostic] = useState<DiagnosticResult | null>(null)
   const [saving, startSaving] = useTransition()
   const [testing, startTesting] = useTransition()
+  const busyRef = useRef(false)
   const router = useRouter()
   const dirty =
     enabled !== savedClient.enabled ||
@@ -105,6 +107,8 @@ export function RuntimeSettingsForm({
   }
 
   function save() {
+    if (busyRef.current || !dirty) return
+    busyRef.current = true
     startSaving(async () => {
       try {
         const response = await fetch(
@@ -125,12 +129,10 @@ export function RuntimeSettingsForm({
             }),
           }
         )
-        const result = (await response.json()) as RuntimeSettingsView & {
-          error?: string
-        }
-        if (!response.ok) {
-          throw new Error(result.error ?? t("settings.runtime.saveFailed"))
-        }
+        const result = await responseJson<RuntimeSettingsView>(
+          response,
+          t("settings.runtime.saveFailed")
+        )
 
         setSaved(result)
         const client = piClientProfile(result.profiles)
@@ -149,11 +151,15 @@ export function RuntimeSettingsForm({
             ? error.message
             : t("settings.runtime.saveFailed")
         )
+      } finally {
+        busyRef.current = false
       }
     })
   }
 
   function testConnection() {
+    if (busyRef.current || dirty || !savedClient.serverUrl) return
+    busyRef.current = true
     startTesting(async () => {
       setDiagnostic(null)
       try {
@@ -166,12 +172,10 @@ export function RuntimeSettingsForm({
             },
           }
         )
-        const result = (await response.json()) as DiagnosticResult & {
-          error?: string
-        }
-        if (!response.ok) {
-          throw new Error(result.error ?? t("settings.runtime.testFailed"))
-        }
+        const result = await responseJson<DiagnosticResult>(
+          response,
+          t("settings.runtime.testFailed")
+        )
         setDiagnostic(result)
         toast.success(t("settings.runtime.connected"))
       } catch (error) {
@@ -180,153 +184,165 @@ export function RuntimeSettingsForm({
             ? error.message
             : t("settings.runtime.testFailed")
         )
+      } finally {
+        busyRef.current = false
       }
     })
   }
 
   return (
-    <Card inert={saving || testing} aria-busy={saving || testing}>
-      <CardHeader>
-        <CardTitle>{t("settings.runtime.title")}</CardTitle>
-        <CardDescription>{t("settings.runtime.description")}</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <FieldGroup>
-          <Field orientation="responsive">
-            <FieldContent>
-              <FieldLabel htmlFor="default-runtime">
-                {t("settings.runtime.default")}
-              </FieldLabel>
-              <FieldDescription>
-                {t("settings.runtime.defaultDescription")}
-              </FieldDescription>
-            </FieldContent>
-            <Select value={defaultProfileId} onValueChange={updateDefault}>
-              <SelectTrigger id="default-runtime" className="w-48">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  <SelectItem value="pi">Pi</SelectItem>
-                  <SelectItem value={savedClient.id}>Pi Client</SelectItem>
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-          </Field>
-
-          <Field orientation="horizontal">
-            <FieldContent>
-              <FieldTitle>{t("settings.runtime.enableClient")}</FieldTitle>
-              <FieldDescription>
-                {t("settings.runtime.clientDescription")}
-              </FieldDescription>
-            </FieldContent>
-            <Switch
-              checked={enabled}
-              onCheckedChange={updateEnabled}
-              aria-label={t("settings.runtime.enableClient")}
-            />
-          </Field>
-
-          <Field orientation="responsive">
-            <FieldContent>
-              <FieldLabel htmlFor="pi-server-url">
-                {t("settings.runtime.serverUrl")}
-              </FieldLabel>
-              <FieldDescription>
-                {t("settings.runtime.serverUrlDescription")}
-              </FieldDescription>
-            </FieldContent>
-            <Input
-              id="pi-server-url"
-              type="url"
-              value={serverUrl}
-              onChange={(event) => setServerUrl(event.target.value)}
-              placeholder="http://127.0.0.1:4217"
-              className="w-full max-w-sm"
-            />
-          </Field>
-
-          <Field orientation="responsive">
-            <FieldContent>
-              <div className="flex items-center gap-2">
-                <FieldLabel htmlFor="pi-server-token">
-                  {t("settings.runtime.authToken")}
+    <form
+      inert={saving || testing}
+      aria-busy={saving || testing}
+      onSubmit={(event) => {
+        event.preventDefault()
+        save()
+      }}
+    >
+      <Card>
+        <CardHeader>
+          <CardTitle>{t("settings.runtime.title")}</CardTitle>
+          <CardDescription>{t("settings.runtime.description")}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <FieldGroup>
+            <Field orientation="responsive">
+              <FieldContent>
+                <FieldLabel htmlFor="default-runtime">
+                  {t("settings.runtime.default")}
                 </FieldLabel>
-                {savedClient.hasAuthToken && !clearAuthToken ? (
-                  <Badge variant="secondary">
-                    {t("settings.runtime.savedSecurely")}
-                  </Badge>
+                <FieldDescription>
+                  {t("settings.runtime.defaultDescription")}
+                </FieldDescription>
+              </FieldContent>
+              <Select value={defaultProfileId} onValueChange={updateDefault}>
+                <SelectTrigger id="default-runtime" className="w-48">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    <SelectItem value="pi">Pi</SelectItem>
+                    <SelectItem value={savedClient.id}>Pi Client</SelectItem>
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            </Field>
+
+            <Field orientation="horizontal">
+              <FieldContent>
+                <FieldTitle>{t("settings.runtime.enableClient")}</FieldTitle>
+                <FieldDescription>
+                  {t("settings.runtime.clientDescription")}
+                </FieldDescription>
+              </FieldContent>
+              <Switch
+                checked={enabled}
+                onCheckedChange={updateEnabled}
+                aria-label={t("settings.runtime.enableClient")}
+              />
+            </Field>
+
+            <Field orientation="responsive">
+              <FieldContent>
+                <FieldLabel htmlFor="pi-server-url">
+                  {t("settings.runtime.serverUrl")}
+                </FieldLabel>
+                <FieldDescription>
+                  {t("settings.runtime.serverUrlDescription")}
+                </FieldDescription>
+              </FieldContent>
+              <Input
+                id="pi-server-url"
+                type="url"
+                required={enabled}
+                value={serverUrl}
+                onChange={(event) => setServerUrl(event.target.value)}
+                placeholder="http://127.0.0.1:4217"
+                className="w-full max-w-sm"
+              />
+            </Field>
+
+            <Field orientation="responsive">
+              <FieldContent>
+                <div className="flex items-center gap-2">
+                  <FieldLabel htmlFor="pi-server-token">
+                    {t("settings.runtime.authToken")}
+                  </FieldLabel>
+                  {savedClient.hasAuthToken && !clearAuthToken ? (
+                    <Badge variant="secondary">
+                      {t("settings.runtime.savedSecurely")}
+                    </Badge>
+                  ) : null}
+                </div>
+                <FieldDescription>
+                  {t("settings.runtime.authDescription")}
+                </FieldDescription>
+              </FieldContent>
+              <div className="flex w-full max-w-sm items-center gap-2">
+                <Input
+                  id="pi-server-token"
+                  type="password"
+                  value={authToken}
+                  onChange={(event) => {
+                    setAuthToken(event.target.value)
+                    if (event.target.value) setClearAuthToken(false)
+                  }}
+                  placeholder={
+                    savedClient.hasAuthToken
+                      ? t("settings.runtime.keepToken")
+                      : t("settings.provider.optional")
+                  }
+                />
+                {savedClient.hasAuthToken ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      setClearAuthToken((current) => !current)
+                      setAuthToken("")
+                    }}
+                  >
+                    {clearAuthToken
+                      ? t("settings.runtime.keep")
+                      : t("settings.runtime.removeToken")}
+                  </Button>
                 ) : null}
               </div>
-              <FieldDescription>
-                {t("settings.runtime.authDescription")}
-              </FieldDescription>
-            </FieldContent>
-            <div className="flex w-full max-w-sm items-center gap-2">
-              <Input
-                id="pi-server-token"
-                type="password"
-                value={authToken}
-                onChange={(event) => {
-                  setAuthToken(event.target.value)
-                  if (event.target.value) setClearAuthToken(false)
-                }}
-                placeholder={
-                  savedClient.hasAuthToken
-                    ? t("settings.runtime.keepToken")
-                    : t("settings.provider.optional")
-                }
-              />
-              {savedClient.hasAuthToken ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => {
-                    setClearAuthToken((current) => !current)
-                    setAuthToken("")
-                  }}
-                >
-                  {clearAuthToken
-                    ? t("settings.runtime.keep")
-                    : t("settings.runtime.removeToken")}
-                </Button>
-              ) : null}
-            </div>
-          </Field>
+            </Field>
 
-          {diagnostic ? (
-            <div className="flex items-center gap-2 rounded-lg border bg-muted/40 px-4 py-3 text-sm">
-              <CheckCircle2Icon className="size-4 text-success" />
-              {t("settings.runtime.response", {
-                latency: diagnostic.latencyMs,
-              })}
-              {diagnostic.sessionCount === undefined
-                ? null
-                : ` · ${diagnostic.sessionCount} sessions`}
-            </div>
-          ) : null}
-        </FieldGroup>
-      </CardContent>
-      <CardFooter className="flex-wrap justify-end gap-2">
-        <Button
-          type="button"
-          variant="outline"
-          onClick={testConnection}
-          disabled={testing || dirty || !savedClient.serverUrl}
-          title={dirty ? t("settings.runtime.saveCurrent") : undefined}
-        >
-          {testing ? (
-            <LoaderCircleIcon className="animate-spin" />
-          ) : (
-            <UnplugIcon />
-          )}
-          {t("settings.runtime.testSaved")}
-        </Button>
-        <Button type="button" onClick={save} disabled={saving || !dirty}>
-          {saving ? t("settings.common.saving") : t("settings.common.save")}
-        </Button>
-      </CardFooter>
-    </Card>
+            {diagnostic ? (
+              <div className="flex items-center gap-2 rounded-lg border bg-muted/40 px-4 py-3 text-sm">
+                <CheckCircle2Icon className="size-4 text-success" />
+                {t("settings.runtime.response", {
+                  latency: diagnostic.latencyMs,
+                })}
+                {diagnostic.sessionCount === undefined
+                  ? null
+                  : ` · ${diagnostic.sessionCount} sessions`}
+              </div>
+            ) : null}
+          </FieldGroup>
+        </CardContent>
+        <CardFooter className="flex-wrap justify-end gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={testConnection}
+            disabled={testing || dirty || !savedClient.serverUrl}
+            title={dirty ? t("settings.runtime.saveCurrent") : undefined}
+          >
+            {testing ? (
+              <LoaderCircleIcon className="animate-spin" />
+            ) : (
+              <UnplugIcon />
+            )}
+            {t("settings.runtime.testSaved")}
+          </Button>
+          <Button type="submit" disabled={saving || !dirty}>
+            {saving ? t("settings.common.saving") : t("settings.common.save")}
+          </Button>
+        </CardFooter>
+      </Card>
+    </form>
   )
 }

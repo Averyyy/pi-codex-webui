@@ -501,6 +501,19 @@ export async function isSessionArchived(sessionId: string) {
   )
 }
 
+export async function restoreArchivedSession(sessionId: string) {
+  await syncPiSessionIndex()
+  const database = await getDatabase()
+  return (
+    database
+      .prepare(
+        `UPDATE sessions SET archived_at = NULL
+         WHERE id = ? AND archived_at IS NOT NULL`
+      )
+      .run(sessionId).changes === 1
+  )
+}
+
 export async function deleteArchivedSession(sessionId: string) {
   await syncPiSessionIndex()
   const database = await getDatabase()

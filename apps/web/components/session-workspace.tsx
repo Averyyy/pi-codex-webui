@@ -559,8 +559,9 @@ export function SessionWorkspace({
       <ResizablePanelGroup
         elementRef={workspaceElementRef}
         orientation="horizontal"
+        style={{ height: "var(--session-workspace-height)" }}
         className={cn(
-          "h-[calc(100svh-3rem)] min-w-0 overflow-hidden md:h-svh",
+          "min-w-0 overflow-hidden [--session-workspace-height:calc(100svh-3rem)] md:[--session-workspace-height:100svh]",
           !horizontalDragging &&
             "[&>[data-panel]]:transition-[flex-grow] [&>[data-panel]]:duration-200 [&>[data-panel]]:ease-out motion-reduce:[&>[data-panel]]:transition-none"
         )}

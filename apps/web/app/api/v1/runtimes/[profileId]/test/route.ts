@@ -48,8 +48,21 @@ export async function POST(
         `Pi Server returned HTTP ${response.status}.`
       )
     }
-    const body = (await response.json()) as { sessions?: unknown }
-    if (!Array.isArray(body.sessions)) {
+    let body: unknown
+    try {
+      body = await response.json()
+    } catch {
+      throw new RuntimeRequestError(
+        "RuntimeProtocolMismatch",
+        "Pi Server returned a non-JSON sessions response."
+      )
+    }
+    if (
+      typeof body !== "object" ||
+      body === null ||
+      !("sessions" in body) ||
+      !Array.isArray(body.sessions)
+    ) {
       throw new RuntimeRequestError(
         "RuntimeProtocolMismatch",
         "Pi Server returned an invalid sessions response."

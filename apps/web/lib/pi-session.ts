@@ -196,10 +196,13 @@ function activeBranch(entries: PiSessionEntry[], activeLeafId?: string | null) {
   }
   const visited = new Set<string>()
   const branch: PiSessionEntry[] = []
-  let current: PiSessionEntry | undefined = activeLeafId
-    ? byId.get(activeLeafId)
-    : entries.at(-1)
-  if (activeLeafId && !current) {
+  let current: PiSessionEntry | undefined =
+    activeLeafId === undefined
+      ? entries.at(-1)
+      : activeLeafId === null
+        ? undefined
+        : byId.get(activeLeafId)
+  if (typeof activeLeafId === "string" && !current) {
     throw new Error(`Session active leaf ${activeLeafId} does not exist.`)
   }
 

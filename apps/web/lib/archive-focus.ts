@@ -1,8 +1,8 @@
 export function nextArchiveFocusTarget(
   sessionIds: readonly string[],
-  deletedSessionId: string
+  removedSessionId: string
 ) {
-  const deletedIndex = sessionIds.indexOf(deletedSessionId)
-  if (deletedIndex < 0) return null
-  return sessionIds[deletedIndex + 1] ?? sessionIds[deletedIndex - 1] ?? null
+  const removedIndex = sessionIds.indexOf(removedSessionId)
+  if (removedIndex < 0) return null
+  return sessionIds[removedIndex + 1] ?? sessionIds[removedIndex - 1] ?? null
 }

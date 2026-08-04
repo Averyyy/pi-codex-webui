@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useRef, useState } from "react"
 import {
   ChevronDownIcon,
   LoaderCircleIcon,
@@ -47,6 +47,7 @@ import { Switch } from "@workspace/ui/components/switch"
 import { CustomProviderForm } from "@/components/custom-provider-form"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { useI18n } from "@/components/i18n-provider"
+import { responseJson } from "@/lib/api-response"
 import type { Translator } from "@/lib/i18n"
 
 function modelKey(model: Pick<ModelSettingsModel, "provider" | "id">) {
@@ -90,6 +91,7 @@ export function ModelSettings({
   const { t } = useI18n()
   const [settings, setSettings] = useState(initial)
   const [working, setWorking] = useState<string | null>(null)
+  const workingRef = useRef(false)
   const [error, setError] = useState<string | null>(null)
   const [collapsedProviders, setCollapsedProviders] = useState<Set<string>>(
     () => new Set()
@@ -106,11 +108,26 @@ export function ModelSettings({
   const [modelSearch, setModelSearch] = useState("")
 
   async function readSettings(response: Response) {
-    const body = (await response.json()) as { error?: string }
-    if (!response.ok) {
-      throw new Error(body.error ?? t("settings.models.operationFailed"))
+    const fallback = t("settings.models.operationFailed")
+    const parsed = modelSettingsSchema.safeParse(
+      await responseJson<ModelSettings>(response, fallback)
+    )
+    if (!parsed.success) {
+      throw new Error(fallback)
     }
-    return modelSettingsSchema.parse(body)
+    return parsed.data
+  }
+
+  function beginWorking(key: string) {
+    if (workingRef.current) return false
+    workingRef.current = true
+    setWorking(key)
+    return true
+  }
+
+  function finishWorking() {
+    workingRef.current = false
+    setWorking(null)
   }
 
   async function setModelEnabled(model: ModelSettingsModel, enabled: boolean) {
@@ -121,7 +138,7 @@ export function ModelSettings({
     if (enabled) enabledIds.add(key)
     else enabledIds.delete(key)
 
-    setWorking(key)
+    if (!beginWorking(key)) return
     setError(null)
     try {
       const next = await readSettings(
@@ -138,13 +155,13 @@ export function ModelSettings({
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure))
     } finally {
-      setWorking(null)
+      finishWorking()
     }
   }
 
   async function saveProvider(input: ModelSettingsProviderInput) {
     const provider = editingProvider?.provider ?? input.provider
-    setWorking(`provider-save:${provider}`)
+    if (!beginWorking(`provider-save:${provider}`)) return
     setError(null)
     try {
       const endpoint = editingProvider
@@ -165,12 +182,12 @@ export function ModelSettings({
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure))
     } finally {
-      setWorking(null)
+      finishWorking()
     }
   }
 
   async function removeProvider(provider: string) {
-    setWorking(provider)
+    if (!beginWorking(provider)) return
     setError(null)
     try {
       const next = await readSettings(
@@ -188,7 +205,7 @@ export function ModelSettings({
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure))
     } finally {
-      setWorking(null)
+      finishWorking()
     }
   }
 
@@ -338,7 +355,12 @@ export function ModelSettings({
                   })
                 }}
               >
-                <summary className="flex cursor-pointer list-none items-center gap-3 px-4 py-4 [&::-webkit-details-marker]:hidden">
+                <summary
+                  className={`flex list-none items-center gap-3 px-4 py-4 [&::-webkit-details-marker]:hidden ${normalizedSearch ? "cursor-default" : "cursor-pointer"}`}
+                  onClick={(event) => {
+                    if (normalizedSearch) event.preventDefault()
+                  }}
+                >
                   <ChevronDownIcon className="size-4 shrink-0 transition-transform group-open:rotate-180" />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate font-medium">
@@ -407,6 +429,7 @@ export function ModelSettings({
                       return (
                         <label
                           className="flex items-center justify-between gap-4 px-4 py-3"
+                          aria-busy={working === key}
                           key={key}
                         >
                           <span className="min-w-0">
@@ -417,16 +440,24 @@ export function ModelSettings({
                               {model.id}
                             </span>
                           </span>
-                          <Switch
-                            checked={model.enabled}
-                            disabled={working !== null}
-                            aria-label={t("settings.models.enableModel", {
-                              model: model.name,
-                            })}
-                            onCheckedChange={(enabled) =>
-                              void setModelEnabled(model, enabled)
-                            }
-                          />
+                          <span className="flex shrink-0 items-center gap-2">
+                            {working === key ? (
+                              <LoaderCircleIcon
+                                aria-hidden="true"
+                                className="size-4 animate-spin text-muted-foreground"
+                              />
+                            ) : null}
+                            <Switch
+                              checked={model.enabled}
+                              disabled={working !== null}
+                              aria-label={t("settings.models.enableModel", {
+                                model: model.name,
+                              })}
+                              onCheckedChange={(enabled) =>
+                                void setModelEnabled(model, enabled)
+                              }
+                            />
+                          </span>
                         </label>
                       )
                     })
