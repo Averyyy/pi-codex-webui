@@ -31,17 +31,22 @@ import {
 } from "@workspace/ui/components/tooltip"
 
 import { SubagentsSummary } from "@/components/subagents"
+import { useI18n } from "@/components/i18n-provider"
 import { useStreamingRuntimeStatus } from "@/components/session-streaming-context"
+import type { Translator } from "@/lib/i18n"
 import type { ProjectGitStatus } from "@/lib/project-git"
 import { formatTimestamp } from "@/lib/session-display"
 
-const STATUS_LABELS: Record<RuntimeStatus, string> = {
-  stopped: "未激活",
-  starting: "启动中",
-  ready: "就绪",
-  busy: "运行中",
-  stopping: "停止中",
-  crashed: "已崩溃",
+function statusLabel(t: Translator, status: RuntimeStatus) {
+  const keys = {
+    stopped: "session.status.stopped",
+    starting: "session.status.starting",
+    ready: "session.status.ready",
+    busy: "session.status.busy",
+    stopping: "session.status.stopping",
+    crashed: "session.status.crashed",
+  } as const
+  return t(keys[status])
 }
 
 export interface SessionInspectorProps {
@@ -87,12 +92,15 @@ function InspectorContent({
   workspaceAvailable,
   subagentsInstalled,
 }: SessionInspectorProps) {
+  const { locale, t } = useI18n()
   const changedFiles = git.available ? git.files : []
 
   return (
     <div className="flex min-w-0 flex-col gap-4 p-4">
       <div className="flex min-w-0 items-center justify-between gap-3">
-        <p className="truncate text-sm font-medium">环境信息</p>
+        <p className="truncate text-sm font-medium">
+          {t("session.inspector.title")}
+        </p>
         <Badge
           variant={
             runtimeStatus === "crashed"
@@ -102,16 +110,21 @@ function InspectorContent({
                 : "outline"
           }
         >
-          {STATUS_LABELS[runtimeStatus]}
+          {statusLabel(t, runtimeStatus)}
         </Badge>
       </div>
 
       <div className="flex min-w-0 flex-col gap-4">
-        <DetailRow icon={FolderIcon} label={projectName ?? "未命名项目"}>
+        <DetailRow
+          icon={FolderIcon}
+          label={projectName ?? t("session.inspector.unnamedProject")}
+        >
           <div className="flex min-w-0 flex-col gap-1">
             <code className="font-mono text-[11px] break-all">{cwd}</code>
             <span>
-              {workspaceAvailable ? "本地工作区" : "只读历史 · 目录不可用"}
+              {workspaceAvailable
+                ? t("session.inspector.localWorkspace")
+                : t("session.inspector.readOnlyWorkspace")}
             </span>
           </div>
         </DetailRow>
@@ -119,10 +132,13 @@ function InspectorContent({
           icon={SquareTerminalIcon}
           label={runtimeKind === "pi" ? "Pi" : "Pi Client"}
         >
-          Runtime · {STATUS_LABELS[runtimeStatus]}
+          Runtime · {statusLabel(t, runtimeStatus)}
         </DetailRow>
-        <DetailRow icon={Clock3Icon} label="最近更新">
-          <time dateTime={updatedAt}>{formatTimestamp(updatedAt)}</time>
+        <DetailRow
+          icon={Clock3Icon}
+          label={t("session.inspector.recentlyUpdated")}
+        >
+          <time dateTime={updatedAt}>{formatTimestamp(updatedAt, locale)}</time>
         </DetailRow>
       </div>
 
@@ -134,35 +150,49 @@ function InspectorContent({
       ) : null}
 
       <Separator />
-      <section className="flex min-w-0 flex-col gap-4" aria-label="Git 状态">
+      <section
+        className="flex min-w-0 flex-col gap-4"
+        aria-label={t("session.inspector.gitStatus")}
+      >
         <div className="flex items-center justify-between gap-3">
           <h3 className="text-xs font-medium text-muted-foreground">Git</h3>
           {git.available ? (
-            <Badge variant="outline">{changedFiles.length} 个变更</Badge>
+            <Badge variant="outline">
+              {t(
+                changedFiles.length === 1
+                  ? "session.inspector.changedCountOne"
+                  : "session.inspector.changedCount",
+                { count: changedFiles.length }
+              )}
+            </Badge>
           ) : null}
         </div>
 
         {!workspaceAvailable ? (
           <p className="text-xs leading-5 text-muted-foreground">
-            工作区目录不可用，无法读取 Files 或 Git。
+            {t("session.inspector.workspaceUnavailable")}
           </p>
         ) : git.available ? (
           <>
             <DetailRow
               icon={GitBranchIcon}
-              label={git.branch ?? "Detached HEAD"}
+              label={git.branch ?? t("project.git.detachedHead")}
             >
               {git.upstream ? (
                 <span className="break-all">
-                  {git.upstream} · ahead {git.ahead} · behind {git.behind}
+                  {git.upstream} ·{" "}
+                  {t("project.git.divergence", {
+                    ahead: git.ahead,
+                    behind: git.behind,
+                  })}
                 </span>
               ) : (
-                <span>没有 upstream</span>
+                <span>{t("session.inspector.noUpstream")}</span>
               )}
             </DetailRow>
             <DetailRow
               icon={GitCommitHorizontalIcon}
-              label={git.commit ?? "没有 commit"}
+              label={git.commit ?? t("session.inspector.noCommit")}
             >
               <span className="break-all">{git.root}</span>
             </DetailRow>
@@ -170,7 +200,7 @@ function InspectorContent({
             <div className="flex min-w-0 flex-col gap-2">
               <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
                 <FileDiffIcon className="size-4" />
-                变更文件
+                {t("session.inspector.changedFiles")}
               </div>
               {changedFiles.length ? (
                 <div className="flex min-w-0 flex-col gap-1">
@@ -190,12 +220,19 @@ function InspectorContent({
                   ))}
                   {changedFiles.length > 5 ? (
                     <p className="px-2 text-xs text-muted-foreground">
-                      另有 {changedFiles.length - 5} 个变更
+                      {t(
+                        changedFiles.length - 5 === 1
+                          ? "session.inspector.moreChangesOne"
+                          : "session.inspector.moreChanges",
+                        { count: changedFiles.length - 5 }
+                      )}
                     </p>
                   ) : null}
                 </div>
               ) : (
-                <p className="text-xs text-muted-foreground">工作区干净</p>
+                <p className="text-xs text-muted-foreground">
+                  {t("session.inspector.clean")}
+                </p>
               )}
             </div>
           </>
@@ -210,6 +247,7 @@ function InspectorContent({
 }
 
 export function SessionInspector(props: SessionInspectorProps) {
+  const { t } = useI18n()
   const runtimeStatus = useStreamingRuntimeStatus() ?? props.runtimeStatus
 
   return (
@@ -217,18 +255,24 @@ export function SessionInspector(props: SessionInspectorProps) {
       <Tooltip>
         <SheetTrigger asChild>
           <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon-sm" aria-label="环境信息">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label={t("session.inspector.title")}
+            >
               <ListFilterIcon />
             </Button>
           </TooltipTrigger>
         </SheetTrigger>
-        <TooltipContent side="bottom">环境信息</TooltipContent>
+        <TooltipContent side="bottom">
+          {t("session.inspector.title")}
+        </TooltipContent>
       </Tooltip>
       <SheetContent className="w-[min(24rem,calc(100vw-1rem))] gap-0 overflow-y-auto p-0 sm:max-w-96">
         <SheetHeader className="sr-only">
-          <SheetTitle>环境信息</SheetTitle>
+          <SheetTitle>{t("session.inspector.title")}</SheetTitle>
           <SheetDescription>
-            查看当前项目的运行环境、子智能体与工作区状态。
+            {t("session.inspector.description")}
           </SheetDescription>
         </SheetHeader>
         <InspectorContent {...props} runtimeStatus={runtimeStatus} />

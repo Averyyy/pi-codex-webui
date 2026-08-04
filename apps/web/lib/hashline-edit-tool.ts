@@ -1,3 +1,5 @@
+import { createTranslator, type Locale } from "@/lib/i18n"
+
 export type HashlineEditToolKind = "replace" | "undo"
 
 export interface HashlineEditRequest {
@@ -85,8 +87,10 @@ export function hashlineEditToolKind(
 export function hashlineEditToolPresentation(
   kind: HashlineEditToolKind,
   args: Record<string, unknown>,
-  rawDetails?: unknown
+  rawDetails: unknown,
+  locale: Locale
 ): HashlineEditToolPresentation {
+  const t = createTranslator(locale)
   const details = record(rawDetails) ?? {}
   const metrics = record(details.metrics) ?? {}
   const path = string(args.path)
@@ -97,25 +101,46 @@ export function hashlineEditToolPresentation(
     classification(details.classification)
 
   if (kind === "replace" && parsedRequests.length) {
-    facts.push({ label: "请求", value: `${parsedRequests.length} 处` })
+    facts.push({
+      label: t("session.hashline.request"),
+      value: t(
+        parsedRequests.length === 1
+          ? "session.hashline.requestCountOne"
+          : "session.hashline.requestCount",
+        { count: parsedRequests.length }
+      ),
+    })
   }
 
   const editsAttempted = number(metrics.edits_attempted)
   const editsNoop = number(metrics.edits_noop)
   if (kind === "replace" && editsAttempted !== undefined) {
     facts.push({
-      label: "应用",
+      label: t("session.hashline.apply"),
       value:
         editsNoop === undefined
-          ? `${editsAttempted} 处`
-          : `${editsAttempted - editsNoop}/${editsAttempted} 处`,
+          ? t(
+              editsAttempted === 1
+                ? "session.hashline.applyCountOne"
+                : "session.hashline.applyCount",
+              { count: editsAttempted }
+            )
+          : t(
+              editsAttempted === 1
+                ? "session.hashline.applyCountOne"
+                : "session.hashline.applyCount",
+              { count: `${editsAttempted - editsNoop}/${editsAttempted}` }
+            ),
     })
   }
 
   if (resultClassification) {
     facts.push({
-      label: "结果",
-      value: resultClassification === "applied" ? "已应用" : "无变更",
+      label: t("session.hashline.result"),
+      value:
+        resultClassification === "applied"
+          ? t("session.hashline.applied")
+          : t("session.hashline.noChange"),
     })
   }
 
@@ -126,13 +151,29 @@ export function hashlineEditToolPresentation(
     if (addedLines !== undefined || removedLines !== undefined) {
       const restored = addedLines ?? 0
       const removed = removedLines ?? 0
-      facts.push({ label: "恢复", value: `${restored} 行` })
-      facts.push({ label: "移除", value: `${removed} 行` })
-      undoSummary = `恢复 ${restored} 行，移除 ${removed} 行`
+      facts.push({
+        label: t("session.hashline.restore"),
+        value: t(
+          restored === 1
+            ? "session.hashline.lineCountOne"
+            : "session.hashline.lineCount",
+          { count: restored }
+        ),
+      })
+      facts.push({
+        label: t("session.hashline.remove"),
+        value: t(
+          removed === 1
+            ? "session.hashline.lineCountOne"
+            : "session.hashline.lineCount",
+          { count: removed }
+        ),
+      })
+      undoSummary = t("session.hashline.undoSummary", { restored, removed })
     }
   } else if (addedLines !== undefined || removedLines !== undefined) {
     facts.push({
-      label: "行数",
+      label: t("session.hashline.lines"),
       value: `+${addedLines ?? 0} / −${removedLines ?? 0}`,
     })
   }
@@ -144,27 +185,43 @@ export function hashlineEditToolPresentation(
   const changedLast = changedLines ? number(changedLines.last) : undefined
   if (kind === "replace" && changedFirst !== undefined) {
     facts.push({
-      label: "范围",
+      label: t("session.hashline.range"),
       value:
         changedLast === undefined || changedLast === changedFirst
-          ? `第 ${changedFirst} 行`
-          : `第 ${changedFirst}–${changedLast} 行`,
+          ? t("session.hashline.line", { line: changedFirst })
+          : t("session.hashline.lineRange", {
+              first: changedFirst,
+              last: changedLast,
+            }),
     })
   }
 
   const warningCount = number(metrics.warnings)
   if (warningCount !== undefined && warningCount > 0) {
-    facts.push({ label: "警告", value: `${warningCount} 条` })
+    facts.push({
+      label: t("session.hashline.warning"),
+      value: t(
+        warningCount === 1
+          ? "session.hashline.warningCountOne"
+          : "session.hashline.warningCount",
+        { count: warningCount }
+      ),
+    })
   }
 
   const snapshotId = string(details.snapshotId)
-  if (snapshotId) facts.push({ label: "快照", value: snapshotId })
+  if (snapshotId) {
+    facts.push({ label: t("session.hashline.snapshot"), value: snapshotId })
+  }
 
   const diff = string(details.diff)
   return {
     kind,
-    label: kind === "replace" ? "Hashline 替换" : "撤销 Hashline 替换",
-    preview: path ?? "未提供文件路径",
+    label:
+      kind === "replace"
+        ? t("session.hashline.replace")
+        : t("session.hashline.undo"),
+    preview: path ?? t("session.hashline.noPath"),
     ...(path ? { path } : {}),
     requests: parsedRequests,
     facts,

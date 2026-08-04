@@ -1,6 +1,6 @@
 "use client"
 
-import { useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import {
   ChevronDownIcon,
   LoaderCircleIcon,
@@ -47,7 +47,7 @@ import { Switch } from "@workspace/ui/components/switch"
 import { CustomProviderForm } from "@/components/custom-provider-form"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { useI18n } from "@/components/i18n-provider"
-import { responseJson } from "@/lib/api-response"
+import { ApiError, responseJson } from "@/lib/api-response"
 import type { Translator } from "@/lib/i18n"
 
 function modelKey(model: Pick<ModelSettingsModel, "provider" | "id">) {
@@ -79,6 +79,13 @@ function providerDescription(provider: ModelSettingsProvider, t: Translator) {
   return t("settings.models.noAvailableModels")
 }
 
+function operationError(failure: unknown, t: Translator) {
+  if (failure instanceof ApiError && failure.code === "InvalidCustomProvider") {
+    return t("settings.models.invalidProvider")
+  }
+  return failure instanceof Error ? failure.message : String(failure)
+}
+
 export function ModelSettings({
   initial,
   mutationToken,
@@ -93,10 +100,12 @@ export function ModelSettings({
   const [working, setWorking] = useState<string | null>(null)
   const workingRef = useRef(false)
   const [error, setError] = useState<string | null>(null)
+  const errorRef = useRef<HTMLDivElement | null>(null)
   const [collapsedProviders, setCollapsedProviders] = useState<Set<string>>(
     () => new Set()
   )
   const [providerDialogOpen, setProviderDialogOpen] = useState(false)
+  const providerDialogTriggerRef = useRef<HTMLButtonElement | null>(null)
   const [editingProvider, setEditingProvider] =
     useState<ModelSettingsProvider | null>(null)
   const [pendingProviderDelete, setPendingProviderDelete] = useState<{
@@ -106,6 +115,12 @@ export function ModelSettings({
       | "settings.models.deleteProviderAuth"
   } | null>(null)
   const [modelSearch, setModelSearch] = useState("")
+
+  useEffect(() => {
+    if (!error || working !== null || providerDialogOpen) return
+    const frame = requestAnimationFrame(() => errorRef.current?.focus())
+    return () => cancelAnimationFrame(frame)
+  }, [error, providerDialogOpen, working])
 
   async function readSettings(response: Response) {
     const fallback = t("settings.models.operationFailed")
@@ -153,7 +168,7 @@ export function ModelSettings({
       )
       setSettings(next)
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure))
+      setError(operationError(failure, t))
     } finally {
       finishWorking()
     }
@@ -180,7 +195,7 @@ export function ModelSettings({
       setSettings(next)
       setProviderDialogOpen(false)
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure))
+      setError(operationError(failure, t))
     } finally {
       finishWorking()
     }
@@ -203,7 +218,7 @@ export function ModelSettings({
       )
       setSettings(next)
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure))
+      setError(operationError(failure, t))
     } finally {
       finishWorking()
     }
@@ -228,16 +243,26 @@ export function ModelSettings({
     await removeProvider(provider)
   }
 
-  function openAddProvider() {
+  function openAddProvider(trigger: HTMLButtonElement) {
+    providerDialogTriggerRef.current = trigger
     setEditingProvider(null)
     setError(null)
     setProviderDialogOpen(true)
   }
 
-  function openEditProvider(provider: ModelSettingsProvider) {
+  function openEditProvider(
+    provider: ModelSettingsProvider,
+    trigger: HTMLButtonElement
+  ) {
+    providerDialogTriggerRef.current = trigger
     setEditingProvider(provider)
     setError(null)
     setProviderDialogOpen(true)
+  }
+
+  function setProviderDialog(open: boolean) {
+    setProviderDialogOpen(open)
+    if (!open) setError(null)
   }
 
   const enabledCount = settings.models.filter((model) => model.enabled).length
@@ -283,7 +308,7 @@ export function ModelSettings({
               variant="outline"
               size="sm"
               disabled={working !== null}
-              onClick={openAddProvider}
+              onClick={(event) => openAddProvider(event.currentTarget)}
             >
               <PlusIcon />
               {t("settings.models.addProvider")}
@@ -328,8 +353,12 @@ export function ModelSettings({
         </CardContent>
       </Card>
 
-      {error ? (
-        <FieldError className="rounded-lg bg-destructive/5 p-3">
+      {error && !providerDialogOpen ? (
+        <FieldError
+          ref={errorRef}
+          tabIndex={-1}
+          className="rounded-lg bg-destructive/5 p-3"
+        >
           {error}
         </FieldError>
       ) : null}
@@ -393,7 +422,7 @@ export function ModelSettings({
                         disabled={working !== null}
                         onClick={(event) => {
                           event.preventDefault()
-                          openEditProvider(provider)
+                          openEditProvider(provider, event.currentTarget)
                         }}
                       >
                         <PencilIcon />
@@ -497,7 +526,8 @@ export function ModelSettings({
           provider={editingProvider}
           working={working !== null}
           error={error}
-          onOpenChange={setProviderDialogOpen}
+          onOpenChange={setProviderDialog}
+          onReturnFocus={() => providerDialogTriggerRef.current?.focus()}
           onSave={(value) => void saveProvider(value)}
         />
       ) : null}

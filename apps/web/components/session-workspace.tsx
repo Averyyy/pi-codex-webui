@@ -67,8 +67,10 @@ import {
   type SessionInspectorProps,
 } from "@/components/session-inspector"
 import { SubagentsPanel } from "@/components/subagents"
+import { useI18n } from "@/components/i18n-provider"
 import type { ProjectGitStatus } from "@/lib/project-git"
 import { shouldScrollToSessionTail } from "@/lib/session-scroll"
+import type { Translator } from "@/lib/i18n"
 
 const ProjectReviewPanel = dynamic(
   () =>
@@ -89,13 +91,19 @@ const ProjectFilesPanel = dynamic(
 type WorkspaceTab = "review" | "files" | "terminal" | "subagents"
 type TerminalPlacement = "bottom" | "sidebar" | null
 
-const TAB_METADATA: Record<WorkspaceTab, { label: string; icon: LucideIcon }> =
-  {
-    review: { label: "审阅", icon: FileDiffIcon },
-    files: { label: "文件", icon: FilesIcon },
-    terminal: { label: "终端", icon: SquareTerminalIcon },
-    subagents: { label: "子智能体", icon: BotIcon },
-  }
+const TAB_ICONS: Record<WorkspaceTab, LucideIcon> = {
+  review: FileDiffIcon,
+  files: FilesIcon,
+  terminal: SquareTerminalIcon,
+  subagents: BotIcon,
+}
+
+function tabLabel(t: Translator, tab: WorkspaceTab) {
+  if (tab === "review") return t("session.tab.review")
+  if (tab === "files") return t("session.tab.files")
+  if (tab === "terminal") return t("session.tab.terminal")
+  return t("session.tab.subagents")
+}
 
 const SIDE_BY_SIDE_MIN_WIDTH = 42 * 16
 
@@ -131,13 +139,14 @@ function PanelTabs({
   onCloseTab: (tab: WorkspaceTab) => void
   onClosePanel: () => void
 }) {
+  const { t } = useI18n()
   return (
     <div className="flex min-h-11 shrink-0 items-center gap-1 border-b px-2">
       {tabs.length && activeTab ? (
         <div className="flex h-9 min-w-0 flex-1 items-center gap-0 overflow-x-auto">
           {tabs.map((tab) => {
-            const metadata = TAB_METADATA[tab]
-            const Icon = metadata.icon
+            const label = tabLabel(t, tab)
+            const Icon = TAB_ICONS[tab]
             const active = activeTab === tab
             return (
               <div
@@ -157,13 +166,13 @@ function PanelTabs({
                   )}
                 >
                   <Icon />
-                  {metadata.label}
+                  {label}
                 </Button>
                 <Button
                   variant="ghost"
                   size="icon-xs"
                   className="-ml-1 opacity-0 transition-opacity group-focus-within/tab:opacity-100 group-hover/tab:opacity-100 [@media(hover:none)]:opacity-100"
-                  aria-label={`关闭${metadata.label}标签页`}
+                  aria-label={t("session.workspace.closeTab", { name: label })}
                   onClick={() => onCloseTab(tab)}
                 >
                   <XIcon />
@@ -174,7 +183,7 @@ function PanelTabs({
         </div>
       ) : (
         <span className="min-w-0 flex-1 px-2 text-xs text-muted-foreground">
-          会话侧栏
+          {t("session.workspace.sidebar")}
         </span>
       )}
 
@@ -184,7 +193,7 @@ function PanelTabs({
             variant="ghost"
             size="icon-sm"
             data-workspace-add-tab
-            aria-label="添加会话侧栏标签页"
+            aria-label={t("session.workspace.addTab")}
           >
             <PlusIcon />
           </Button>
@@ -192,8 +201,8 @@ function PanelTabs({
         <DropdownMenuContent align="end" className="w-40">
           <DropdownMenuGroup>
             {availableTabs.map((tab) => {
-              const metadata = TAB_METADATA[tab]
-              const Icon = metadata.icon
+              const label = tabLabel(t, tab)
+              const Icon = TAB_ICONS[tab]
               return (
                 <DropdownMenuItem
                   key={tab}
@@ -201,7 +210,7 @@ function PanelTabs({
                   onSelect={() => onAdd(tab)}
                 >
                   <Icon />
-                  {metadata.label}
+                  {label}
                 </DropdownMenuItem>
               )
             })}
@@ -211,7 +220,7 @@ function PanelTabs({
       <Button
         variant="ghost"
         size="icon-sm"
-        aria-label="关闭会话侧栏"
+        aria-label={t("session.workspace.closeSidebar")}
         onClick={onClosePanel}
       >
         <XIcon />
@@ -255,6 +264,7 @@ export function SessionWorkspace({
   conversation: ReactNode
   composer: ReactNode
 }) {
+  const { t } = useI18n()
   const sidePanelRef = usePanelRef()
   const bottomPanelRef = usePanelRef()
   const workspaceElementRef = useRef<HTMLDivElement>(null)
@@ -335,15 +345,19 @@ export function SessionWorkspace({
     }
   }, [sessionId])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const element = workspaceElementRef.current
     if (!element) return
 
     const update = (width: number) => {
       const nextIsDesktop = width >= SIDE_BY_SIDE_MIN_WIDTH
-      if (desktopLayoutRef.current === nextIsDesktop) return
+      const previousIsDesktop = desktopLayoutRef.current
+      if (previousIsDesktop === nextIsDesktop) return
       desktopLayoutRef.current = nextIsDesktop
       setIsDesktop(nextIsDesktop)
+
+      if (previousIsDesktop === null) return
+
       sidePanelRef.current?.collapse()
       setSideOpen(false)
       setMobileSideOpen(false)
@@ -469,7 +483,9 @@ export function SessionWorkspace({
         method: "DELETE",
         headers: { "X-Pi-Web-Codex-Mutation-Token": mutationToken },
       })
-      if (!response.ok) throw new Error("无法关闭终端。")
+      if (!response.ok) {
+        throw new Error(t("session.workspace.closeTerminalFailed"))
+      }
     } catch (failure) {
       toast.error(failure instanceof Error ? failure.message : String(failure))
     }
@@ -504,7 +520,7 @@ export function SessionWorkspace({
       })
       if (!response.ok) {
         const body = (await response.json()) as { error?: string }
-        throw new Error(body.error ?? "无法打开项目目录。")
+        throw new Error(body.error ?? t("session.workspace.openProjectFailed"))
       }
     } catch (failure) {
       toast.error(failure instanceof Error ? failure.message : String(failure))
@@ -527,7 +543,9 @@ export function SessionWorkspace({
       <div
         role="region"
         aria-label={
-          activeTab ? `${TAB_METADATA[activeTab].label}视图` : "会话侧栏视图"
+          activeTab
+            ? t("session.workspace.view", { name: tabLabel(t, activeTab) })
+            : t("session.workspace.sidebarView")
         }
         className="min-h-0 flex-1 animate-in duration-150 fade-in-0 motion-reduce:animate-none"
       >
@@ -545,8 +563,10 @@ export function SessionWorkspace({
               <EmptyMedia variant="icon">
                 <PlusIcon />
               </EmptyMedia>
-              <EmptyTitle>添加标签页</EmptyTitle>
-              <EmptyDescription>从上方菜单添加可用视图。</EmptyDescription>
+              <EmptyTitle>{t("session.workspace.emptyTitle")}</EmptyTitle>
+              <EmptyDescription>
+                {t("session.workspace.emptyDescription")}
+              </EmptyDescription>
             </EmptyHeader>
           </Empty>
         )}
@@ -609,26 +629,30 @@ export function SessionWorkspace({
                       {environment ? (
                         <SessionInspector {...environment} />
                       ) : null}
-                      <IconTooltip label="底部终端">
+                      <IconTooltip
+                        label={t("session.workspace.bottomTerminal")}
+                      >
                         <Button
                           ref={bottomTerminalToggleRef}
                           variant="ghost"
                           size="icon-sm"
                           disabled={!workspaceAvailable}
-                          aria-label="切换底部终端"
+                          aria-label={t(
+                            "session.workspace.toggleBottomTerminal"
+                          )}
                           aria-pressed={bottomOpen}
                           onClick={toggleBottomTerminal}
                         >
                           <PanelBottomIcon />
                         </Button>
                       </IconTooltip>
-                      <IconTooltip label="会话侧栏">
+                      <IconTooltip label={t("session.workspace.sidebar")}>
                         <Button
                           ref={sidebarToggleRef}
                           variant="ghost"
                           size="icon-sm"
                           disabled={!availableTabs.length}
-                          aria-label="切换会话侧栏"
+                          aria-label={t("session.workspace.toggleSidebar")}
                           aria-pressed={sideOpen}
                           onClick={toggleSidebar}
                         >
@@ -652,10 +676,11 @@ export function SessionWorkspace({
                   >
                     {!workspaceAvailable ? (
                       <div className="rounded-xl border border-dashed bg-muted/30 p-4 text-sm">
-                        <p className="font-medium">历史会话仅可阅读</p>
+                        <p className="font-medium">
+                          {t("session.readOnlyTitle")}
+                        </p>
                         <p className="mt-1 text-muted-foreground">
-                          原工作目录已不存在，因此不会启动 Runtime，也不会读取
-                          Files、Git 或项目资源。
+                          {t("session.readOnlyDescription")}
                         </p>
                       </div>
                     ) : null}
@@ -684,7 +709,9 @@ export function SessionWorkspace({
               maxSize="65%"
               collapsedSize={0}
               collapsible
-              onResize={(size) => setBottomOpen(size.inPixels > 1)}
+              onResize={(size) => {
+                if (verticalDragging) setBottomOpen(size.inPixels > 1)
+              }}
             >
               <div
                 className={cn(
@@ -697,12 +724,12 @@ export function SessionWorkspace({
                 <div className="flex min-h-9 shrink-0 items-center gap-2 border-b px-3">
                   <SquareTerminalIcon className="size-3.5 text-muted-foreground" />
                   <span className="min-w-0 flex-1 text-xs font-medium">
-                    终端
+                    {t("session.tab.terminal")}
                   </span>
                   <Button
                     variant="ghost"
                     size="icon-xs"
-                    aria-label="将终端移到侧边栏"
+                    aria-label={t("session.workspace.moveTerminal")}
                     onClick={moveTerminalToSidebar}
                   >
                     <PanelRightIcon />
@@ -710,7 +737,7 @@ export function SessionWorkspace({
                   <Button
                     variant="ghost"
                     size="icon-xs"
-                    aria-label="关闭终端"
+                    aria-label={t("session.workspace.closeTerminal")}
                     onClick={closeTerminal}
                   >
                     <XIcon />
@@ -748,7 +775,9 @@ export function SessionWorkspace({
           maxSize="58%"
           collapsedSize={0}
           collapsible
-          onResize={(size) => setSideOpen(size.inPixels > 1)}
+          onResize={(size) => {
+            if (horizontalDragging) setSideOpen(size.inPixels > 1)
+          }}
         >
           <div
             className={cn("size-full", !sideOpen && "hidden")}
@@ -781,9 +810,9 @@ export function SessionWorkspace({
           }}
         >
           <SheetHeader className="sr-only">
-            <SheetTitle>会话侧栏</SheetTitle>
+            <SheetTitle>{t("session.workspace.sidebar")}</SheetTitle>
             <SheetDescription>
-              查看代码审阅、项目文件、终端或子智能体。
+              {t("session.workspace.sheetDescription")}
             </SheetDescription>
           </SheetHeader>
           {sidebarContent}

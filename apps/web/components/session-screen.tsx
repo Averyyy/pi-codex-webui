@@ -17,6 +17,7 @@ import { SessionTranscript } from "@/components/transcript"
 import { getSessionSnapshot } from "@/lib/catalog"
 import { loadConfig } from "@/lib/config"
 import { getEventHub } from "@/lib/event-hub"
+import { createTranslator } from "@/lib/i18n"
 import { readProjectGitStatus } from "@/lib/project-git"
 import { projectFileManager } from "@/lib/project-reveal"
 import { getMutationToken } from "@/lib/request-security"
@@ -71,10 +72,16 @@ export async function SessionScreen({
     ),
   ])
   webUiExtensions.statuses = supervisor.webUiExtensionStatuses([sessionId])
+  const locale = config.appearance.language
+  const t = createTranslator(locale)
   const mutationToken = getMutationToken()
-  const title = displaySessionTitle(snapshot.session)
+  const title = displaySessionTitle(snapshot.session, {
+    task: t("workspace.nav.newTask"),
+    conversation: t("workspace.nav.unnamedConversation"),
+  })
   const projectGit =
-    git ?? ({ available: false, error: "工作区目录不可用。" } as const)
+    git ??
+    ({ available: false, error: t("session.workspaceUnavailable") } as const)
   const fileManager = standalone ? null : projectFileManager(process.platform)
   const subagentsInstalled = hasTintinSubagentsExtension(resources)
 
@@ -103,16 +110,26 @@ export async function SessionScreen({
             mutationToken={mutationToken}
             title={title}
             contextLabel={
-              standalone ? "独立任务" : (snapshot.session.projectName ?? "项目")
+              standalone
+                ? t("session.context.standalone")
+                : (snapshot.session.projectName ?? t("session.context.project"))
             }
-            updatedAt={formatTimestamp(snapshot.session.updatedAt)}
+            updatedAt={formatTimestamp(snapshot.session.updatedAt, locale)}
             runtimeLabel={
               snapshot.session.runtimeKind === "pi" ? "Pi" : "Pi Client"
             }
             workspaceAvailable={workspaceAvailable}
             subagentsInstalled={subagentsInstalled}
             initialGit={!standalone && workspaceAvailable ? git : null}
-            fileManagerLabel={fileManager?.label ?? null}
+            fileManagerLabel={
+              fileManager
+                ? t(
+                    fileManager.kind === "finder"
+                      ? "session.workspace.openFinder"
+                      : "session.workspace.openFileExplorer"
+                  )
+                : null
+            }
             environment={
               standalone
                 ? null
@@ -173,6 +190,7 @@ export async function SessionScreen({
                   mutationToken={mutationToken}
                   workspaceUnavailable={!workspaceAvailable}
                   initialRuntimeStatus={runtime.status}
+                  locale={locale}
                 />
                 <ExtensionSlot
                   key="conversation-after"
@@ -197,7 +215,7 @@ export async function SessionScreen({
                   key="read-only-composer"
                   className="shrink-0 border-t px-4 py-3 text-center text-xs text-muted-foreground"
                 >
-                  只读历史 · Runtime 未启动
+                  {t("session.readOnlyComposer")}
                 </div>
               )
             }

@@ -15,6 +15,8 @@ import { Input } from "@workspace/ui/components/input"
 import { Textarea } from "@workspace/ui/components/textarea"
 
 import { SessionExtensionContext } from "@/components/session-extension-provider"
+import { useI18n } from "@/components/i18n-provider"
+import type { Translator } from "@/lib/i18n"
 import {
   resolvePiGoalState,
   type PiGoalState,
@@ -25,14 +27,17 @@ export type GoalCommand =
   | { command: "pause" | "resume" | "clear" }
   | { command: "edit"; objective: string; tokenBudget?: number }
 
-const STATUS_LABELS: Record<PiGoalStatus, string> = {
-  active: "进行中的目标",
-  queued: "排队中的目标",
-  paused: "已暂停的目标",
-  blocked: "受阻的目标",
-  usage_limited: "用量受限的目标",
-  budget_limited: "预算已用尽的目标",
-  complete: "已完成的目标",
+function statusLabel(t: Translator, status: PiGoalStatus) {
+  const keys = {
+    active: "session.goal.status.active",
+    queued: "session.goal.status.queued",
+    paused: "session.goal.status.paused",
+    blocked: "session.goal.status.blocked",
+    usage_limited: "session.goal.status.usageLimited",
+    budget_limited: "session.goal.status.budgetLimited",
+    complete: "session.goal.status.complete",
+  } as const
+  return t(keys[status])
 }
 
 function duration(state: PiGoalState, now: number) {
@@ -78,6 +83,7 @@ export function GoalStatusBar({
   disabled: boolean
   onCommand(args: string): Promise<boolean>
 }) {
+  const { t } = useI18n()
   const extensions = useContext(SessionExtensionContext)
   if (!extensions) {
     throw new Error("GoalStatusBar requires SessionExtensionProvider.")
@@ -180,7 +186,7 @@ export function GoalStatusBar({
       <div className="flex min-w-0 items-center gap-2 px-3 py-2">
         <TargetIcon className="size-5 shrink-0 text-muted-foreground" />
         <strong className="shrink-0 text-sm font-semibold">
-          {STATUS_LABELS[state.goal.status]}
+          {statusLabel(t, state.goal.status)}
         </strong>
         <span className="min-w-0 flex-1 truncate text-sm text-muted-foreground">
           {state.goal.text}
@@ -193,8 +199,8 @@ export function GoalStatusBar({
             type="button"
             variant="ghost"
             size="icon-sm"
-            aria-label="编辑目标"
-            title="编辑目标"
+            aria-label={t("session.goal.edit")}
+            title={t("session.goal.edit")}
             disabled={actionDisabled}
             onClick={() => {
               setExpanded(true)
@@ -208,8 +214,8 @@ export function GoalStatusBar({
               type="button"
               variant="ghost"
               size="icon-sm"
-              aria-label="暂停目标"
-              title="暂停目标"
+              aria-label={t("session.goal.pause")}
+              title={t("session.goal.pause")}
               disabled={actionDisabled}
               onClick={() => void run({ command: "pause" })}
             >
@@ -222,8 +228,8 @@ export function GoalStatusBar({
               type="button"
               variant="ghost"
               size="icon-sm"
-              aria-label="恢复目标"
-              title="恢复目标"
+              aria-label={t("session.goal.resume")}
+              title={t("session.goal.resume")}
               disabled={actionDisabled}
               onClick={() => void run({ command: "resume" })}
             >
@@ -234,8 +240,8 @@ export function GoalStatusBar({
             type="button"
             variant="ghost"
             size="icon-sm"
-            aria-label="清除目标"
-            title="清除目标"
+            aria-label={t("session.goal.clear")}
+            title={t("session.goal.clear")}
             disabled={actionDisabled}
             onClick={() => void run({ command: "clear" })}
           >
@@ -245,8 +251,12 @@ export function GoalStatusBar({
             type="button"
             variant="ghost"
             size="icon-sm"
-            aria-label={expanded ? "收起目标" : "展开目标"}
-            title={expanded ? "收起目标" : "展开目标"}
+            aria-label={
+              expanded ? t("session.goal.collapse") : t("session.goal.expand")
+            }
+            title={
+              expanded ? t("session.goal.collapse") : t("session.goal.expand")
+            }
             onClick={() => {
               setExpanded((current) => !current)
               if (expanded) setEditing(false)
@@ -269,18 +279,34 @@ export function GoalStatusBar({
             {state.goal.text}
           </p>
           <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-            <span>第 {state.goal.iteration + 1} 轮</span>
-            <span>已用 {formatTokens(state.goal.tokensUsed)} tokens</span>
+            <span>
+              {t("session.goal.iteration", {
+                count: state.goal.iteration + 1,
+              })}
+            </span>
+            <span>
+              {t("session.goal.tokensUsed", {
+                count: formatTokens(state.goal.tokensUsed),
+              })}
+            </span>
             {state.goal.tokenBudget ? (
-              <span>预算 {formatTokens(state.goal.tokenBudget)}</span>
+              <span>
+                {t("session.goal.budget", {
+                  count: formatTokens(state.goal.tokenBudget),
+                })}
+              </span>
             ) : null}
-            {state.queue.length ? <span>队列 {state.queue.length}</span> : null}
+            {state.queue.length ? (
+              <span>
+                {t("session.goal.queue", { count: state.queue.length })}
+              </span>
+            ) : null}
           </div>
           {editing ? (
             <form className="mt-3 grid gap-2" onSubmit={submitEdit}>
               <Textarea
                 name="objective"
-                aria-label="目标内容"
+                aria-label={t("session.goal.objective")}
                 defaultValue={state.goal.text}
                 maxLength={4_000}
                 required
@@ -289,12 +315,12 @@ export function GoalStatusBar({
               <div className="flex items-center gap-2">
                 <Input
                   name="tokenBudget"
-                  aria-label="Token 预算"
+                  aria-label={t("session.goal.tokenBudget")}
                   type="number"
                   min={1}
                   step={1}
                   defaultValue={state.goal.tokenBudget}
-                  placeholder="Token 预算（可选）"
+                  placeholder={t("session.goal.tokenBudgetOptional")}
                   className="min-w-0 flex-1"
                 />
                 <Button
@@ -302,10 +328,10 @@ export function GoalStatusBar({
                   variant="outline"
                   onClick={() => setEditing(false)}
                 >
-                  取消
+                  {t("session.goal.cancel")}
                 </Button>
                 <Button type="submit" disabled={actionDisabled}>
-                  保存
+                  {t("session.goal.save")}
                 </Button>
               </div>
             </form>

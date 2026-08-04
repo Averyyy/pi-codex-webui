@@ -5,6 +5,10 @@ export const DEFAULT_LOCALE: Locale = "zh-CN"
 
 const messages = {
   "ui.close": { "zh-CN": "关闭", "en-US": "Close" },
+  "ui.skipToMain": {
+    "zh-CN": "跳到主要内容",
+    "en-US": "Skip to main content",
+  },
   "ui.sidebarTitle": { "zh-CN": "侧边栏", "en-US": "Sidebar" },
   "ui.sidebarDescription": {
     "zh-CN": "显示移动端侧边栏。",
@@ -30,6 +34,18 @@ const messages = {
   "composer.reasoningShortcut": {
     "zh-CN": "Alt+Shift+R 切换推理强度",
     "en-US": "Alt+Shift+R cycles reasoning effort",
+  },
+  "composer.reasoningUnavailable": {
+    "zh-CN": "选择的 thinking level 不再可用。",
+    "en-US": "The selected thinking level is no longer available.",
+  },
+  "composer.reasoningInvalid": {
+    "zh-CN": "当前 reasoning effort {level} 不在可选档位中。",
+    "en-US": "The current reasoning effort {level} is not available.",
+  },
+  "composer.reasoningNoAlternative": {
+    "zh-CN": "当前模型没有可切换的 reasoning effort。",
+    "en-US": "The current model has no alternative reasoning effort.",
   },
   "composer.commands": { "zh-CN": "命令", "en-US": "Commands" },
   "composer.commands.noMatches": {
@@ -103,6 +119,1329 @@ const messages = {
   "composer.model.manage": {
     "zh-CN": "管理 Provider / Model scope",
     "en-US": "Manage providers and model scope",
+  },
+
+  "session.context.standalone": {
+    "zh-CN": "独立任务",
+    "en-US": "Standalone task",
+  },
+  "session.context.project": { "zh-CN": "项目", "en-US": "Project" },
+  "session.workspaceUnavailable": {
+    "zh-CN": "工作区目录不可用。",
+    "en-US": "The workspace directory is unavailable.",
+  },
+  "session.readOnlyComposer": {
+    "zh-CN": "只读历史 · Runtime 未启动",
+    "en-US": "Read-only history · Runtime not started",
+  },
+  "session.readOnlyTitle": {
+    "zh-CN": "历史会话仅可阅读",
+    "en-US": "This historical conversation is read-only",
+  },
+  "session.readOnlyDescription": {
+    "zh-CN":
+      "原工作目录已不存在，因此不会启动 Runtime，也不会读取 Files、Git 或项目资源。",
+    "en-US":
+      "The original working directory no longer exists, so the Runtime, Files, Git, and project resources are unavailable.",
+  },
+  "session.tab.review": { "zh-CN": "审阅", "en-US": "Review" },
+  "session.tab.files": { "zh-CN": "文件", "en-US": "Files" },
+  "session.tab.terminal": { "zh-CN": "终端", "en-US": "Terminal" },
+  "session.tab.subagents": {
+    "zh-CN": "子智能体",
+    "en-US": "Subagents",
+  },
+  "session.workspace.sidebar": {
+    "zh-CN": "会话侧栏",
+    "en-US": "Conversation sidebar",
+  },
+  "session.workspace.closeTab": {
+    "zh-CN": "关闭{name}标签页",
+    "en-US": "Close {name} tab",
+  },
+  "session.workspace.addTab": {
+    "zh-CN": "添加会话侧栏标签页",
+    "en-US": "Add a conversation sidebar tab",
+  },
+  "session.workspace.closeSidebar": {
+    "zh-CN": "关闭会话侧栏",
+    "en-US": "Close the conversation sidebar",
+  },
+  "session.workspace.view": {
+    "zh-CN": "{name}视图",
+    "en-US": "{name} view",
+  },
+  "session.workspace.sidebarView": {
+    "zh-CN": "会话侧栏视图",
+    "en-US": "Conversation sidebar view",
+  },
+  "session.workspace.emptyTitle": {
+    "zh-CN": "添加标签页",
+    "en-US": "Add a tab",
+  },
+  "session.workspace.emptyDescription": {
+    "zh-CN": "从上方菜单添加可用视图。",
+    "en-US": "Add an available view from the menu above.",
+  },
+  "session.workspace.bottomTerminal": {
+    "zh-CN": "底部终端",
+    "en-US": "Bottom terminal",
+  },
+  "session.workspace.toggleBottomTerminal": {
+    "zh-CN": "切换底部终端",
+    "en-US": "Toggle the bottom terminal",
+  },
+  "session.workspace.toggleSidebar": {
+    "zh-CN": "切换会话侧栏",
+    "en-US": "Toggle the conversation sidebar",
+  },
+  "session.workspace.moveTerminal": {
+    "zh-CN": "将终端移到侧边栏",
+    "en-US": "Move the terminal to the sidebar",
+  },
+  "session.workspace.closeTerminal": {
+    "zh-CN": "关闭终端",
+    "en-US": "Close the terminal",
+  },
+  "session.workspace.sheetDescription": {
+    "zh-CN": "查看代码审阅、项目文件、终端或子智能体。",
+    "en-US": "View code review, project files, the terminal, or subagents.",
+  },
+  "session.workspace.closeTerminalFailed": {
+    "zh-CN": "无法关闭终端。",
+    "en-US": "Could not close the terminal.",
+  },
+  "session.workspace.openProjectFailed": {
+    "zh-CN": "无法打开项目目录。",
+    "en-US": "Could not open the project directory.",
+  },
+  "session.workspace.openFinder": {
+    "zh-CN": "在 Finder 中打开",
+    "en-US": "Open in Finder",
+  },
+  "session.workspace.openFileExplorer": {
+    "zh-CN": "在文件资源管理器中打开",
+    "en-US": "Open in File Explorer",
+  },
+  "session.terminal.operationFailed": {
+    "zh-CN": "终端操作失败。",
+    "en-US": "Terminal operation failed.",
+  },
+  "session.terminal.processExited": {
+    "zh-CN": "进程已退出：{code}",
+    "en-US": "Process exited: {code}",
+  },
+  "session.terminal.ariaLabel": {
+    "zh-CN": "项目终端",
+    "en-US": "Project terminal",
+  },
+  "session.status.stopped": { "zh-CN": "未激活", "en-US": "Inactive" },
+  "session.status.starting": { "zh-CN": "启动中", "en-US": "Starting" },
+  "session.status.ready": { "zh-CN": "就绪", "en-US": "Ready" },
+  "session.status.busy": { "zh-CN": "运行中", "en-US": "Running" },
+  "session.status.stopping": { "zh-CN": "停止中", "en-US": "Stopping" },
+  "session.status.crashed": { "zh-CN": "已崩溃", "en-US": "Crashed" },
+  "session.runtime.operationFailed": {
+    "zh-CN": "Pi runtime 操作失败（HTTP {status}）。",
+    "en-US": "Pi runtime operation failed (HTTP {status}).",
+  },
+  "session.runtime.emptyResponse": {
+    "zh-CN": "Pi runtime 返回了空响应。",
+    "en-US": "Pi runtime returned an empty response.",
+  },
+  "session.runtime.imageOnlyMessage": {
+    "zh-CN": "请查看附加图片。",
+    "en-US": "Please review the attached image.",
+  },
+  "session.runtime.retry": {
+    "zh-CN": "重试 {attempt}/{max}",
+    "en-US": "Retry {attempt}/{max}",
+  },
+  "session.runtime.completedTitle": {
+    "zh-CN": "Pi 已完成",
+    "en-US": "Pi finished",
+  },
+  "session.runtime.completedBody": {
+    "zh-CN": "当前 Agent 轮次已结束。",
+    "en-US": "The current agent turn has finished.",
+  },
+  "session.runtime.crashMessage": {
+    "zh-CN": "Pi worker 意外退出；历史 JSONL 仍可读取。",
+    "en-US":
+      "The Pi worker exited unexpectedly; the historical JSONL remains readable.",
+  },
+  "session.runtime.crashTitle": {
+    "zh-CN": "Pi Runtime 已崩溃",
+    "en-US": "Pi Runtime crashed",
+  },
+  "session.runtime.crashBody": {
+    "zh-CN": "历史内容仍可读取，可回到 session 显式重启。",
+    "en-US":
+      "Historical content remains readable. Return to the conversation to restart explicitly.",
+  },
+  "session.runtime.connectionLost": {
+    "zh-CN": "实时连接已断开；浏览器正在自动重连。",
+    "en-US":
+      "The live connection was interrupted; the browser is reconnecting automatically.",
+  },
+  "session.runtime.reloadSuccess": {
+    "zh-CN": "已重新加载 Pi 扩展、技能、提示词和上下文文件。",
+    "en-US": "Reloaded Pi extensions, skills, prompts, and context files.",
+  },
+  "session.runtime.extensionResponseFailed": {
+    "zh-CN": "Extension UI 响应失败。",
+    "en-US": "The Extension UI response failed.",
+  },
+  "session.runtime.tuiSyncFailed": {
+    "zh-CN": "TUI surfaces 同步失败（HTTP {status}）。",
+    "en-US": "TUI surface sync failed (HTTP {status}).",
+  },
+  "session.runtime.extensionSyncFailed": {
+    "zh-CN": "Extension UI 同步失败（HTTP {status}）。",
+    "en-US": "Extension UI sync failed (HTTP {status}).",
+  },
+  "session.runtime.extensionInvalidResponse": {
+    "zh-CN": "Extension UI 同步返回了无效响应。",
+    "en-US": "Extension UI sync returned an invalid response.",
+  },
+  "session.runtime.extensionInvalidRequest": {
+    "zh-CN": "Extension UI 同步返回了无效请求。",
+    "en-US": "Extension UI sync returned an invalid request.",
+  },
+  "session.runtime.stateSyncFailed": {
+    "zh-CN": "Runtime 状态同步失败（HTTP {status}）。",
+    "en-US": "Runtime state sync failed (HTTP {status}).",
+  },
+  "session.runtime.extensionCancel": {
+    "zh-CN": "取消",
+    "en-US": "Cancel",
+  },
+  "session.runtime.extensionConfirm": {
+    "zh-CN": "确定",
+    "en-US": "Confirm",
+  },
+  "session.command.goal": { "zh-CN": "目标", "en-US": "Goal" },
+  "session.command.goalDescription": {
+    "zh-CN": "让 Pi 持续工作直到目标完成",
+    "en-US": "Keep Pi working until the goal is complete",
+  },
+  "session.command.compact": { "zh-CN": "压缩", "en-US": "Compact" },
+  "session.command.compactDescription": {
+    "zh-CN": "主动压缩",
+    "en-US": "Compact the context now",
+  },
+  "session.command.reload": {
+    "zh-CN": "重新加载",
+    "en-US": "Reload",
+  },
+  "session.command.reloadDescription": {
+    "zh-CN": "重新加载 Pi 扩展、技能、提示词和上下文",
+    "en-US": "Reload Pi extensions, skills, prompts, and context",
+  },
+  "session.command.tree": { "zh-CN": "会话树", "en-US": "Conversation tree" },
+  "session.command.treeDescription": {
+    "zh-CN": "查看并切换会话分支",
+    "en-US": "View and switch conversation branches",
+  },
+  "session.runtime.imageReading": {
+    "zh-CN": "正在读取图片…",
+    "en-US": "Reading images…",
+  },
+  "session.runtime.queueMode": {
+    "zh-CN": "消息队列方式",
+    "en-US": "Message queue behavior",
+  },
+  "session.runtime.followUp": {
+    "zh-CN": "完成后继续",
+    "en-US": "Continue after completion",
+  },
+  "session.runtime.steer": {
+    "zh-CN": "当前轮次补充",
+    "en-US": "Add to the current turn",
+  },
+  "session.runtime.abort": { "zh-CN": "终止", "en-US": "Stop" },
+  "session.runtime.compactContext": {
+    "zh-CN": "压缩上下文",
+    "en-US": "Compact context",
+  },
+  "session.runtime.restart": {
+    "zh-CN": "重新启动 Runtime",
+    "en-US": "Restart Runtime",
+  },
+  "session.goal.startTitle": {
+    "zh-CN": "启动目标",
+    "en-US": "Start a goal",
+  },
+  "session.goal.startDescription": {
+    "zh-CN": "Pi 会持续推进并验证结果，直到完成、暂停或遇到真正的阻塞。",
+    "en-US":
+      "Pi will keep working and validating until it completes, pauses, or reaches a genuine blocker.",
+  },
+  "session.goal.objectivePlaceholder": {
+    "zh-CN": "描述需要完成的目标",
+    "en-US": "Describe the goal to complete",
+  },
+  "session.goal.objective": { "zh-CN": "目标内容", "en-US": "Goal" },
+  "session.goal.tokenBudget": {
+    "zh-CN": "Token 预算",
+    "en-US": "Token budget",
+  },
+  "session.goal.tokenBudgetOptional": {
+    "zh-CN": "Token 预算（可选）",
+    "en-US": "Token budget (optional)",
+  },
+  "session.goal.cancel": { "zh-CN": "取消", "en-US": "Cancel" },
+  "session.goal.start": { "zh-CN": "启动目标", "en-US": "Start goal" },
+  "session.goal.status.active": {
+    "zh-CN": "进行中的目标",
+    "en-US": "Active goal",
+  },
+  "session.goal.status.queued": {
+    "zh-CN": "排队中的目标",
+    "en-US": "Queued goal",
+  },
+  "session.goal.status.paused": {
+    "zh-CN": "已暂停的目标",
+    "en-US": "Paused goal",
+  },
+  "session.goal.status.blocked": {
+    "zh-CN": "受阻的目标",
+    "en-US": "Blocked goal",
+  },
+  "session.goal.status.usageLimited": {
+    "zh-CN": "用量受限的目标",
+    "en-US": "Usage-limited goal",
+  },
+  "session.goal.status.budgetLimited": {
+    "zh-CN": "预算已用尽的目标",
+    "en-US": "Budget-limited goal",
+  },
+  "session.goal.status.complete": {
+    "zh-CN": "已完成的目标",
+    "en-US": "Completed goal",
+  },
+  "session.goal.edit": { "zh-CN": "编辑目标", "en-US": "Edit goal" },
+  "session.goal.pause": { "zh-CN": "暂停目标", "en-US": "Pause goal" },
+  "session.goal.resume": { "zh-CN": "恢复目标", "en-US": "Resume goal" },
+  "session.goal.clear": { "zh-CN": "清除目标", "en-US": "Clear goal" },
+  "session.goal.expand": { "zh-CN": "展开目标", "en-US": "Expand goal" },
+  "session.goal.collapse": { "zh-CN": "收起目标", "en-US": "Collapse goal" },
+  "session.goal.iteration": {
+    "zh-CN": "第 {count} 轮",
+    "en-US": "Iteration {count}",
+  },
+  "session.goal.tokensUsed": {
+    "zh-CN": "已用 {count} tokens",
+    "en-US": "{count} tokens used",
+  },
+  "session.goal.budget": {
+    "zh-CN": "预算 {count}",
+    "en-US": "Budget {count}",
+  },
+  "session.goal.queue": {
+    "zh-CN": "队列 {count}",
+    "en-US": "Queue {count}",
+  },
+  "session.goal.save": { "zh-CN": "保存", "en-US": "Save" },
+  "session.queue.title": {
+    "zh-CN": "待处理消息",
+    "en-US": "Pending messages",
+  },
+  "session.queue.description": {
+    "zh-CN": "{count} 条消息将按发送顺序处理",
+    "en-US": "{count} messages will be processed in send order",
+  },
+  "session.queue.descriptionOne": {
+    "zh-CN": "{count} 条消息将按发送顺序处理",
+    "en-US": "{count} message will be processed in send order",
+  },
+  "session.queue.steering": { "zh-CN": "引导中", "en-US": "Steering" },
+  "session.queue.queued": { "zh-CN": "排队", "en-US": "Queued" },
+  "session.queue.steer": { "zh-CN": "引导", "en-US": "Steer" },
+  "session.queue.editAria": {
+    "zh-CN": "编辑第 {index} 条待处理消息",
+    "en-US": "Edit pending message {index}",
+  },
+  "session.queue.deleteAria": {
+    "zh-CN": "删除第 {index} 条待处理消息",
+    "en-US": "Delete pending message {index}",
+  },
+  "session.queue.editTitle": {
+    "zh-CN": "编辑待处理消息",
+    "en-US": "Edit pending message",
+  },
+  "session.queue.editDescription": {
+    "zh-CN": "保存后仍保留这条消息原来的排队或引导状态。",
+    "en-US": "Saving preserves whether this message is queued or steering.",
+  },
+  "session.queue.message": { "zh-CN": "消息内容", "en-US": "Message" },
+  "session.queue.noLongerAvailable": {
+    "zh-CN": "这条消息已经被处理，不能再编辑。",
+    "en-US":
+      "This message has already been processed and can no longer be edited.",
+  },
+  "session.queue.cancel": { "zh-CN": "取消", "en-US": "Cancel" },
+  "session.queue.save": { "zh-CN": "保存", "en-US": "Save" },
+  "session.compaction.running": {
+    "zh-CN": "正在压缩上下文",
+    "en-US": "Compacting context",
+  },
+  "session.compaction.complete": {
+    "zh-CN": "上下文已压缩",
+    "en-US": "Context compacted",
+  },
+  "session.message.editSent": {
+    "zh-CN": "编辑已发送消息",
+    "en-US": "Edit sent message",
+  },
+  "session.message.previousBranch": {
+    "zh-CN": "上一条消息分支",
+    "en-US": "Previous message branch",
+  },
+  "session.message.nextBranch": {
+    "zh-CN": "下一条消息分支",
+    "en-US": "Next message branch",
+  },
+  "session.message.edit": { "zh-CN": "编辑消息", "en-US": "Edit message" },
+  "session.message.cancel": { "zh-CN": "取消", "en-US": "Cancel" },
+  "session.message.send": { "zh-CN": "发送", "en-US": "Send" },
+  "session.transcript.failed": { "zh-CN": "失败", "en-US": "Failed" },
+  "session.transcript.running": { "zh-CN": "运行中", "en-US": "Running" },
+  "session.transcript.complete": { "zh-CN": "完成", "en-US": "Complete" },
+  "session.transcript.expandShell": {
+    "zh-CN": "展开 shell 详情",
+    "en-US": "Expand shell details",
+  },
+  "session.transcript.settingsChanges": {
+    "zh-CN": "会话设置变更",
+    "en-US": "Conversation setting changes",
+  },
+  "session.transcript.settingsCount": {
+    "zh-CN": "{count} 项",
+    "en-US": "{count} changes",
+  },
+  "session.transcript.settingsCountOne": {
+    "zh-CN": "{count} 项",
+    "en-US": "{count} change",
+  },
+  "session.transcript.expandSettings": {
+    "zh-CN": "展开会话设置变更",
+    "en-US": "Expand conversation setting changes",
+  },
+  "session.transcript.thought": { "zh-CN": "思考", "en-US": "Thought" },
+  "session.transcript.thinking": {
+    "zh-CN": "思考中",
+    "en-US": "Thinking",
+  },
+  "session.transcript.redactedThought": {
+    "zh-CN": "已脱敏思考",
+    "en-US": "Redacted thought",
+  },
+  "session.transcript.expandThought": {
+    "zh-CN": "展开思考",
+    "en-US": "Expand thought",
+  },
+  "session.transcript.expandThinking": {
+    "zh-CN": "展开正在生成的思考",
+    "en-US": "Expand the active thought",
+  },
+  "session.transcript.expandRedactedThought": {
+    "zh-CN": "展开已脱敏思考",
+    "en-US": "Expand redacted thought",
+  },
+  "session.transcript.unsupportedPart": {
+    "zh-CN": "未支持的 content part：{type}",
+    "en-US": "Unsupported content part: {type}",
+  },
+  "session.tool.expand": {
+    "zh-CN": "展开 {name} 详情",
+    "en-US": "Expand {name} details",
+  },
+  "session.tool.query": { "zh-CN": "查询", "en-US": "Query" },
+  "session.tool.target": { "zh-CN": "目标", "en-US": "Target" },
+  "session.tool.liveResult": {
+    "zh-CN": "实时结果",
+    "en-US": "Live result",
+  },
+  "session.tool.result": { "zh-CN": "结果", "en-US": "Result" },
+  "session.tool.arguments": { "zh-CN": "参数", "en-US": "Arguments" },
+  "session.streaming.reply": {
+    "zh-CN": "正在生成的回复",
+    "en-US": "Response in progress",
+  },
+  "session.streaming.generating": {
+    "zh-CN": "正在生成",
+    "en-US": "Generating",
+  },
+  "session.streaming.activeTools": {
+    "zh-CN": "{count} 个工具",
+    "en-US": "{count} tools",
+  },
+  "session.streaming.executing": {
+    "zh-CN": "正在执行 {name}",
+    "en-US": "Running {name}",
+  },
+  "session.web.query": { "zh-CN": "查询", "en-US": "Queries" },
+  "session.web.sources": { "zh-CN": "来源", "en-US": "Sources" },
+  "session.web.filter": { "zh-CN": "筛选", "en-US": "Curation" },
+  "session.web.searchId": { "zh-CN": "搜索 ID", "en-US": "Search ID" },
+  "session.web.contentId": { "zh-CN": "内容 ID", "en-US": "Content ID" },
+  "session.web.summaryModel": {
+    "zh-CN": "摘要模型",
+    "en-US": "Summary model",
+  },
+  "session.web.webSearch": { "zh-CN": "网络搜索", "en-US": "Web search" },
+  "session.web.noQuery": {
+    "zh-CN": "未提供查询",
+    "en-US": "No query provided",
+  },
+  "session.web.queryCount": {
+    "zh-CN": "{count} 个查询",
+    "en-US": "{count} queries",
+  },
+  "session.web.queryCountOne": {
+    "zh-CN": "{count} 个查询",
+    "en-US": "{count} query",
+  },
+  "session.web.success": {
+    "zh-CN": "{value} 成功",
+    "en-US": "{value} succeeded",
+  },
+  "session.web.sourceCount": {
+    "zh-CN": "{count} 个",
+    "en-US": "{count} sources",
+  },
+  "session.web.sourceCountOne": {
+    "zh-CN": "{count} 个",
+    "en-US": "{count} source",
+  },
+  "session.web.address": { "zh-CN": "地址", "en-US": "Addresses" },
+  "session.web.content": { "zh-CN": "内容", "en-US": "Content" },
+  "session.web.images": { "zh-CN": "图像", "en-US": "Images" },
+  "session.web.status": { "zh-CN": "状态", "en-US": "Status" },
+  "session.web.truncated": { "zh-CN": "已截断", "en-US": "Truncated" },
+  "session.web.characterCount": {
+    "zh-CN": "{count} 字符",
+    "en-US": "{count} characters",
+  },
+  "session.web.characterCountOne": {
+    "zh-CN": "{count} 字符",
+    "en-US": "{count} character",
+  },
+  "session.web.imageCount": {
+    "zh-CN": "{count} 张",
+    "en-US": "{count} images",
+  },
+  "session.web.imageCountOne": {
+    "zh-CN": "{count} 张",
+    "en-US": "{count} image",
+  },
+  "session.web.readWeb": { "zh-CN": "读取网页", "en-US": "Fetch web content" },
+  "session.web.noAddress": {
+    "zh-CN": "未提供地址",
+    "en-US": "No address provided",
+  },
+  "session.web.addressCount": {
+    "zh-CN": "{count} 个地址",
+    "en-US": "{count} addresses",
+  },
+  "session.web.addressCountOne": {
+    "zh-CN": "{count} 个地址",
+    "en-US": "{count} address",
+  },
+  "session.web.queryIndex": {
+    "zh-CN": "查询 #{index}",
+    "en-US": "Query #{index}",
+  },
+  "session.web.addressIndex": {
+    "zh-CN": "地址 #{index}",
+    "en-US": "Address #{index}",
+  },
+  "session.web.results": { "zh-CN": "结果", "en-US": "Results" },
+  "session.web.resultCount": {
+    "zh-CN": "{count} 个",
+    "en-US": "{count} results",
+  },
+  "session.web.resultCountOne": {
+    "zh-CN": "{count} 个",
+    "en-US": "{count} result",
+  },
+  "session.web.searchContent": {
+    "zh-CN": "搜索内容",
+    "en-US": "Search content",
+  },
+  "session.web.noContentId": {
+    "zh-CN": "未提供内容 ID",
+    "en-US": "No content ID provided",
+  },
+  "session.hashline.request": { "zh-CN": "请求", "en-US": "Requests" },
+  "session.hashline.requestCount": {
+    "zh-CN": "{count} 处",
+    "en-US": "{count} requests",
+  },
+  "session.hashline.requestCountOne": {
+    "zh-CN": "{count} 处",
+    "en-US": "{count} request",
+  },
+  "session.hashline.apply": { "zh-CN": "应用", "en-US": "Applied" },
+  "session.hashline.applyCount": {
+    "zh-CN": "{count} 处",
+    "en-US": "{count} edits",
+  },
+  "session.hashline.applyCountOne": {
+    "zh-CN": "{count} 处",
+    "en-US": "{count} edit",
+  },
+  "session.hashline.result": { "zh-CN": "结果", "en-US": "Result" },
+  "session.hashline.applied": { "zh-CN": "已应用", "en-US": "Applied" },
+  "session.hashline.noChange": { "zh-CN": "无变更", "en-US": "No changes" },
+  "session.hashline.restore": { "zh-CN": "恢复", "en-US": "Restored" },
+  "session.hashline.remove": { "zh-CN": "移除", "en-US": "Removed" },
+  "session.hashline.lineCount": {
+    "zh-CN": "{count} 行",
+    "en-US": "{count} lines",
+  },
+  "session.hashline.lineCountOne": {
+    "zh-CN": "{count} 行",
+    "en-US": "{count} line",
+  },
+  "session.hashline.undoSummary": {
+    "zh-CN": "恢复 {restored} 行，移除 {removed} 行",
+    "en-US": "Restored {restored} lines and removed {removed} lines",
+  },
+  "session.hashline.lines": { "zh-CN": "行数", "en-US": "Lines" },
+  "session.hashline.range": { "zh-CN": "范围", "en-US": "Range" },
+  "session.hashline.line": {
+    "zh-CN": "第 {line} 行",
+    "en-US": "Line {line}",
+  },
+  "session.hashline.lineRange": {
+    "zh-CN": "第 {first}–{last} 行",
+    "en-US": "Lines {first}–{last}",
+  },
+  "session.hashline.warning": { "zh-CN": "警告", "en-US": "Warnings" },
+  "session.hashline.warningCount": {
+    "zh-CN": "{count} 条",
+    "en-US": "{count} warnings",
+  },
+  "session.hashline.warningCountOne": {
+    "zh-CN": "{count} 条",
+    "en-US": "{count} warning",
+  },
+  "session.hashline.snapshot": { "zh-CN": "快照", "en-US": "Snapshot" },
+  "session.hashline.replace": {
+    "zh-CN": "Hashline 替换",
+    "en-US": "Hashline replace",
+  },
+  "session.hashline.undo": {
+    "zh-CN": "撤销 Hashline 替换",
+    "en-US": "Undo Hashline replace",
+  },
+  "session.hashline.noPath": {
+    "zh-CN": "未提供文件路径",
+    "en-US": "No file path provided",
+  },
+  "session.hashline.plannedChanges": {
+    "zh-CN": "计划变更",
+    "en-US": "Planned changes",
+  },
+  "session.hashline.change": {
+    "zh-CN": "变更 {index}",
+    "en-US": "Change {index}",
+  },
+  "session.hashline.writeLines": {
+    "zh-CN": "写入 {count} 行",
+    "en-US": "Write {count} lines",
+  },
+  "session.hashline.writeLine": {
+    "zh-CN": "写入 {count} 行",
+    "en-US": "Write {count} line",
+  },
+  "session.hashline.diff": { "zh-CN": "变更 Diff", "en-US": "Change diff" },
+  "session.hashline.undoInfo": {
+    "zh-CN": "撤销信息",
+    "en-US": "Undo information",
+  },
+  "session.operations.tree": {
+    "zh-CN": "会话树",
+    "en-US": "Conversation tree",
+  },
+  "session.operations.menu": {
+    "zh-CN": "会话操作",
+    "en-US": "Conversation actions",
+  },
+  "session.operations.new": { "zh-CN": "新对话", "en-US": "New conversation" },
+  "session.operations.rename": { "zh-CN": "重命名", "en-US": "Rename" },
+  "session.operations.clone": {
+    "zh-CN": "克隆当前分支",
+    "en-US": "Clone current branch",
+  },
+  "session.operations.duplicateRuntime": {
+    "zh-CN": "复制到运行环境",
+    "en-US": "Copy to runtime",
+  },
+  "session.operations.fork": { "zh-CN": "派生", "en-US": "Fork" },
+  "session.operations.exportJsonl": {
+    "zh-CN": "导出 JSONL",
+    "en-US": "Export JSONL",
+  },
+  "session.operations.exportHtml": {
+    "zh-CN": "导出 HTML",
+    "en-US": "Export HTML",
+  },
+  "session.operations.importJsonl": {
+    "zh-CN": "导入 JSONL",
+    "en-US": "Import JSONL",
+  },
+  "session.operations.stats": { "zh-CN": "统计", "en-US": "Statistics" },
+  "session.operations.archive": { "zh-CN": "归档", "en-US": "Archive" },
+  "session.operations.exportFailed": {
+    "zh-CN": "导出 session 失败。",
+    "en-US": "Failed to export the conversation.",
+  },
+  "session.operations.renameTitle": {
+    "zh-CN": "重命名 session",
+    "en-US": "Rename conversation",
+  },
+  "session.operations.renameDescription": {
+    "zh-CN": "名称会由 Pi 写入当前 JSONL。",
+    "en-US": "Pi writes the name to the current JSONL.",
+  },
+  "session.operations.name": {
+    "zh-CN": "会话名称",
+    "en-US": "Conversation name",
+  },
+  "session.operations.save": { "zh-CN": "保存", "en-US": "Save" },
+  "session.operations.forkTitle": {
+    "zh-CN": "派生会话",
+    "en-US": "Fork conversation",
+  },
+  "session.operations.forkDescription": {
+    "zh-CN": "从一条真实的用户消息创建新的 Pi session。",
+    "en-US": "Create a new Pi session from an actual user message.",
+  },
+  "session.operations.entry": {
+    "zh-CN": "会话条目",
+    "en-US": "Conversation entry",
+  },
+  "session.operations.current": { "zh-CN": "当前", "en-US": "Current" },
+  "session.operations.createFork": {
+    "zh-CN": "创建 fork",
+    "en-US": "Create fork",
+  },
+  "session.operations.statsTitle": {
+    "zh-CN": "会话统计",
+    "en-US": "Conversation statistics",
+  },
+  "session.operations.statsDescription": {
+    "zh-CN": "统计由当前 Pi AgentSession 计算。",
+    "en-US": "Statistics are calculated by the current Pi AgentSession.",
+  },
+  "session.operations.userMessages": {
+    "zh-CN": "用户消息",
+    "en-US": "User messages",
+  },
+  "session.operations.assistantMessages": {
+    "zh-CN": "助手消息",
+    "en-US": "Assistant messages",
+  },
+  "session.operations.toolCalls": {
+    "zh-CN": "工具调用",
+    "en-US": "Tool calls",
+  },
+  "session.operations.tokens": { "zh-CN": "令牌", "en-US": "Tokens" },
+  "session.operations.cost": { "zh-CN": "成本", "en-US": "Cost" },
+  "session.operations.context": { "zh-CN": "上下文", "en-US": "Context" },
+  "session.operations.runtimeTitle": {
+    "zh-CN": "复制到所选运行环境",
+    "en-US": "Copy to selected runtime",
+  },
+  "session.operations.runtimeDescription": {
+    "zh-CN": "复制当前分支并绑定到目标 runtime；原 session 与绑定保持不变。",
+    "en-US":
+      "Copy the current branch and bind it to the target runtime; the original session and binding stay unchanged.",
+  },
+  "session.operations.targetRuntime": {
+    "zh-CN": "目标 runtime",
+    "en-US": "Target runtime",
+  },
+  "session.operations.createCopy": {
+    "zh-CN": "创建副本",
+    "en-US": "Create copy",
+  },
+  "session.operations.importTitle": {
+    "zh-CN": "导入 Pi JSONL",
+    "en-US": "Import Pi JSONL",
+  },
+  "session.operations.importDescription": {
+    "zh-CN": "Pi 会校验并创建一个新的 session；当前 session 保持不变。",
+    "en-US":
+      "Pi validates the file and creates a new session; the current session stays unchanged.",
+  },
+  "session.operations.importFile": {
+    "zh-CN": "Pi JSONL 文件",
+    "en-US": "Pi JSONL file",
+  },
+  "session.operations.import": { "zh-CN": "导入", "en-US": "Import" },
+  "session.subagents.status.queued": {
+    "zh-CN": "排队中",
+    "en-US": "Queued",
+  },
+  "session.subagents.status.running": {
+    "zh-CN": "运行中",
+    "en-US": "Running",
+  },
+  "session.subagents.status.completed": {
+    "zh-CN": "已完成",
+    "en-US": "Completed",
+  },
+  "session.subagents.status.steered": {
+    "zh-CN": "已收尾",
+    "en-US": "Wrapped up",
+  },
+  "session.subagents.status.aborted": {
+    "zh-CN": "达到轮次上限",
+    "en-US": "Reached turn limit",
+  },
+  "session.subagents.status.stopped": {
+    "zh-CN": "已停止",
+    "en-US": "Stopped",
+  },
+  "session.subagents.status.error": {
+    "zh-CN": "错误",
+    "en-US": "Error",
+  },
+  "session.subagents.requestFailed": {
+    "zh-CN": "子智能体请求失败（{status}）。",
+    "en-US": "Subagent request failed ({status}).",
+  },
+  "session.subagents.durationMilliseconds": {
+    "zh-CN": "{count} 毫秒",
+    "en-US": "{count} ms",
+  },
+  "session.subagents.durationSeconds": {
+    "zh-CN": "{count} 秒",
+    "en-US": "{count} seconds",
+  },
+  "session.subagents.durationSecondsOne": {
+    "zh-CN": "{count} 秒",
+    "en-US": "{count} second",
+  },
+  "session.subagents.durationMinutes": {
+    "zh-CN": "{count} 分钟",
+    "en-US": "{count} minutes",
+  },
+  "session.subagents.durationMinutesOne": {
+    "zh-CN": "{count} 分钟",
+    "en-US": "{count} minute",
+  },
+  "session.subagents.toolUses": {
+    "zh-CN": "{count} 次工具调用",
+    "en-US": "{count} tool uses",
+  },
+  "session.subagents.toolUsesOne": {
+    "zh-CN": "{count} 次工具调用",
+    "en-US": "{count} tool use",
+  },
+  "session.subagents.tokens": {
+    "zh-CN": "{count} 个令牌",
+    "en-US": "{count} tokens",
+  },
+  "session.subagents.tokensOne": {
+    "zh-CN": "{count} 个令牌",
+    "en-US": "{count} token",
+  },
+  "session.subagents.compactions": {
+    "zh-CN": "{count} 次压缩",
+    "en-US": "{count} compactions",
+  },
+  "session.subagents.compactionsOne": {
+    "zh-CN": "{count} 次压缩",
+    "en-US": "{count} compaction",
+  },
+  "session.subagents.noDescription": {
+    "zh-CN": "未提供任务描述",
+    "en-US": "No task description",
+  },
+  "session.subagents.stopAria": {
+    "zh-CN": "停止子智能体：{description}",
+    "en-US": "Stop subagent: {description}",
+  },
+  "session.subagents.stop": { "zh-CN": "停止", "en-US": "Stop" },
+  "session.subagents.connecting": {
+    "zh-CN": "正在连接子智能体",
+    "en-US": "Connecting to subagents",
+  },
+  "session.subagents.connectingDescription": {
+    "zh-CN":
+      "Pi Runtime 启动后，这里会显示 @tintinweb/pi-subagents 的实时状态。",
+    "en-US":
+      "Live @tintinweb/pi-subagents status appears here after Pi Runtime starts.",
+  },
+  "session.subagents.empty": {
+    "zh-CN": "暂无子智能体",
+    "en-US": "No subagents",
+  },
+  "session.subagents.emptyDescription": {
+    "zh-CN": "通过 Pi 创建子智能体后，状态会实时出现在这里。",
+    "en-US": "Subagents created through Pi appear here in real time.",
+  },
+  "session.subagents.activity": {
+    "zh-CN": "子智能体活动",
+    "en-US": "Subagent activity",
+  },
+  "session.subagents.activeCount": {
+    "zh-CN": "{count} 个运行中",
+    "en-US": "{count} running",
+  },
+  "session.subagents.activeCountOne": {
+    "zh-CN": "{count} 个运行中",
+    "en-US": "{count} running",
+  },
+  "session.subagents.endedCount": {
+    "zh-CN": "{count} 个已结束",
+    "en-US": "{count} ended",
+  },
+  "session.subagents.endedCountOne": {
+    "zh-CN": "{count} 个已结束",
+    "en-US": "{count} ended",
+  },
+  "session.subagents.live": { "zh-CN": "实时", "en-US": "Live" },
+  "session.subagents.title": {
+    "zh-CN": "子智能体",
+    "en-US": "Subagents",
+  },
+  "session.subagents.waitingForRuntime": {
+    "zh-CN": "等待 Pi Runtime",
+    "en-US": "Waiting for Pi Runtime",
+  },
+  "session.subagents.noActivity": {
+    "zh-CN": "暂无活动",
+    "en-US": "No activity",
+  },
+  "session.subagents.completedCount": {
+    "zh-CN": "{count} 个完成",
+    "en-US": "{count} completed",
+  },
+  "session.subagents.completedCountOne": {
+    "zh-CN": "{count} 个完成",
+    "en-US": "{count} completed",
+  },
+  "session.subagents.issueCount": {
+    "zh-CN": "{count} 个异常",
+    "en-US": "{count} issues",
+  },
+  "session.subagents.issueCountOne": {
+    "zh-CN": "{count} 个异常",
+    "en-US": "{count} issue",
+  },
+  "session.diagnostics.button": {
+    "zh-CN": "Runtime 诊断",
+    "en-US": "Runtime diagnostics",
+  },
+  "session.diagnostics.title": {
+    "zh-CN": "Runtime 诊断与协议检查器",
+    "en-US": "Runtime diagnostics and protocol inspector",
+  },
+  "session.diagnostics.description": {
+    "zh-CN":
+      "直接读取 Host 管理的 Worker 状态和最近 100 条 Domain Protocol 事件。",
+    "en-US":
+      "Inspect the Host-managed Worker state and the 100 most recent Domain Protocol events.",
+  },
+  "session.diagnostics.loadFailed": {
+    "zh-CN": "加载 runtime 诊断失败。",
+    "en-US": "Failed to load runtime diagnostics.",
+  },
+  "session.diagnostics.connectionLost": {
+    "zh-CN": "协议事件连接已断开，正在自动重连。",
+    "en-US":
+      "The protocol event connection was interrupted and is reconnecting automatically.",
+  },
+  "session.diagnostics.runtime": { "zh-CN": "Runtime", "en-US": "Runtime" },
+  "session.diagnostics.profile": { "zh-CN": "Profile", "en-US": "Profile" },
+  "session.diagnostics.pendingIpc": {
+    "zh-CN": "待处理 IPC",
+    "en-US": "Pending IPC",
+  },
+  "session.diagnostics.activeMcp": {
+    "zh-CN": "活动 MCP",
+    "en-US": "Active MCP",
+  },
+  "session.diagnostics.activeTools": {
+    "zh-CN": "活动工具",
+    "en-US": "Active tools",
+  },
+  "session.diagnostics.lastCrash": {
+    "zh-CN": "最近一次崩溃",
+    "en-US": "Most recent crash",
+  },
+  "session.diagnostics.protocolEvents": {
+    "zh-CN": "协议事件",
+    "en-US": "Protocol events",
+  },
+  "session.diagnostics.noEvents": {
+    "zh-CN": "当前 Host 生命周期中还没有这个 session 的事件。",
+    "en-US": "This conversation has no events in the current Host lifecycle.",
+  },
+  "session.inspector.title": {
+    "zh-CN": "环境信息",
+    "en-US": "Environment information",
+  },
+  "session.inspector.description": {
+    "zh-CN": "查看当前项目的运行环境、子智能体与工作区状态。",
+    "en-US":
+      "View the current project's runtime, subagents, and workspace status.",
+  },
+  "session.inspector.unnamedProject": {
+    "zh-CN": "未命名项目",
+    "en-US": "Untitled project",
+  },
+  "session.inspector.localWorkspace": {
+    "zh-CN": "本地工作区",
+    "en-US": "Local workspace",
+  },
+  "session.inspector.readOnlyWorkspace": {
+    "zh-CN": "只读历史 · 目录不可用",
+    "en-US": "Read-only history · directory unavailable",
+  },
+  "session.inspector.recentlyUpdated": {
+    "zh-CN": "最近更新",
+    "en-US": "Recently updated",
+  },
+  "session.inspector.gitStatus": {
+    "zh-CN": "Git 状态",
+    "en-US": "Git status",
+  },
+  "session.inspector.changedCount": {
+    "zh-CN": "{count} 个变更",
+    "en-US": "{count} changes",
+  },
+  "session.inspector.changedCountOne": {
+    "zh-CN": "{count} 个变更",
+    "en-US": "{count} change",
+  },
+  "session.inspector.workspaceUnavailable": {
+    "zh-CN": "工作区目录不可用，无法读取 Files 或 Git。",
+    "en-US":
+      "The workspace directory is unavailable, so Files and Git cannot be read.",
+  },
+  "session.inspector.noUpstream": {
+    "zh-CN": "没有 upstream",
+    "en-US": "No upstream",
+  },
+  "session.inspector.noCommit": {
+    "zh-CN": "没有 commit",
+    "en-US": "No commit",
+  },
+  "session.inspector.changedFiles": {
+    "zh-CN": "变更文件",
+    "en-US": "Changed files",
+  },
+  "session.inspector.moreChanges": {
+    "zh-CN": "另有 {count} 个变更",
+    "en-US": "{count} more changes",
+  },
+  "session.inspector.moreChangesOne": {
+    "zh-CN": "另有 {count} 个变更",
+    "en-US": "{count} more change",
+  },
+  "session.inspector.clean": {
+    "zh-CN": "工作区干净",
+    "en-US": "Workspace clean",
+  },
+  "session.tree.filter.default": { "zh-CN": "默认", "en-US": "Default" },
+  "session.tree.filter.user": {
+    "zh-CN": "仅用户",
+    "en-US": "User only",
+  },
+  "session.tree.filter.labeled": {
+    "zh-CN": "已标记",
+    "en-US": "Labeled",
+  },
+  "session.tree.filter.all": { "zh-CN": "全部", "en-US": "All" },
+  "session.tree.userMessage": {
+    "zh-CN": "用户消息",
+    "en-US": "User message",
+  },
+  "session.tree.assistantReply": {
+    "zh-CN": "助手回复",
+    "en-US": "Assistant reply",
+  },
+  "session.tree.toolResult": {
+    "zh-CN": "工具结果",
+    "en-US": "Tool result",
+  },
+  "session.tree.compaction": {
+    "zh-CN": "上下文压缩",
+    "en-US": "Context compaction",
+  },
+  "session.tree.branchSummary": {
+    "zh-CN": "分支摘要",
+    "en-US": "Branch summary",
+  },
+  "session.tree.title": { "zh-CN": "会话树", "en-US": "Conversation tree" },
+  "session.tree.summary": {
+    "zh-CN": "{count} 个条目 · 当前分支 {active}",
+    "en-US": "{count} entries · {active} on current branch",
+  },
+  "session.tree.summaryOne": {
+    "zh-CN": "{count} 个条目 · 当前分支 {active}",
+    "en-US": "{count} entry · {active} on current branch",
+  },
+  "session.tree.loadingBranches": {
+    "zh-CN": "正在读取真实的 JSONL 分支…",
+    "en-US": "Reading actual JSONL branches…",
+  },
+  "session.tree.searchPlaceholder": {
+    "zh-CN": "搜索消息或标签",
+    "en-US": "Search messages or labels",
+  },
+  "session.tree.searchAria": {
+    "zh-CN": "搜索 session tree",
+    "en-US": "Search the conversation tree",
+  },
+  "session.tree.filterAria": {
+    "zh-CN": "会话树过滤器",
+    "en-US": "Conversation tree filters",
+  },
+  "session.tree.loading": {
+    "zh-CN": "正在读取会话树…",
+    "en-US": "Reading conversation tree…",
+  },
+  "session.tree.entriesAria": {
+    "zh-CN": "会话条目",
+    "en-US": "Conversation entries",
+  },
+  "session.tree.expandBranch": {
+    "zh-CN": "展开分支",
+    "en-US": "Expand branch",
+  },
+  "session.tree.collapseBranch": {
+    "zh-CN": "折叠分支",
+    "en-US": "Collapse branch",
+  },
+  "session.tree.depth": {
+    "zh-CN": "层级 {count}。",
+    "en-US": "Depth {count}.",
+  },
+  "session.tree.current": { "zh-CN": "当前", "en-US": "Current" },
+  "session.tree.noMatches": {
+    "zh-CN": "没有符合当前条件的节点",
+    "en-US": "No nodes match the current filters",
+  },
+  "session.tree.selected": {
+    "zh-CN": "已选择 · {name} · {time}",
+    "en-US": "Selected · {name} · {time}",
+  },
+  "session.tree.selectNode": {
+    "zh-CN": "选择一个节点",
+    "en-US": "Select a node",
+  },
+  "session.tree.summarize": {
+    "zh-CN": "总结放弃的分支",
+    "en-US": "Summarize abandoned branches",
+  },
+  "session.tree.cancel": { "zh-CN": "取消", "en-US": "Cancel" },
+  "session.tree.navigate": {
+    "zh-CN": "切换到此节点",
+    "en-US": "Switch to this node",
+  },
+
+  "project.header.unknownDirectory": {
+    "zh-CN": "未知目录",
+    "en-US": "Unknown directory",
+  },
+  "project.tools.ariaLabel": {
+    "zh-CN": "项目工具",
+    "en-US": "Project tools",
+  },
+  "project.tools.sessions": { "zh-CN": "会话", "en-US": "Conversations" },
+  "project.tools.files": { "zh-CN": "文件", "en-US": "Files" },
+  "project.tools.git": { "zh-CN": "Git", "en-US": "Git" },
+  "project.sessions.ariaLabel": {
+    "zh-CN": "项目会话",
+    "en-US": "Project conversations",
+  },
+  "project.sessions.new": { "zh-CN": "新对话", "en-US": "New conversation" },
+  "project.sessions.messageCount": {
+    "zh-CN": "{count} 条消息",
+    "en-US": "{count} messages",
+  },
+  "project.sessions.messageCountOne": {
+    "zh-CN": "{count} 条消息",
+    "en-US": "{count} message",
+  },
+  "project.sessions.emptyTitle": {
+    "zh-CN": "还没有会话",
+    "en-US": "No conversations yet",
+  },
+  "project.sessions.emptyDescription": {
+    "zh-CN": "从上方新建会话，开始在这个项目中工作。",
+    "en-US": "Start a new conversation above to work in this project.",
+  },
+  "project.files.pathAriaLabel": {
+    "zh-CN": "文件路径",
+    "en-US": "File path",
+  },
+  "project.files.root": { "zh-CN": "根目录", "en-US": "Root" },
+  "project.files.readOnlyDescription": {
+    "zh-CN": "只读浏览真实项目目录。",
+    "en-US": "Browse the real project directory in read-only mode.",
+  },
+  "project.files.download": {
+    "zh-CN": "下载原文件",
+    "en-US": "Download original file",
+  },
+  "project.files.refresh": {
+    "zh-CN": "刷新文件",
+    "en-US": "Refresh files",
+  },
+  "project.files.emptyDirectory": {
+    "zh-CN": "目录为空",
+    "en-US": "This directory is empty",
+  },
+  "project.files.openFailed": {
+    "zh-CN": "无法打开文件",
+    "en-US": "Could not open file",
+  },
+  "project.files.openFailedWithMessage": {
+    "zh-CN": "无法打开：{message}",
+    "en-US": "Could not open: {message}",
+  },
+  "project.files.previewUnavailable": {
+    "zh-CN": "无法预览",
+    "en-US": "Preview unavailable",
+  },
+  "project.files.binaryDescription": {
+    "zh-CN": "这是二进制文件，可下载原文件。",
+    "en-US": "This is a binary file. Download the original file to view it.",
+  },
+  "project.files.tooLargeDescription": {
+    "zh-CN": "文件超过 1 MiB，可下载原文件。",
+    "en-US": "This file exceeds 1 MiB. Download the original file to view it.",
+  },
+  "project.files.type.directory": {
+    "zh-CN": "目录",
+    "en-US": "directory",
+  },
+  "project.files.type.symbolicLink": {
+    "zh-CN": "符号链接",
+    "en-US": "symbolic link",
+  },
+  "project.files.type.file": { "zh-CN": "文件", "en-US": "file" },
+  "project.files.type.other": { "zh-CN": "其他", "en-US": "other" },
+  "project.git.refresh": { "zh-CN": "刷新状态", "en-US": "Refresh status" },
+  "project.git.refreshing": { "zh-CN": "刷新中…", "en-US": "Refreshing…" },
+  "project.git.unavailable": {
+    "zh-CN": "Git 不可用",
+    "en-US": "Git unavailable",
+  },
+  "project.git.detachedHead": {
+    "zh-CN": "Detached HEAD",
+    "en-US": "Detached HEAD",
+  },
+  "project.git.divergence": {
+    "zh-CN": "领先 {ahead} · 落后 {behind}",
+    "en-US": "ahead {ahead} · behind {behind}",
+  },
+  "project.git.workspace": { "zh-CN": "工作区", "en-US": "Working tree" },
+  "project.git.changedSummary": {
+    "zh-CN": "{count} 个真实 Git 状态条目。",
+    "en-US": "{count} Git status entries.",
+  },
+  "project.git.changedSummaryOne": {
+    "zh-CN": "{count} 个真实 Git 状态条目。",
+    "en-US": "{count} Git status entry.",
+  },
+  "project.git.cleanSummary": {
+    "zh-CN": "工作区没有未提交变更。",
+    "en-US": "The working tree has no uncommitted changes.",
+  },
+  "project.git.originalPath": {
+    "zh-CN": "原路径：{path}",
+    "en-US": "From {path}",
+  },
+  "project.git.clean": { "zh-CN": "干净", "en-US": "Clean" },
+  "project.git.error.notInstalled": {
+    "zh-CN": "未安装 Git 可执行文件。",
+    "en-US": "The Git executable is not installed.",
+  },
+  "project.git.error.notWorktree": {
+    "zh-CN": "项目不在 Git 工作树中。",
+    "en-US": "The project is not inside a Git worktree.",
+  },
+  "project.git.error.directoryMissing": {
+    "zh-CN": "项目目录已不存在。",
+    "en-US": "The project directory no longer exists.",
+  },
+  "project.git.error.statusFailed": {
+    "zh-CN": "读取 Git 状态失败。",
+    "en-US": "Git status failed.",
+  },
+  "project.git.error.divergenceFailed": {
+    "zh-CN": "读取 Git 分支差异失败。",
+    "en-US": "Git divergence check failed.",
+  },
+  "project.git.error.pathNoChanges": {
+    "zh-CN": "请求的路径没有工作区变更。",
+    "en-US": "The requested path has no working tree changes.",
+  },
+  "project.git.error.diffFailed": {
+    "zh-CN": "读取 Git 差异失败。",
+    "en-US": "Git diff failed.",
+  },
+  "project.git.error.indexFailed": {
+    "zh-CN": "初始化 Git 差异索引失败。",
+    "en-US": "Git diff index initialization failed.",
+  },
+  "project.git.error.outsideProject": {
+    "zh-CN": "Git 返回了注册项目之外的路径。",
+    "en-US": "Git returned a path outside the registered project.",
+  },
+  "project.review.fileList": {
+    "zh-CN": "变更文件",
+    "en-US": "Changed files",
+  },
+  "project.review.changeCount": {
+    "zh-CN": "{count} 个变更",
+    "en-US": "{count} changes",
+  },
+  "project.review.changeCountOne": {
+    "zh-CN": "{count} 个变更",
+    "en-US": "{count} change",
+  },
+  "project.review.cleanTitle": {
+    "zh-CN": "工作区没有变更",
+    "en-US": "No working tree changes",
+  },
+  "project.review.cleanDescription": {
+    "zh-CN": "审阅显示当前工作区相对 HEAD 的改动。",
+    "en-US":
+      "Review shows changes in the current working tree relative to HEAD.",
+  },
+  "project.review.diffReadFailed": {
+    "zh-CN": "无法读取差异",
+    "en-US": "Could not read diff",
+  },
+  "project.review.noTextDiffTitle": {
+    "zh-CN": "没有文本差异",
+    "en-US": "No text diff",
+  },
+  "project.review.noTextDiffDescription": {
+    "zh-CN": "该条目可能只包含文件模式或二进制变更。",
+    "en-US": "This entry may only contain a file mode or binary change.",
+  },
+  "project.review.diffAriaLabel": {
+    "zh-CN": "{path} 的统一差异",
+    "en-US": "Unified diff for {path}",
+  },
+  "project.review.oldLine": { "zh-CN": "旧行", "en-US": "Old line" },
+  "project.review.newLine": { "zh-CN": "新行", "en-US": "New line" },
+  "project.review.content": { "zh-CN": "内容", "en-US": "Content" },
+  "project.review.showMore": {
+    "zh-CN": "再显示 {count} 行（剩余 {remaining} 行）",
+    "en-US": "Show {count} more ({remaining} remaining)",
   },
 
   "workspace.nav.ariaLabel": {
@@ -409,15 +1748,15 @@ const messages = {
   "settings.nav.appearance": { "zh-CN": "外观", "en-US": "Appearance" },
   "settings.nav.archive": { "zh-CN": "归档", "en-US": "Archive" },
   "settings.nav.models": { "zh-CN": "模型", "en-US": "Models" },
-  "settings.nav.packages": { "zh-CN": "Packages", "en-US": "Packages" },
-  "settings.nav.extensions": { "zh-CN": "Extensions", "en-US": "Extensions" },
+  "settings.nav.packages": { "zh-CN": "软件包", "en-US": "Packages" },
+  "settings.nav.extensions": { "zh-CN": "扩展", "en-US": "Extensions" },
   "settings.nav.webuiExtensions": {
-    "zh-CN": "WebUI Extensions",
+    "zh-CN": "WebUI 扩展",
     "en-US": "WebUI Extensions",
   },
-  "settings.nav.skills": { "zh-CN": "Skills", "en-US": "Skills" },
+  "settings.nav.skills": { "zh-CN": "技能", "en-US": "Skills" },
   "settings.nav.mcp": { "zh-CN": "MCP", "en-US": "MCP" },
-  "settings.nav.developer": { "zh-CN": "Developer", "en-US": "Developer" },
+  "settings.nav.developer": { "zh-CN": "开发者", "en-US": "Developer" },
   "settings.nav.ariaLabel": {
     "zh-CN": "设置导航",
     "en-US": "Settings navigation",
@@ -447,13 +1786,13 @@ const messages = {
     "zh-CN": "管理 Pi 的 provider 认证与可用 Model scope。",
     "en-US": "Manage Pi provider authentication and the available model scope.",
   },
-  "settings.page.packages.title": { "zh-CN": "Packages", "en-US": "Packages" },
+  "settings.page.packages.title": { "zh-CN": "软件包", "en-US": "Packages" },
   "settings.page.packages.description": {
     "zh-CN": "使用 Pi 的 package manager 安装、更新或移除资源包。",
     "en-US": "Install, update, or remove packages with Pi's package manager.",
   },
   "settings.page.extensions.title": {
-    "zh-CN": "Extensions",
+    "zh-CN": "扩展",
     "en-US": "Extensions",
   },
   "settings.page.extensions.description": {
@@ -461,14 +1800,14 @@ const messages = {
     "en-US": "View and toggle the global and project extensions Pi resolved.",
   },
   "settings.page.webuiExtensions.title": {
-    "zh-CN": "WebUI Extensions",
+    "zh-CN": "WebUI 扩展",
     "en-US": "WebUI Extensions",
   },
   "settings.page.webuiExtensions.description": {
     "zh-CN": "管理原生 Web Adapter 与持续可用的 Pi TUI 回退方案。",
     "en-US": "Manage native Web adapters and their permanent Pi TUI fallback.",
   },
-  "settings.page.skills.title": { "zh-CN": "Skills", "en-US": "Skills" },
+  "settings.page.skills.title": { "zh-CN": "技能", "en-US": "Skills" },
   "settings.page.skills.description": {
     "zh-CN": "查看并切换 Pi 实际解析到的全局与项目技能。",
     "en-US": "View and toggle the global and project skills Pi resolved.",
@@ -481,7 +1820,7 @@ const messages = {
       "Configure stdio or Streamable HTTP servers, discover tools, and control runtime injection.",
   },
   "settings.page.developer.title": {
-    "zh-CN": "Developer",
+    "zh-CN": "开发者",
     "en-US": "Developer",
   },
   "settings.page.developer.description": {
@@ -506,6 +1845,11 @@ const messages = {
   "settings.common.saveFailed": {
     "zh-CN": "保存失败。",
     "en-US": "Save failed.",
+  },
+  "settings.common.conflict": {
+    "zh-CN": "设置已在其他页面更新；当前修改已保留，请检查后重试。",
+    "en-US":
+      "Settings changed on another page. Your edits were kept; review them and try again.",
   },
   "settings.common.saved": {
     "zh-CN": "设置已保存。",
@@ -705,6 +2049,10 @@ const messages = {
     "zh-CN": "模型设置操作失败。",
     "en-US": "Model settings operation failed.",
   },
+  "settings.models.invalidProvider": {
+    "zh-CN": "自定义 provider 配置无效。",
+    "en-US": "The custom provider configuration is invalid.",
+  },
   "settings.models.cancel": { "zh-CN": "取消", "en-US": "Cancel" },
   "settings.models.delete": { "zh-CN": "删除", "en-US": "Delete" },
   "settings.models.confirmDeleteTitle": {
@@ -842,6 +2190,10 @@ const messages = {
   "settings.provider.reasoning": { "zh-CN": "支持推理", "en-US": "Reasoning" },
   "settings.provider.images": { "zh-CN": "支持图片", "en-US": "Images" },
   "settings.provider.delete": { "zh-CN": "删除", "en-US": "Delete" },
+  "settings.provider.deleteModel": {
+    "zh-CN": "删除模型 {model}",
+    "en-US": "Delete model {model}",
+  },
   "settings.provider.cancel": { "zh-CN": "取消", "en-US": "Cancel" },
   "settings.provider.save": {
     "zh-CN": "保存 provider",
@@ -1082,6 +2434,14 @@ const messages = {
   "settings.runtime.response": {
     "zh-CN": "Pi Server 响应正常 · {latency} ms",
     "en-US": "Pi Server responded normally · {latency} ms",
+  },
+  "settings.runtime.sessionCountOne": {
+    "zh-CN": "{count} 个会话",
+    "en-US": "{count} session",
+  },
+  "settings.runtime.sessionCountMany": {
+    "zh-CN": "{count} 个会话",
+    "en-US": "{count} sessions",
   },
   "settings.runtime.saveCurrent": {
     "zh-CN": "请先保存当前更改",

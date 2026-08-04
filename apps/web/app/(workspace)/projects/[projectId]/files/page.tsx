@@ -20,13 +20,17 @@ import {
 import { ProjectHeader } from "@/components/project-header"
 import { getProject } from "@/lib/catalog"
 import { getLocalizedConfig } from "@/lib/i18n-server"
-import { projectFileErrorCopy } from "@/lib/project-file-display"
+import {
+  projectFileErrorCopy,
+  projectFileTypeLabel,
+} from "@/lib/project-file-display"
 import {
   ProjectFileError,
   readProjectEntry,
   type ProjectFileEntry,
 } from "@/lib/project-files"
 import { readProjectGitStatus } from "@/lib/project-git"
+import { formatTimestamp } from "@/lib/session-display"
 
 function fileIcon(type: ProjectFileEntry["type"]) {
   if (type === "directory") return <FolderIcon className="size-4" />
@@ -40,10 +44,14 @@ function entryHref(projectId: string, entryPath: string) {
   return `/projects/${projectId}/files?${query}`
 }
 
-function breadcrumbs(projectId: string, requestedPath: string) {
+function breadcrumbs(
+  projectId: string,
+  requestedPath: string,
+  rootLabel: string
+) {
   const segments = requestedPath.split("/").filter(Boolean)
   return [
-    { label: "root", path: "" },
+    { label: rootLabel, path: "" },
     ...segments.map((label, index) => ({
       label,
       path: segments.slice(0, index + 1).join("/"),
@@ -73,7 +81,7 @@ export default async function ProjectFilesPage({
   const { projectId } = await params
   const query = await searchParams
   const requestedPath = typeof query.path === "string" ? query.path : ""
-  const [{ config }, project] = await Promise.all([
+  const [{ config, t }, project] = await Promise.all([
     getLocalizedConfig(),
     getProject(projectId),
   ])
@@ -92,6 +100,7 @@ export default async function ProjectFilesPage({
           project={project}
           branch={git.available ? git.branch : null}
           active="files"
+          locale={config.appearance.language}
         />
         <Card>
           <CardHeader>
@@ -109,17 +118,20 @@ export default async function ProjectFilesPage({
         project={project}
         branch={git.available ? git.branch : null}
         active="files"
+        locale={config.appearance.language}
       />
 
       <Card className="min-w-0 gap-0 overflow-hidden">
         <CardHeader className="border-b">
           <nav
-            aria-label="文件路径"
+            aria-label={t("project.files.pathAriaLabel")}
             className="flex flex-wrap items-center gap-1 font-mono text-xs text-muted-foreground"
           >
-            {breadcrumbs(projectId, entry.path)}
+            {breadcrumbs(projectId, entry.path, t("project.files.root"))}
           </nav>
-          <CardDescription>只读浏览真实项目目录。</CardDescription>
+          <CardDescription>
+            {t("project.files.readOnlyDescription")}
+          </CardDescription>
         </CardHeader>
         {entry.kind === "directory" ? (
           <CardContent className="p-0">
@@ -139,14 +151,21 @@ export default async function ProjectFilesPage({
                     </span>
                     <span className="hidden text-xs text-muted-foreground tabular-nums sm:block">
                       {child.type === "file"
-                        ? `${child.size.toLocaleString()} B`
-                        : child.type}
+                        ? `${child.size.toLocaleString(
+                            config.appearance.language
+                          )} B`
+                        : projectFileTypeLabel(
+                            child.type,
+                            config.appearance.language
+                          )}
                     </span>
                   </Link>
                 ))}
               </div>
             ) : (
-              <p className="p-6 text-sm text-muted-foreground">目录为空。</p>
+              <p className="p-6 text-sm text-muted-foreground">
+                {t("project.files.emptyDirectory")}
+              </p>
             )}
           </CardContent>
         ) : (
@@ -155,7 +174,11 @@ export default async function ProjectFilesPage({
               <div>
                 <p className="font-medium">{entry.name}</p>
                 <p className="text-xs text-muted-foreground">
-                  {entry.size.toLocaleString()} B · {entry.modifiedAt}
+                  {entry.size.toLocaleString(config.appearance.language)} B ·{" "}
+                  {formatTimestamp(
+                    entry.modifiedAt,
+                    config.appearance.language
+                  )}
                 </p>
               </div>
               <Button asChild variant="outline" size="sm">
@@ -164,7 +187,7 @@ export default async function ProjectFilesPage({
                     { path: entry.path, download: "1" }
                   )}`}
                 >
-                  <DownloadIcon /> 下载原文件
+                  <DownloadIcon /> {t("project.files.download")}
                 </a>
               </Button>
             </div>
@@ -175,8 +198,8 @@ export default async function ProjectFilesPage({
             ) : (
               <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
                 {entry.previewUnavailable === "binary"
-                  ? "这是二进制文件；可下载原文件。"
-                  : "文件超过 1 MiB；可下载原文件。"}
+                  ? t("project.files.binaryDescription")
+                  : t("project.files.tooLargeDescription")}
               </div>
             )}
           </CardContent>

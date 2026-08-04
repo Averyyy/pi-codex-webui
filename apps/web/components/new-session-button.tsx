@@ -3,12 +3,22 @@ import { PlusIcon } from "lucide-react"
 
 import { Button } from "@workspace/ui/components/button"
 
-export function NewSessionButton({ projectId }: { projectId: string }) {
+import { createTranslator, type Locale } from "@/lib/i18n"
+
+export function NewSessionButton({
+  projectId,
+  locale,
+}: {
+  projectId: string
+  locale: Locale
+}) {
+  const t = createTranslator(locale)
+
   return (
     <Button asChild>
       <Link href={`/new?projectId=${encodeURIComponent(projectId)}`}>
         <PlusIcon />
-        新对话
+        {t("project.sessions.new")}
       </Link>
     </Button>
   )

@@ -35,7 +35,7 @@ export function ArchivedSessions({
   mutationToken: string
 }) {
   const router = useRouter()
-  const { t } = useI18n()
+  const { locale, t } = useI18n()
   const [removedSessionIds, setRemovedSessionIds] = useState<Set<string>>(
     () => new Set()
   )
@@ -60,6 +60,10 @@ export function ArchivedSessions({
   const sessions = initial.filter(
     (session) => !removedSessionIds.has(session.id)
   )
+  const sessionTitleFallback = {
+    task: t("workspace.nav.newTask"),
+    conversation: t("workspace.nav.unnamedConversation"),
+  }
 
   useLayoutEffect(() => {
     if (working !== null) return
@@ -163,7 +167,7 @@ export function ArchivedSessions({
   return (
     <div className="grid gap-3">
       {sessions.map((session) => {
-        const title = displaySessionTitle(session)
+        const title = displaySessionTitle(session, sessionTitleFallback)
         const restoringThis =
           working?.sessionId === session.id && working.operation === "restore"
         const deletingThis =
@@ -179,7 +183,10 @@ export function ArchivedSessions({
                 <CardDescription className="mt-1">
                   {session.projectName ?? t("settings.archive.independentTask")}{" "}
                   · {t("settings.archive.archivedAt")}{" "}
-                  {formatTimestamp(session.archivedAt ?? session.updatedAt)}
+                  {formatTimestamp(
+                    session.archivedAt ?? session.updatedAt,
+                    locale
+                  )}
                 </CardDescription>
               </div>
               <div className="flex flex-wrap items-center gap-2 sm:shrink-0">
@@ -254,7 +261,7 @@ export function ArchivedSessions({
         description={
           pendingDelete
             ? t("settings.archive.confirmDelete", {
-                title: displaySessionTitle(pendingDelete),
+                title: displaySessionTitle(pendingDelete, sessionTitleFallback),
               })
             : ""
         }

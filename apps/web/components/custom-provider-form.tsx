@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 
 import { Button } from "@workspace/ui/components/button"
 import {
@@ -82,6 +82,7 @@ export function CustomProviderForm({
   working,
   error,
   onOpenChange,
+  onReturnFocus,
   onSave,
 }: {
   open: boolean
@@ -89,10 +90,18 @@ export function CustomProviderForm({
   working: boolean
   error?: string | null
   onOpenChange: (open: boolean) => void
+  onReturnFocus: () => void
   onSave: (value: ModelSettingsProviderInput) => void
 }) {
   const { t } = useI18n()
   const [form, setForm] = useState(() => initialState(provider))
+  const errorRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    if (!error || working) return
+    const frame = requestAnimationFrame(() => errorRef.current?.focus())
+    return () => cancelAnimationFrame(frame)
+  }, [error, working])
 
   function field<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((current) => ({ ...current, [key]: value }))
@@ -128,7 +137,13 @@ export function CustomProviderForm({
 
   return (
     <Dialog open={open} onOpenChange={working ? undefined : onOpenChange}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+      <DialogContent
+        className="max-h-[90vh] overflow-y-auto sm:max-w-2xl"
+        onCloseAutoFocus={(event) => {
+          event.preventDefault()
+          onReturnFocus()
+        }}
+      >
         <DialogHeader>
           <DialogTitle>
             {provider
@@ -155,6 +170,7 @@ export function CustomProviderForm({
                 required
                 disabled={provider !== null}
                 pattern="[A-Za-z0-9][A-Za-z0-9._-]*"
+                maxLength={100}
                 value={form.provider}
                 onChange={(event) => field("provider", event.target.value)}
                 placeholder="my-provider"
@@ -166,6 +182,7 @@ export function CustomProviderForm({
               </Label>
               <Input
                 id="custom-provider-name"
+                maxLength={100}
                 value={form.name}
                 onChange={(event) => field("name", event.target.value)}
                 placeholder="My Provider"
@@ -348,6 +365,10 @@ export function CustomProviderForm({
                         variant="ghost"
                         size="sm"
                         className="ml-auto"
+                        aria-label={t("settings.provider.deleteModel", {
+                          model:
+                            model.name.trim() || model.id.trim() || index + 1,
+                        })}
                         onClick={() =>
                           field(
                             "models",
@@ -366,7 +387,11 @@ export function CustomProviderForm({
             </div>
           </div>
 
-          {error ? <FieldError>{error}</FieldError> : null}
+          {error ? (
+            <FieldError ref={errorRef} tabIndex={-1}>
+              {error}
+            </FieldError>
+          ) : null}
           <DialogFooter className="mx-0 mb-0">
             <Button
               type="button"

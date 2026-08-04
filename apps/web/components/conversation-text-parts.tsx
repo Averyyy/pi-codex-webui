@@ -3,6 +3,7 @@ import { BrainIcon, CircleAlertIcon, LoaderCircleIcon } from "lucide-react"
 import { ConversationDisclosure } from "@/components/conversation-disclosure"
 import { Markdown } from "@/components/markdown"
 import { stripAnsi } from "@/lib/ansi"
+import { translate, type Locale } from "@/lib/i18n"
 import { transcriptErrorPresentation } from "@/lib/message-content"
 import { formatInlinePreview } from "@/lib/session-display"
 import type { TranscriptPart } from "@/lib/session-types"
@@ -31,10 +32,12 @@ function ConversationTextPart({
   part,
   literal,
   thinkingActive,
+  locale,
 }: {
   part: Exclude<TranscriptPart, { type: "toolCall" }>
   literal: boolean
   thinkingActive: boolean
+  locale: Locale
 }) {
   if (part.type === "text") {
     return literal ? (
@@ -61,7 +64,13 @@ function ConversationTextPart({
     const active = thinkingActive && !part.redacted
     return (
       <ConversationDisclosure
-        label={part.redacted ? "已脱敏思考" : active ? "思考中" : "思考"}
+        label={
+          part.redacted
+            ? translate(locale, "session.transcript.redactedThought")
+            : active
+              ? translate(locale, "session.transcript.thinking")
+              : translate(locale, "session.transcript.thought")
+        }
         preview={formatInlinePreview(part.text)}
         icon={
           active ? <LoaderCircleIcon className="animate-spin" /> : <BrainIcon />
@@ -69,10 +78,10 @@ function ConversationTextPart({
         tone="agent"
         ariaLabel={
           part.redacted
-            ? "展开已脱敏思考"
+            ? translate(locale, "session.transcript.expandRedactedThought")
             : active
-              ? "展开正在生成的思考"
-              : "展开思考"
+              ? translate(locale, "session.transcript.expandThinking")
+              : translate(locale, "session.transcript.expandThought")
         }
         contentClassName="max-h-80 overflow-y-auto pr-2 text-xs text-muted-foreground [&_p]:leading-5"
       >
@@ -84,7 +93,9 @@ function ConversationTextPart({
   return (
     <div className="rounded-lg border border-dashed p-3">
       <p className="mb-2 text-xs font-medium">
-        未支持的 content part：{part.partType}
+        {translate(locale, "session.transcript.unsupportedPart", {
+          type: part.partType,
+        })}
       </p>
       <pre className="overflow-x-auto text-xs">{json(part.value)}</pre>
     </div>
@@ -95,10 +106,12 @@ export function ConversationTextParts({
   parts,
   literal = false,
   thinkingActive = false,
+  locale,
 }: {
   parts: TranscriptPart[]
   literal?: boolean
   thinkingActive?: boolean
+  locale: Locale
 }) {
   return parts.map((part, index) =>
     part.type === "toolCall" ? null : (
@@ -107,6 +120,7 @@ export function ConversationTextParts({
         part={part}
         literal={literal}
         thinkingActive={thinkingActive}
+        locale={locale}
       />
     )
   )

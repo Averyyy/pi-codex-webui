@@ -54,8 +54,17 @@ export async function PATCH(request: Request) {
     )
   } catch (error) {
     if (error instanceof ConfigConflictError) {
+      const current = await loadConfig()
       return Response.json(
-        { error: error.message, revision: error.currentRevision },
+        {
+          error: error.message,
+          code: "ConfigConflict",
+          current: {
+            revision: current.revision,
+            server: current.server,
+            appearance: current.appearance,
+          },
+        },
         { status: 409 }
       )
     }

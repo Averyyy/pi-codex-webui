@@ -1,5 +1,19 @@
-import type { Locale } from "./i18n"
-import type { ProjectFileErrorCode } from "./project-files"
+import { translate, type Locale, type MessageKey } from "./i18n"
+import type { ProjectFileEntry, ProjectFileErrorCode } from "./project-files"
+
+const projectFileErrorCodes = new Set<ProjectFileErrorCode>([
+  "InvalidPath",
+  "OutsideProject",
+  "Unavailable",
+  "UnsupportedEntry",
+])
+
+const typeLabels: Record<ProjectFileEntry["type"], MessageKey> = {
+  directory: "project.files.type.directory",
+  file: "project.files.type.file",
+  "symbolic-link": "project.files.type.symbolicLink",
+  other: "project.files.type.other",
+}
 
 const errorDescriptions: Record<
   ProjectFileErrorCode,
@@ -31,4 +45,17 @@ export function projectFileErrorCopy(
     title: locale === "zh-CN" ? "无法打开路径" : "Unable to open path",
     description: errorDescriptions[code][locale],
   }
+}
+
+export function isProjectFileErrorCode(
+  value: unknown
+): value is ProjectFileErrorCode {
+  return projectFileErrorCodes.has(value as ProjectFileErrorCode)
+}
+
+export function projectFileTypeLabel(
+  type: ProjectFileEntry["type"],
+  locale: Locale
+) {
+  return translate(locale, typeLabels[type])
 }

@@ -40,7 +40,9 @@ import {
 import { ScrollArea } from "@workspace/ui/components/scroll-area"
 import { cn } from "@workspace/ui/lib/utils"
 
+import { useI18n } from "@/components/i18n-provider"
 import { useSessionEvents } from "@/components/session-streaming-context"
+import type { Locale, Translator } from "@/lib/i18n"
 
 const EMPTY_SNAPSHOT: SubagentsSnapshot = {
   version: 1,
@@ -55,50 +57,55 @@ const COMPLETED_STATUSES = new Set<SubagentStatus>(["completed", "steered"])
 const STATUS_METADATA: Record<
   SubagentStatus,
   {
-    label: string
     icon: LucideIcon
     iconClassName?: string
     badge: "outline" | "secondary" | "destructive"
   }
 > = {
   queued: {
-    label: "排队中",
     icon: Clock3Icon,
     badge: "outline",
   },
   running: {
-    label: "运行中",
     icon: LoaderCircleIcon,
     iconClassName: "animate-spin motion-reduce:animate-none",
     badge: "secondary",
   },
   completed: {
-    label: "已完成",
     icon: CircleCheckIcon,
     badge: "outline",
   },
   steered: {
-    label: "已收尾",
     icon: CircleCheckIcon,
     badge: "outline",
   },
   aborted: {
-    label: "达到轮次上限",
     icon: OctagonAlertIcon,
     iconClassName: "text-destructive",
     badge: "destructive",
   },
   stopped: {
-    label: "已停止",
     icon: SquareIcon,
     badge: "outline",
   },
   error: {
-    label: "错误",
     icon: CircleXIcon,
     iconClassName: "text-destructive",
     badge: "destructive",
   },
+}
+
+function statusLabel(t: Translator, status: SubagentStatus) {
+  const keys = {
+    queued: "session.subagents.status.queued",
+    running: "session.subagents.status.running",
+    completed: "session.subagents.status.completed",
+    steered: "session.subagents.status.steered",
+    aborted: "session.subagents.status.aborted",
+    stopped: "session.subagents.status.stopped",
+    error: "session.subagents.status.error",
+  } as const
+  return t(keys[status])
 }
 
 interface SubagentsContextValue {
@@ -114,10 +121,11 @@ function useSubagents() {
   return value
 }
 
-async function responseError(response: Response) {
+async function responseError(response: Response, t: Translator) {
   const body = (await response.json()) as { error?: string }
   return new Error(
-    body.error ?? `Subagent request failed (${response.status}).`
+    body.error ??
+      t("session.subagents.requestFailed", { status: response.status })
   )
 }
 
@@ -132,6 +140,7 @@ export function SubagentsProvider({
   installed: boolean
   children: ReactNode
 }) {
+  const { t } = useI18n()
   const sessionEvents = useSessionEvents()
   const [snapshotState, setSnapshotState] = useState({
     sessionId,
@@ -164,7 +173,7 @@ export function SubagentsProvider({
       const response = await fetch(`/api/v1/sessions/${sessionId}/subagents`, {
         cache: "no-store",
       })
-      if (!response.ok) throw await responseError(response)
+      if (!response.ok) throw await responseError(response, t)
       const next = subagentsSnapshotSchema.parse(await response.json())
       if (!disposed && requestedGeneration === generation) acceptSnapshot(next)
     }
@@ -207,7 +216,7 @@ export function SubagentsProvider({
       unsubscribeRefresh()
       unsubscribeClear()
     }
-  }, [acceptSnapshot, installed, sessionEvents, sessionId])
+  }, [acceptSnapshot, installed, sessionEvents, sessionId, t])
 
   const stop = useCallback(
     async (agentId: string) => {
@@ -218,9 +227,9 @@ export function SubagentsProvider({
           headers: { "X-Pi-Web-Codex-Mutation-Token": mutationToken },
         }
       )
-      if (!response.ok) throw await responseError(response)
+      if (!response.ok) throw await responseError(response, t)
     },
-    [mutationToken, sessionId]
+    [mutationToken, sessionId, t]
   )
 
   const value = useMemo(() => ({ snapshot, stop }), [snapshot, stop])
@@ -231,10 +240,29 @@ export function SubagentsProvider({
   )
 }
 
-function formatDuration(durationMs: number) {
-  if (durationMs < 1_000) return `${Math.round(durationMs)} ms`
-  if (durationMs < 60_000) return `${Math.round(durationMs / 1_000)} 秒`
-  return `${Math.round(durationMs / 60_000)} 分钟`
+function formatDuration(durationMs: number, locale: Locale, t: Translator) {
+  const milliseconds = Math.round(durationMs)
+  if (durationMs < 1_000) {
+    return t("session.subagents.durationMilliseconds", {
+      count: milliseconds.toLocaleString(locale),
+    })
+  }
+  const seconds = Math.round(durationMs / 1_000)
+  if (durationMs < 60_000) {
+    return t(
+      seconds === 1
+        ? "session.subagents.durationSecondsOne"
+        : "session.subagents.durationSeconds",
+      { count: seconds.toLocaleString(locale) }
+    )
+  }
+  const minutes = Math.round(durationMs / 60_000)
+  return t(
+    minutes === 1
+      ? "session.subagents.durationMinutesOne"
+      : "session.subagents.durationMinutes",
+    { count: minutes.toLocaleString(locale) }
+  )
 }
 
 function AgentRow({
@@ -246,17 +274,40 @@ function AgentRow({
   stopping: boolean
   onStop: () => void
 }) {
+  const { locale, t } = useI18n()
   const metadata = STATUS_METADATA[agent.status]
   const StatusIcon = metadata.icon
   const active = ACTIVE_STATUSES.has(agent.status)
   const metrics = [
-    agent.toolUses ? `${agent.toolUses} 次工具调用` : null,
-    agent.tokens
-      ? `${agent.tokens.total.toLocaleString("zh-CN")} tokens`
+    agent.toolUses
+      ? t(
+          agent.toolUses === 1
+            ? "session.subagents.toolUsesOne"
+            : "session.subagents.toolUses",
+          { count: agent.toolUses.toLocaleString(locale) }
+        )
       : null,
-    agent.durationMs === undefined ? null : formatDuration(agent.durationMs),
-    agent.compactionCount ? `${agent.compactionCount} 次压缩` : null,
+    agent.tokens
+      ? t(
+          agent.tokens.total === 1
+            ? "session.subagents.tokensOne"
+            : "session.subagents.tokens",
+          { count: agent.tokens.total.toLocaleString(locale) }
+        )
+      : null,
+    agent.durationMs === undefined
+      ? null
+      : formatDuration(agent.durationMs, locale, t),
+    agent.compactionCount
+      ? t(
+          agent.compactionCount === 1
+            ? "session.subagents.compactionsOne"
+            : "session.subagents.compactions",
+          { count: agent.compactionCount.toLocaleString(locale) }
+        )
+      : null,
   ].filter(Boolean)
+  const description = agent.description || t("session.subagents.noDescription")
 
   return (
     <li className="rounded-xl border bg-card p-3">
@@ -270,10 +321,12 @@ function AgentRow({
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 flex-wrap items-center gap-1.5">
             <Badge variant="outline">{agent.type}</Badge>
-            <Badge variant={metadata.badge}>{metadata.label}</Badge>
+            <Badge variant={metadata.badge}>
+              {statusLabel(t, agent.status)}
+            </Badge>
           </div>
           <p className="mt-2 text-sm leading-5 font-medium break-words">
-            {agent.description || "未提供任务描述"}
+            {description}
           </p>
           {metrics.length ? (
             <p className="mt-1 text-xs leading-5 text-muted-foreground">
@@ -294,7 +347,7 @@ function AgentRow({
             variant="outline"
             size="xs"
             disabled={stopping}
-            aria-label={`停止子智能体 ${agent.description}`}
+            aria-label={t("session.subagents.stopAria", { description })}
             onClick={onStop}
           >
             {stopping ? (
@@ -305,7 +358,7 @@ function AgentRow({
             ) : (
               <SquareIcon data-icon="inline-start" />
             )}
-            停止
+            {t("session.subagents.stop")}
           </Button>
         ) : null}
       </div>
@@ -314,6 +367,7 @@ function AgentRow({
 }
 
 export function SubagentsPanel() {
+  const { t } = useI18n()
   const { snapshot, stop } = useSubagents()
   const [stoppingIds, setStoppingIds] = useState(() => new Set<string>())
   const stoppingIdsRef = useRef(new Set<string>())
@@ -340,9 +394,9 @@ export function SubagentsPanel() {
           <EmptyMedia variant="icon">
             <LoaderCircleIcon className="animate-spin motion-reduce:animate-none" />
           </EmptyMedia>
-          <EmptyTitle>正在连接子智能体</EmptyTitle>
+          <EmptyTitle>{t("session.subagents.connecting")}</EmptyTitle>
           <EmptyDescription>
-            Pi Runtime 启动后，这里会显示 @tintinweb/pi-subagents 的实时状态。
+            {t("session.subagents.connectingDescription")}
           </EmptyDescription>
         </EmptyHeader>
       </Empty>
@@ -356,9 +410,9 @@ export function SubagentsPanel() {
           <EmptyMedia variant="icon">
             <BotIcon />
           </EmptyMedia>
-          <EmptyTitle>暂无子智能体</EmptyTitle>
+          <EmptyTitle>{t("session.subagents.empty")}</EmptyTitle>
           <EmptyDescription>
-            通过 Pi 创建子智能体后，状态会实时出现在这里。
+            {t("session.subagents.emptyDescription")}
           </EmptyDescription>
         </EmptyHeader>
       </Empty>
@@ -369,12 +423,28 @@ export function SubagentsPanel() {
     <div className="flex size-full min-h-0 flex-col" aria-live="polite">
       <div className="flex shrink-0 items-center justify-between gap-3 border-b px-4 py-3">
         <div>
-          <p className="text-sm font-medium">子智能体活动</p>
+          <p className="text-sm font-medium">
+            {t("session.subagents.activity")}
+          </p>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            {activeCount} 运行中 · {snapshot.agents.length - activeCount} 已结束
+            {t(
+              activeCount === 1
+                ? "session.subagents.activeCountOne"
+                : "session.subagents.activeCount",
+              { count: activeCount }
+            )}{" "}
+            ·{" "}
+            {t(
+              snapshot.agents.length - activeCount === 1
+                ? "session.subagents.endedCountOne"
+                : "session.subagents.endedCount",
+              { count: snapshot.agents.length - activeCount }
+            )}
           </p>
         </div>
-        {activeCount ? <Badge variant="secondary">实时</Badge> : null}
+        {activeCount ? (
+          <Badge variant="secondary">{t("session.subagents.live")}</Badge>
+        ) : null}
       </div>
       <ScrollArea className="min-h-0 flex-1">
         <ul className="grid gap-2 p-3">
@@ -393,6 +463,7 @@ export function SubagentsPanel() {
 }
 
 export function SubagentsSummary() {
+  const { t } = useI18n()
   const { snapshot } = useSubagents()
   const active = snapshot.agents.filter((agent) =>
     ACTIVE_STATUSES.has(agent.status)
@@ -403,21 +474,28 @@ export function SubagentsSummary() {
   const issues = snapshot.agents.length - active.length - completed
 
   return (
-    <section className="flex min-w-0 flex-col gap-3" aria-label="子智能体">
+    <section
+      className="flex min-w-0 flex-col gap-3"
+      aria-label={t("session.subagents.title")}
+    >
       <div className="flex items-center justify-between gap-3">
-        <h3 className="text-xs font-medium text-muted-foreground">子智能体</h3>
-        {active.length ? <Badge variant="secondary">实时</Badge> : null}
+        <h3 className="text-xs font-medium text-muted-foreground">
+          {t("session.subagents.title")}
+        </h3>
+        {active.length ? (
+          <Badge variant="secondary">{t("session.subagents.live")}</Badge>
+        ) : null}
       </div>
       <div className="rounded-xl bg-muted/60 px-3 py-2.5">
         {!snapshot.available ? (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <LoaderCircleIcon className="size-4 animate-spin motion-reduce:animate-none" />
-            等待 Pi Runtime
+            {t("session.subagents.waitingForRuntime")}
           </div>
         ) : !snapshot.agents.length ? (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <BotIcon className="size-4" />
-            暂无活动
+            {t("session.subagents.noActivity")}
           </div>
         ) : (
           <>
@@ -425,19 +503,34 @@ export function SubagentsSummary() {
               {active.length ? (
                 <span className="inline-flex items-center gap-1.5">
                   <LoaderCircleIcon className="size-4 animate-spin motion-reduce:animate-none" />
-                  {active.length} 运行中
+                  {t(
+                    active.length === 1
+                      ? "session.subagents.activeCountOne"
+                      : "session.subagents.activeCount",
+                    { count: active.length }
+                  )}
                 </span>
               ) : null}
               {completed ? (
                 <span className="inline-flex items-center gap-1.5 text-muted-foreground">
                   <CircleCheckIcon className="size-4" />
-                  {completed} 完成
+                  {t(
+                    completed === 1
+                      ? "session.subagents.completedCountOne"
+                      : "session.subagents.completedCount",
+                    { count: completed }
+                  )}
                 </span>
               ) : null}
               {issues ? (
                 <span className="inline-flex items-center gap-1.5 text-destructive">
                   <CircleXIcon className="size-4" />
-                  {issues} 异常
+                  {t(
+                    issues === 1
+                      ? "session.subagents.issueCountOne"
+                      : "session.subagents.issueCount",
+                    { count: issues }
+                  )}
                 </span>
               ) : null}
             </div>

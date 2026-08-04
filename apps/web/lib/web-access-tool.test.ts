@@ -25,7 +25,8 @@ test("presents web search queries and structured result metadata", () => {
         curated: true,
         curatedFrom: 3,
         searchId: "search-1",
-      }
+      },
+      "zh-CN"
     ),
     {
       label: "网络搜索",
@@ -52,7 +53,8 @@ test("presents fetched content without parsing result text", () => {
       totalChars: 1234,
       truncated: true,
       responseId: "fetch-1",
-    }
+    },
+    "zh-CN"
   )
   assert.equal(presentation.preview, "https://example.com/guide")
   assert.deepEqual(presentation.facts, [
@@ -67,11 +69,71 @@ test("presents stored search-content selectors", () => {
   const presentation = webAccessToolPresentation(
     "get_search_content",
     { responseId: "fetch-1", urlIndex: 0 },
-    { title: "Guide", contentLength: 900 }
+    { title: "Guide", contentLength: 900 },
+    "zh-CN"
   )
   assert.equal(presentation.preview, "地址 #0")
   assert.deepEqual(presentation.facts, [
     { label: "内容 ID", value: "fetch-1" },
     { label: "内容", value: "900 字符" },
+  ])
+})
+
+test("presents web access metadata in English when requested", () => {
+  const presentation = webAccessToolPresentation(
+    "web_search",
+    { queries: ["Next.js 16 caching", "React 19 activity"] },
+    { successfulQueries: 2, queryCount: 2, totalResults: 1234 },
+    "en-US"
+  )
+
+  assert.equal(presentation.label, "Web search")
+  assert.equal(presentation.preview, "2 queries · Next.js 16 caching")
+  assert.deepEqual(presentation.facts, [
+    { label: "Queries", value: "2/2 succeeded" },
+    { label: "Sources", value: "1,234 sources" },
+  ])
+})
+
+test("uses singular English facts for one web result", () => {
+  const search = webAccessToolPresentation(
+    "web_search",
+    { query: "Next.js 16 caching" },
+    {
+      successfulQueries: 1,
+      queryCount: 1,
+      totalResults: 1,
+      curated: true,
+      curatedFrom: 1,
+    },
+    "en-US"
+  )
+  const fetched = webAccessToolPresentation(
+    "fetch_content",
+    { url: "https://example.com/guide" },
+    { successful: 1, urlCount: 1, totalChars: 1, imageCount: 1 },
+    "en-US"
+  )
+  const stored = webAccessToolPresentation(
+    "get_search_content",
+    { responseId: "fetch-1" },
+    { resultCount: 1, contentLength: 1 },
+    "en-US"
+  )
+
+  assert.deepEqual(search.facts, [
+    { label: "Queries", value: "1/1 succeeded" },
+    { label: "Sources", value: "1 source" },
+    { label: "Curation", value: "1/1 query" },
+  ])
+  assert.deepEqual(fetched.facts, [
+    { label: "Addresses", value: "1/1 succeeded" },
+    { label: "Content", value: "1 character" },
+    { label: "Images", value: "1 image" },
+  ])
+  assert.deepEqual(stored.facts, [
+    { label: "Content ID", value: "fetch-1" },
+    { label: "Results", value: "1 result" },
+    { label: "Content", value: "1 character" },
   ])
 })

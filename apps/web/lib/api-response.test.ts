@@ -11,10 +11,20 @@ test("responseJson preserves structured API errors", async () => {
         { status: 422 }
       )
     ),
-    (error: unknown) =>
-      error instanceof ApiError &&
-      error.message === "模型不可用。" &&
-      error.code === "ModelUnavailable"
+    (error: unknown) => {
+      if (
+        !(error instanceof ApiError) ||
+        error.message !== "模型不可用。" ||
+        error.code !== "ModelUnavailable"
+      ) {
+        return false
+      }
+      assert.deepEqual(error.details, {
+        error: "模型不可用。",
+        code: "ModelUnavailable",
+      })
+      return true
+    }
   )
 })
 

@@ -7,6 +7,7 @@ import { toast } from "sonner"
 
 import { cn } from "@workspace/ui/lib/utils"
 
+import { useI18n } from "@/components/i18n-provider"
 import { TerminalActionQueue } from "@/lib/terminal-action-queue"
 
 const INPUT_BATCH_MS = 8
@@ -26,6 +27,7 @@ export function ShellTerminal({
   mutationToken: string
   className?: string
 }) {
+  const { t } = useI18n()
   const containerRef = useRef<HTMLDivElement>(null)
   const reportError = useEffectEvent((error: unknown) => {
     toast.error(error instanceof Error ? error.message : String(error))
@@ -54,7 +56,9 @@ export function ShellTerminal({
         body: JSON.stringify(body),
       })
       if (!response.ok) {
-        throw new Error((await response.text()) || "终端操作失败。")
+        throw new Error(
+          (await response.text()) || t("session.terminal.operationFailed")
+        )
       }
     }
 
@@ -126,12 +130,16 @@ export function ShellTerminal({
           terminal.reset()
           terminal.write(message.data)
           if (message.exitCode !== null) {
-            terminal.write(`\r\n[进程已退出：${message.exitCode}]\r\n`)
+            terminal.write(
+              `\r\n[${t("session.terminal.processExited", { code: message.exitCode })}]\r\n`
+            )
           }
         } else if (message.type === "data") {
           terminal.write(message.data)
         } else {
-          terminal.write(`\r\n[进程已退出：${message.exitCode}]\r\n`)
+          terminal.write(
+            `\r\n[${t("session.terminal.processExited", { code: message.exitCode })}]\r\n`
+          )
         }
       }
       eventSource.addEventListener("snapshot", receive)
@@ -182,13 +190,13 @@ export function ShellTerminal({
       resizeObserver?.disconnect()
       cleanupTerminal()
     }
-  }, [mutationToken, sessionId])
+  }, [mutationToken, sessionId, t])
 
   return (
     <div
       ref={containerRef}
       role="application"
-      aria-label="项目终端"
+      aria-label={t("session.terminal.ariaLabel")}
       className={cn(
         "size-full min-h-32 overflow-hidden bg-background p-3 text-foreground",
         className

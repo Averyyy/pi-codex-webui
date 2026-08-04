@@ -2,17 +2,17 @@ import "server-only"
 
 export type ProjectFileManager = {
   command: string
-  label: string
+  kind: "finder" | "file-explorer"
 }
 
 export function projectFileManager(
   platform: NodeJS.Platform
 ): ProjectFileManager | null {
   if (platform === "darwin") {
-    return { command: "/usr/bin/open", label: "在 Finder 中打开" }
+    return { command: "/usr/bin/open", kind: "finder" }
   }
   if (platform === "win32") {
-    return { command: "explorer.exe", label: "在文件资源管理器中打开" }
+    return { command: "explorer.exe", kind: "file-explorer" }
   }
   return null
 }

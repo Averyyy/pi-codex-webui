@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useTransition } from "react"
+import { useEffect, useRef, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
 import { useTheme } from "next-themes"
 import { toast } from "sonner"
@@ -19,6 +19,7 @@ import {
   Field,
   FieldContent,
   FieldDescription,
+  FieldError,
   FieldGroup,
   FieldLabel,
   FieldTitle,
@@ -35,13 +36,25 @@ import {
 import { Switch } from "@workspace/ui/components/switch"
 
 import { useI18n } from "@/components/i18n-provider"
+import { ApiError, responseJson } from "@/lib/api-response"
 import {
+  configSchema,
   languageSchema,
   themeSchema,
   type AppConfig,
   type ConfigPatch,
 } from "@/lib/config-schema"
 import { translate } from "@/lib/i18n"
+
+const serverSettingsSchema = configSchema.pick({
+  revision: true,
+  server: true,
+})
+
+const appearanceSettingsSchema = configSchema.pick({
+  revision: true,
+  appearance: true,
+})
 
 async function persistSettings(
   config: AppConfig,
@@ -58,18 +71,61 @@ async function persistSettings(
     },
     body: JSON.stringify(patch),
   })
-  const result = await response.json()
-  if (!response.ok) {
-    throw new Error(result.error ?? fallbackError)
-  }
-  return result as AppConfig
+  const parsed = configSchema.safeParse(
+    await responseJson<unknown>(response, fallbackError)
+  )
+  if (!parsed.success) throw new ApiError(fallbackError)
+  return parsed.data
 }
 
-function SaveButton({ pending }: { pending: boolean }) {
+function conflictServerSettings(error: unknown) {
+  if (!(error instanceof ApiError) || error.code !== "ConfigConflict") {
+    return null
+  }
+  const details = error.details
+  const current =
+    typeof details === "object" && details !== null && "current" in details
+      ? details.current
+      : undefined
+  const parsed = serverSettingsSchema.safeParse(current)
+  return parsed.success ? parsed.data : null
+}
+
+function conflictAppearanceSettings(error: unknown) {
+  if (!(error instanceof ApiError) || error.code !== "ConfigConflict") {
+    return null
+  }
+  const details = error.details
+  const current =
+    typeof details === "object" && details !== null && "current" in details
+      ? details.current
+      : undefined
+  const parsed = appearanceSettingsSchema.safeParse(current)
+  return parsed.success ? parsed.data : null
+}
+
+function settingsErrorMessage(
+  error: unknown,
+  fallback: string,
+  conflict: string
+) {
+  if (error instanceof ApiError && error.code === "ConfigConflict") {
+    return conflict
+  }
+  return error instanceof Error ? error.message : fallback
+}
+
+function SaveButton({
+  pending,
+  disabled = false,
+}: {
+  pending: boolean
+  disabled?: boolean
+}) {
   const { t } = useI18n()
 
   return (
-    <Button type="submit" disabled={pending}>
+    <Button type="submit" disabled={pending || disabled}>
       {pending ? t("settings.common.saving") : t("settings.common.save")}
     </Button>
   )
@@ -83,12 +139,32 @@ export function GeneralSettingsForm({
   mutationToken: string
 }) {
   const [config, setConfig] = useState(initial)
+  const [port, setPort] = useState(String(initial.server.port))
   const [openBrowser, setOpenBrowser] = useState(initial.server.openBrowser)
+  const [error, setError] = useState<string | null>(null)
   const [pending, startTransition] = useTransition()
+  const busyRef = useRef(false)
+  const errorRef = useRef<HTMLDivElement | null>(null)
   const router = useRouter()
   const { t } = useI18n()
+  const dirty =
+    port !== String(config.server.port) ||
+    openBrowser !== config.server.openBrowser
 
-  function submit(formData: FormData) {
+  useEffect(() => {
+    if (!error || pending) return
+    const frame = requestAnimationFrame(() => errorRef.current?.focus())
+    return () => cancelAnimationFrame(frame)
+  }, [error, pending])
+
+  function reportError(message: string) {
+    setError(message)
+  }
+
+  function submit() {
+    if (busyRef.current || !dirty) return
+    busyRef.current = true
+    setError(null)
     startTransition(async () => {
       try {
         const saved = await persistSettings(
@@ -96,22 +172,43 @@ export function GeneralSettingsForm({
           mutationToken,
           {
             server: {
-              port: Number(formData.get("port")),
+              port: Number(port),
               openBrowser,
             },
           },
           t("settings.common.saveFailed")
         )
         setConfig(saved)
+        setPort(String(saved.server.port))
+        setOpenBrowser(saved.server.openBrowser)
         router.refresh()
         toast.success(t("settings.general.saved"))
       } catch (error) {
-        router.refresh()
-        toast.error(
-          error instanceof Error
-            ? error.message
-            : t("settings.common.saveFailed")
+        const current = conflictServerSettings(error)
+        if (current) {
+          const portChanged = port !== String(config.server.port)
+          const openBrowserChanged = openBrowser !== config.server.openBrowser
+          setConfig((value) => ({
+            ...value,
+            revision: current.revision,
+            server: current.server,
+          }))
+          if (!portChanged) setPort(String(current.server.port))
+          if (!openBrowserChanged) {
+            setOpenBrowser(current.server.openBrowser)
+          }
+        } else {
+          router.refresh()
+        }
+        const message = settingsErrorMessage(
+          error,
+          t("settings.common.saveFailed"),
+          t("settings.common.conflict")
         )
+        reportError(message)
+        toast.error(message)
+      } finally {
+        busyRef.current = false
       }
     })
   }
@@ -122,7 +219,7 @@ export function GeneralSettingsForm({
       aria-busy={pending}
       onSubmit={(event) => {
         event.preventDefault()
-        submit(new FormData(event.currentTarget))
+        submit()
       }}
     >
       <Card>
@@ -132,7 +229,7 @@ export function GeneralSettingsForm({
             {t("settings.general.localServiceDescription")}
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="grid gap-4">
           <FieldGroup>
             <Field orientation="responsive">
               <FieldContent>
@@ -166,7 +263,11 @@ export function GeneralSettingsForm({
                 min={1}
                 max={65535}
                 required
-                defaultValue={config.server.port}
+                value={port}
+                onChange={(event) => {
+                  setPort(event.target.value)
+                  setError(null)
+                }}
                 className="w-32"
               />
             </Field>
@@ -179,14 +280,26 @@ export function GeneralSettingsForm({
               </FieldContent>
               <Switch
                 checked={openBrowser}
-                onCheckedChange={setOpenBrowser}
+                onCheckedChange={(value) => {
+                  setOpenBrowser(value)
+                  setError(null)
+                }}
                 aria-label={t("settings.general.openBrowser")}
               />
             </Field>
           </FieldGroup>
+          {error ? (
+            <FieldError
+              ref={errorRef}
+              tabIndex={-1}
+              className="rounded-lg bg-destructive/5 p-3"
+            >
+              {error}
+            </FieldError>
+          ) : null}
         </CardContent>
         <CardFooter className="justify-end">
-          <SaveButton pending={pending} />
+          <SaveButton pending={pending} disabled={!dirty} />
         </CardFooter>
       </Card>
     </form>
@@ -203,13 +316,38 @@ export function AppearanceSettingsForm({
   const [config, setConfig] = useState(initial)
   const [theme, setThemeValue] = useState(initial.appearance.theme)
   const [language, setLanguage] = useState(initial.appearance.language)
+  const [fontSize, setFontSize] = useState(String(initial.appearance.fontSize))
+  const [sidebarWidthValue, setSidebarWidthValue] = useState(
+    String(initial.appearance.sidebarWidth)
+  )
+  const [error, setError] = useState<string | null>(null)
   const [pending, startTransition] = useTransition()
+  const busyRef = useRef(false)
+  const errorRef = useRef<HTMLDivElement | null>(null)
   const { setTheme } = useTheme()
   const { setSidebarWidth } = useSidebar()
   const router = useRouter()
   const { setLocale, t } = useI18n()
+  const dirty =
+    theme !== config.appearance.theme ||
+    language !== config.appearance.language ||
+    fontSize !== String(config.appearance.fontSize) ||
+    sidebarWidthValue !== String(config.appearance.sidebarWidth)
 
-  function submit(formData: FormData) {
+  useEffect(() => {
+    if (!error || pending) return
+    const frame = requestAnimationFrame(() => errorRef.current?.focus())
+    return () => cancelAnimationFrame(frame)
+  }, [error, pending])
+
+  function reportError(message: string) {
+    setError(message)
+  }
+
+  function submit() {
+    if (busyRef.current || !dirty) return
+    busyRef.current = true
+    setError(null)
     startTransition(async () => {
       try {
         const saved = await persistSettings(
@@ -219,8 +357,8 @@ export function AppearanceSettingsForm({
             appearance: {
               theme,
               language,
-              fontSize: Number(formData.get("fontSize")),
-              sidebarWidth: Number(formData.get("sidebarWidth")),
+              fontSize: Number(fontSize),
+              sidebarWidth: Number(sidebarWidthValue),
             },
           },
           t("settings.common.saveFailed")
@@ -229,6 +367,8 @@ export function AppearanceSettingsForm({
         setThemeValue(saved.appearance.theme)
         setTheme(saved.appearance.theme)
         setLanguage(saved.appearance.language)
+        setFontSize(String(saved.appearance.fontSize))
+        setSidebarWidthValue(String(saved.appearance.sidebarWidth))
         setLocale(saved.appearance.language)
         document.documentElement.style.setProperty(
           "--app-font-size",
@@ -244,12 +384,58 @@ export function AppearanceSettingsForm({
           translate(saved.appearance.language, "settings.appearance.saved")
         )
       } catch (error) {
-        router.refresh()
-        toast.error(
-          error instanceof Error
-            ? error.message
-            : t("settings.common.saveFailed")
-        )
+        const current = conflictAppearanceSettings(error)
+        let conflictLanguage = config.appearance.language
+        if (current) {
+          const themeChanged = theme !== config.appearance.theme
+          const languageChanged = language !== config.appearance.language
+          const fontSizeChanged =
+            fontSize !== String(config.appearance.fontSize)
+          const sidebarWidthChanged =
+            sidebarWidthValue !== String(config.appearance.sidebarWidth)
+          setConfig((value) => ({
+            ...value,
+            revision: current.revision,
+            appearance: current.appearance,
+          }))
+          if (!themeChanged) {
+            setThemeValue(current.appearance.theme)
+            setTheme(current.appearance.theme)
+          }
+          if (!languageChanged) {
+            conflictLanguage = current.appearance.language
+            setLanguage(current.appearance.language)
+            setLocale(current.appearance.language)
+          }
+          if (!fontSizeChanged) {
+            setFontSize(String(current.appearance.fontSize))
+            document.documentElement.style.setProperty(
+              "--app-font-size",
+              `${current.appearance.fontSize}px`
+            )
+          }
+          if (!sidebarWidthChanged) {
+            setSidebarWidthValue(String(current.appearance.sidebarWidth))
+            document.documentElement.style.setProperty(
+              "--app-sidebar-width",
+              `${current.appearance.sidebarWidth}px`
+            )
+            setSidebarWidth(current.appearance.sidebarWidth)
+          }
+        } else {
+          router.refresh()
+        }
+        const message = current
+          ? translate(conflictLanguage, "settings.common.conflict")
+          : settingsErrorMessage(
+              error,
+              t("settings.common.saveFailed"),
+              t("settings.common.conflict")
+            )
+        reportError(message)
+        toast.error(message)
+      } finally {
+        busyRef.current = false
       }
     })
   }
@@ -260,7 +446,7 @@ export function AppearanceSettingsForm({
       aria-busy={pending}
       onSubmit={(event) => {
         event.preventDefault()
-        submit(new FormData(event.currentTarget))
+        submit()
       }}
     >
       <Card>
@@ -270,7 +456,7 @@ export function AppearanceSettingsForm({
             {t("settings.appearance.interfaceDescription")}
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="grid gap-4">
           <FieldGroup>
             <Field orientation="responsive">
               <FieldContent>
@@ -283,9 +469,10 @@ export function AppearanceSettingsForm({
               </FieldContent>
               <Select
                 value={theme}
-                onValueChange={(value) =>
+                onValueChange={(value) => {
                   setThemeValue(themeSchema.parse(value))
-                }
+                  setError(null)
+                }}
               >
                 <SelectTrigger id="theme" className="w-40">
                   <SelectValue />
@@ -316,9 +503,10 @@ export function AppearanceSettingsForm({
               </FieldContent>
               <Select
                 value={language}
-                onValueChange={(value) =>
+                onValueChange={(value) => {
                   setLanguage(languageSchema.parse(value))
-                }
+                  setError(null)
+                }}
               >
                 <SelectTrigger id="language" className="w-40">
                   <SelectValue />
@@ -351,7 +539,11 @@ export function AppearanceSettingsForm({
                 min={12}
                 max={18}
                 required
-                defaultValue={config.appearance.fontSize}
+                value={fontSize}
+                onChange={(event) => {
+                  setFontSize(event.target.value)
+                  setError(null)
+                }}
                 className="w-32"
               />
             </Field>
@@ -371,14 +563,27 @@ export function AppearanceSettingsForm({
                 min={240}
                 max={360}
                 required
-                defaultValue={config.appearance.sidebarWidth}
+                value={sidebarWidthValue}
+                onChange={(event) => {
+                  setSidebarWidthValue(event.target.value)
+                  setError(null)
+                }}
                 className="w-32"
               />
             </Field>
           </FieldGroup>
+          {error ? (
+            <FieldError
+              ref={errorRef}
+              tabIndex={-1}
+              className="rounded-lg bg-destructive/5 p-3"
+            >
+              {error}
+            </FieldError>
+          ) : null}
         </CardContent>
         <CardFooter className="justify-end">
-          <SaveButton pending={pending} />
+          <SaveButton pending={pending} disabled={!dirty} />
         </CardFooter>
       </Card>
     </form>

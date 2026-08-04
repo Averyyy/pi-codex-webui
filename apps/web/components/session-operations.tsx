@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, type FormEvent } from "react"
+import { useRef, useState, type FormEvent } from "react"
 import { useRouter } from "next/navigation"
 import {
   ArchiveIcon,
@@ -56,6 +56,7 @@ import type {
 } from "@workspace/runtime-protocol"
 
 import { SessionTreeViewer } from "@/components/session-tree-viewer"
+import { useI18n } from "@/components/i18n-provider"
 import { useStreamingRuntimeStatus } from "@/components/session-streaming-context"
 import { responseJson } from "@/lib/api-response"
 
@@ -66,9 +67,9 @@ interface ReplacementResult {
   sessionId: string
 }
 
-function treeLabel(entry: SessionTree["entries"][number]) {
+function treeLabel(entry: SessionTree["entries"][number], locale: string) {
   const label = entry.label ?? entry.text ?? entry.role ?? entry.type
-  return `${label} · ${new Date(entry.timestamp).toLocaleTimeString("zh-CN", {
+  return `${label} · ${new Date(entry.timestamp).toLocaleTimeString(locale, {
     hour: "2-digit",
     minute: "2-digit",
   })}`
@@ -91,7 +92,10 @@ export function SessionOperations({
   runtimeProfiles: Array<{ id: string; label: string }>
   initialRuntimeStatus: RuntimeStatus
 }) {
+  const { locale, t } = useI18n()
   const router = useRouter()
+  const operationsTriggerRef = useRef<HTMLButtonElement>(null)
+  const treeTriggerRef = useRef<HTMLButtonElement>(null)
   const [dialog, setDialog] = useState<DialogKind | null>(null)
   const [name, setName] = useState(title)
   const [tree, setTree] = useState<SessionTree | null>(null)
@@ -279,7 +283,7 @@ export function SessionOperations({
       )
       if (!response.ok) {
         const result = (await response.json()) as { error?: string }
-        throw new Error(result.error ?? "导出 session 失败。")
+        throw new Error(result.error ?? t("session.operations.exportFailed"))
       }
       const url = URL.createObjectURL(await response.blob())
       const link = document.createElement("a")
@@ -317,9 +321,10 @@ export function SessionOperations({
       <Tooltip>
         <TooltipTrigger asChild>
           <Button
+            ref={treeTriggerRef}
             variant="ghost"
             size="icon"
-            aria-label="会话树"
+            aria-label={t("session.operations.tree")}
             aria-haspopup="dialog"
             disabled={working || runtimeOperationDisabled}
             onClick={() => setTreeOpen(true)}
@@ -327,15 +332,18 @@ export function SessionOperations({
             <GitMergeIcon />
           </Button>
         </TooltipTrigger>
-        <TooltipContent side="bottom">会话树</TooltipContent>
+        <TooltipContent side="bottom">
+          {t("session.operations.tree")}
+        </TooltipContent>
       </Tooltip>
 
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
+            ref={operationsTriggerRef}
             variant="ghost"
             size="icon"
-            aria-label="会话操作"
+            aria-label={t("session.operations.menu")}
             disabled={working}
           >
             {working ? (
@@ -347,62 +355,62 @@ export function SessionOperations({
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-48">
           <DropdownMenuItem onSelect={startNewConversation}>
-            <PlusIcon /> 新对话
+            <PlusIcon /> {t("session.operations.new")}
           </DropdownMenuItem>
           <DropdownMenuItem
             disabled={runtimeOperationDisabled}
             onSelect={() => openDialog("rename")}
           >
-            <PencilIcon /> 重命名
+            <PencilIcon /> {t("session.operations.rename")}
           </DropdownMenuItem>
           <DropdownMenuItem
             disabled={runtimeOperationDisabled}
             onSelect={clone}
           >
-            <CopyIcon /> 克隆当前分支
+            <CopyIcon /> {t("session.operations.clone")}
           </DropdownMenuItem>
           {runtimeTargets.length ? (
             <DropdownMenuItem
               disabled={runtimeOperationDisabled}
               onSelect={() => openDialog("runtime")}
             >
-              <Repeat2Icon /> 复制到运行环境
+              <Repeat2Icon /> {t("session.operations.duplicateRuntime")}
             </DropdownMenuItem>
           ) : null}
           <DropdownMenuItem
             disabled={runtimeOperationDisabled}
             onSelect={() => void openFork()}
           >
-            <GitForkIcon /> 派生
+            <GitForkIcon /> {t("session.operations.fork")}
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem
             disabled={runtimeOperationDisabled}
             onSelect={() => void exportSession("jsonl")}
           >
-            <DownloadIcon /> 导出 JSONL
+            <DownloadIcon /> {t("session.operations.exportJsonl")}
           </DropdownMenuItem>
           <DropdownMenuItem
             disabled={runtimeOperationDisabled}
             onSelect={() => void exportSession("html")}
           >
-            <DownloadIcon /> 导出 HTML
+            <DownloadIcon /> {t("session.operations.exportHtml")}
           </DropdownMenuItem>
           <DropdownMenuItem
             disabled={runtimeOperationDisabled}
             onSelect={() => openDialog("import")}
           >
-            <ImportIcon /> 导入 JSONL
+            <ImportIcon /> {t("session.operations.importJsonl")}
           </DropdownMenuItem>
           <DropdownMenuItem
             disabled={runtimeOperationDisabled}
             onSelect={openStats}
           >
-            <BarChart3Icon /> 统计
+            <BarChart3Icon /> {t("session.operations.stats")}
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={() => void archive()}>
-            <ArchiveIcon /> 归档
+            <ArchiveIcon /> {t("session.operations.archive")}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -412,6 +420,7 @@ export function SessionOperations({
         mutationToken={mutationToken}
         open={treeOpen}
         onOpenChange={setTreeOpen}
+        returnFocusRef={treeTriggerRef}
       />
 
       <Dialog
@@ -420,17 +429,24 @@ export function SessionOperations({
           if (!open && !working) setDialog(null)
         }}
       >
-        <DialogContent>
+        <DialogContent
+          onCloseAutoFocus={(event) => {
+            event.preventDefault()
+            operationsTriggerRef.current?.focus()
+          }}
+        >
           {dialog === "rename" ? (
             <form className="grid gap-5" onSubmit={rename}>
               <DialogHeader>
-                <DialogTitle>重命名 session</DialogTitle>
+                <DialogTitle>{t("session.operations.renameTitle")}</DialogTitle>
                 <DialogDescription>
-                  名称会由 Pi 写入当前 JSONL。
+                  {t("session.operations.renameDescription")}
                 </DialogDescription>
               </DialogHeader>
               <div className="grid gap-2">
-                <Label htmlFor="session-rename-name">会话名称</Label>
+                <Label htmlFor="session-rename-name">
+                  {t("session.operations.name")}
+                </Label>
                 <Input
                   id="session-rename-name"
                   value={name}
@@ -444,7 +460,7 @@ export function SessionOperations({
                   type="submit"
                   disabled={working || runtimeOperationDisabled || !name.trim()}
                 >
-                  保存
+                  {t("session.operations.save")}
                 </Button>
               </DialogFooter>
             </form>
@@ -453,9 +469,9 @@ export function SessionOperations({
           {dialog === "fork" ? (
             <div className="grid gap-5">
               <DialogHeader>
-                <DialogTitle>派生会话</DialogTitle>
+                <DialogTitle>{t("session.operations.forkTitle")}</DialogTitle>
                 <DialogDescription>
-                  从一条真实的用户消息创建新的 Pi session。
+                  {t("session.operations.forkDescription")}
                 </DialogDescription>
               </DialogHeader>
               {forkEntries?.length ? (
@@ -464,14 +480,19 @@ export function SessionOperations({
                   onValueChange={setSelectedEntryId}
                   disabled={working || runtimeOperationDisabled}
                 >
-                  <SelectTrigger className="w-full" aria-label="会话条目">
+                  <SelectTrigger
+                    className="w-full"
+                    aria-label={t("session.operations.entry")}
+                  >
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     {forkEntries.map((entry) => (
                       <SelectItem key={entry.id} value={entry.id}>
-                        {treeLabel(entry)}
-                        {entry.id === tree?.leafId ? " · 当前" : ""}
+                        {treeLabel(entry, locale)}
+                        {entry.id === tree?.leafId
+                          ? ` · ${t("session.operations.current")}`
+                          : ""}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -487,7 +508,7 @@ export function SessionOperations({
                   {working ? (
                     <LoaderCircleIcon className="animate-spin" />
                   ) : null}
-                  创建 fork
+                  {t("session.operations.createFork")}
                 </Button>
               </DialogFooter>
             </div>
@@ -496,9 +517,9 @@ export function SessionOperations({
           {dialog === "stats" ? (
             <div className="grid gap-5">
               <DialogHeader>
-                <DialogTitle>会话统计</DialogTitle>
+                <DialogTitle>{t("session.operations.statsTitle")}</DialogTitle>
                 <DialogDescription>
-                  统计由当前 Pi AgentSession 计算。
+                  {t("session.operations.statsDescription")}
                 </DialogDescription>
               </DialogHeader>
               {working ? (
@@ -508,36 +529,48 @@ export function SessionOperations({
               ) : stats ? (
                 <dl className="grid grid-cols-2 gap-3 text-sm">
                   <div>
-                    <dt className="text-muted-foreground">用户消息</dt>
+                    <dt className="text-muted-foreground">
+                      {t("session.operations.userMessages")}
+                    </dt>
                     <dd className="text-lg font-medium">
                       {stats.userMessages}
                     </dd>
                   </div>
                   <div>
-                    <dt className="text-muted-foreground">助手消息</dt>
+                    <dt className="text-muted-foreground">
+                      {t("session.operations.assistantMessages")}
+                    </dt>
                     <dd className="text-lg font-medium">
                       {stats.assistantMessages}
                     </dd>
                   </div>
                   <div>
-                    <dt className="text-muted-foreground">工具调用</dt>
+                    <dt className="text-muted-foreground">
+                      {t("session.operations.toolCalls")}
+                    </dt>
                     <dd className="text-lg font-medium">{stats.toolCalls}</dd>
                   </div>
                   <div>
-                    <dt className="text-muted-foreground">令牌</dt>
+                    <dt className="text-muted-foreground">
+                      {t("session.operations.tokens")}
+                    </dt>
                     <dd className="text-lg font-medium">
                       {stats.tokens.total.toLocaleString()}
                     </dd>
                   </div>
                   <div>
-                    <dt className="text-muted-foreground">成本</dt>
+                    <dt className="text-muted-foreground">
+                      {t("session.operations.cost")}
+                    </dt>
                     <dd className="text-lg font-medium">
                       ${stats.cost.toFixed(4)}
                     </dd>
                   </div>
                   {stats.contextUsage ? (
                     <div>
-                      <dt className="text-muted-foreground">上下文</dt>
+                      <dt className="text-muted-foreground">
+                        {t("session.operations.context")}
+                      </dt>
                       <dd className="text-lg font-medium">
                         {stats.contextUsage.percent.toFixed(1)}%
                       </dd>
@@ -551,9 +584,11 @@ export function SessionOperations({
           {dialog === "runtime" ? (
             <div className="grid gap-5">
               <DialogHeader>
-                <DialogTitle>复制到所选运行环境</DialogTitle>
+                <DialogTitle>
+                  {t("session.operations.runtimeTitle")}
+                </DialogTitle>
                 <DialogDescription>
-                  复制当前分支并绑定到目标 runtime；原 session 与绑定保持不变。
+                  {t("session.operations.runtimeDescription")}
                 </DialogDescription>
               </DialogHeader>
               <Select
@@ -561,7 +596,10 @@ export function SessionOperations({
                 onValueChange={setSelectedRuntimeProfileId}
                 disabled={working || runtimeOperationDisabled}
               >
-                <SelectTrigger className="w-full" aria-label="目标 runtime">
+                <SelectTrigger
+                  className="w-full"
+                  aria-label={t("session.operations.targetRuntime")}
+                >
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -584,7 +622,7 @@ export function SessionOperations({
                   {working ? (
                     <LoaderCircleIcon className="animate-spin" />
                   ) : null}
-                  创建副本
+                  {t("session.operations.createCopy")}
                 </Button>
               </DialogFooter>
             </div>
@@ -593,13 +631,15 @@ export function SessionOperations({
           {dialog === "import" ? (
             <form className="grid gap-5" onSubmit={importSession}>
               <DialogHeader>
-                <DialogTitle>导入 Pi JSONL</DialogTitle>
+                <DialogTitle>{t("session.operations.importTitle")}</DialogTitle>
                 <DialogDescription>
-                  Pi 会校验并创建一个新的 session；当前 session 保持不变。
+                  {t("session.operations.importDescription")}
                 </DialogDescription>
               </DialogHeader>
               <div className="grid gap-2">
-                <Label htmlFor="session-import-file">Pi JSONL 文件</Label>
+                <Label htmlFor="session-import-file">
+                  {t("session.operations.importFile")}
+                </Label>
                 <Input
                   id="session-import-file"
                   type="file"
@@ -616,7 +656,7 @@ export function SessionOperations({
                   {working ? (
                     <LoaderCircleIcon className="animate-spin" />
                   ) : null}
-                  导入
+                  {t("session.operations.import")}
                 </Button>
               </DialogFooter>
             </form>

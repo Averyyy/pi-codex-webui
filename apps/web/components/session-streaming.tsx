@@ -12,6 +12,7 @@ import { LoaderCircleIcon } from "lucide-react"
 
 import { SessionExtensionContext } from "@/components/session-extension-provider"
 import { ConversationMessageParts } from "@/components/conversation-message-parts"
+import { useI18n } from "@/components/i18n-provider"
 import {
   useStreamingActiveTools,
   useStreamingFollowRequest,
@@ -34,12 +35,14 @@ const StreamingMessage = memo(function StreamingMessage({
 }: {
   message: StreamingMessageView
 }) {
+  const { locale, t } = useI18n()
   const deferredParts = useDeferredValue(message.parts)
   const parts = message.role === "assistant" ? deferredParts : message.parts
   const content = (
     <ConversationMessageParts
       parts={parts}
       thinkingActive={message.role === "assistant" && !message.complete}
+      locale={locale}
     />
   )
 
@@ -57,7 +60,9 @@ const StreamingMessage = memo(function StreamingMessage({
     <article
       data-streaming-message={message.role === "assistant" ? "" : undefined}
       aria-label={
-        message.role === "assistant" ? "正在生成的回复" : message.role
+        message.role === "assistant"
+          ? t("session.streaming.reply")
+          : message.role
       }
       aria-busy={message.role === "assistant" && !message.complete}
       className={`flex min-w-0 flex-col gap-2 ${message.complete ? COMPLETED_MESSAGE_CLASS : ""}`}
@@ -71,7 +76,7 @@ const StreamingMessage = memo(function StreamingMessage({
         ) : !message.complete ? (
           <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <LoaderCircleIcon className="size-3.5 animate-spin" />
-            正在生成
+            {t("session.streaming.generating")}
           </span>
         ) : null}
         {message.errorMessage ? (
@@ -144,15 +149,18 @@ export function SessionStreamingMessage() {
 }
 
 export function SessionStreamingToolStatus() {
+  const { locale, t } = useI18n()
   const activeTools = useStreamingActiveTools()
   if (activeTools.length === 0) return null
   const description =
     activeTools.length <= 2
-      ? activeTools.map((tool) => tool.name).join("、")
-      : `${activeTools.length} 个工具`
+      ? activeTools
+          .map((tool) => tool.name)
+          .join(locale === "zh-CN" ? "、" : ", ")
+      : t("session.streaming.activeTools", { count: activeTools.length })
   return (
     <span className="text-xs text-muted-foreground" aria-live="polite">
-      正在执行 {description}
+      {t("session.streaming.executing", { name: description })}
     </span>
   )
 }

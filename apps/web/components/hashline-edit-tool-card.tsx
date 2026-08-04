@@ -11,6 +11,7 @@ import type {
 import { hashlineEditToolPresentation } from "@/lib/hashline-edit-tool"
 import type { ToolResultView } from "@/lib/message-content"
 import type { TranscriptPart } from "@/lib/session-types"
+import { translate, type Locale } from "@/lib/i18n"
 
 function Diff({ value }: { value: string }) {
   return (
@@ -35,14 +36,16 @@ function Diff({ value }: { value: string }) {
 
 function Requests({
   presentation,
+  locale,
 }: {
   presentation: HashlineEditToolPresentation
+  locale: Locale
 }) {
   if (!presentation.requests.length) return null
   return (
     <section>
       <p className="mb-1.5 text-xs font-medium text-muted-foreground">
-        计划变更
+        {translate(locale, "session.hashline.plannedChanges")}
       </p>
       <ul className="grid min-w-0 gap-1.5 text-xs">
         {presentation.requests.map((request) => (
@@ -50,7 +53,11 @@ function Requests({
             key={request.index}
             className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1 rounded-lg bg-muted/50 px-3 py-2"
           >
-            <span className="font-medium">变更 {request.index}</span>
+            <span className="font-medium">
+              {translate(locale, "session.hashline.change", {
+                index: request.index,
+              })}
+            </span>
             {request.anchorRange ? (
               <code className="min-w-0 break-all text-muted-foreground">
                 {request.anchorRange}
@@ -58,7 +65,13 @@ function Requests({
             ) : null}
             {request.replacementLines !== undefined ? (
               <span className="text-muted-foreground">
-                写入 {request.replacementLines} 行
+                {translate(
+                  locale,
+                  request.replacementLines === 1
+                    ? "session.hashline.writeLine"
+                    : "session.hashline.writeLines",
+                  { count: request.replacementLines }
+                )}
               </span>
             ) : null}
           </li>
@@ -74,17 +87,20 @@ export function HashlineEditToolCard({
   result,
   running,
   failed,
+  locale,
 }: {
   kind: HashlineEditToolKind
   part: Extract<TranscriptPart, { type: "toolCall" }>
   result?: ToolResultView
   running: boolean
   failed: boolean
+  locale: Locale
 }) {
   const presentation = hashlineEditToolPresentation(
     kind,
     part.arguments,
-    result?.details
+    result?.details,
+    locale
   )
   const noChange = !running && presentation.classification === "noop"
   return (
@@ -95,7 +111,13 @@ export function HashlineEditToolCard({
       icon={kind === "replace" ? <FilePenLineIcon /> : <Undo2Icon />}
       tone="write"
       status={
-        failed ? "失败" : running ? "运行中" : noChange ? "无变更" : "完成"
+        failed
+          ? translate(locale, "session.transcript.failed")
+          : running
+            ? translate(locale, "session.transcript.running")
+            : noChange
+              ? translate(locale, "session.hashline.noChange")
+              : translate(locale, "session.transcript.complete")
       }
       statusTone={
         failed
@@ -106,11 +128,13 @@ export function HashlineEditToolCard({
               ? "muted"
               : "success"
       }
-      ariaLabel={`展开${presentation.label}详情`}
+      ariaLabel={translate(locale, "session.tool.expand", {
+        name: presentation.label,
+      })}
       contentClassName="max-w-full"
     >
       <div className="flex min-w-0 flex-col gap-4">
-        <Requests presentation={presentation} />
+        <Requests presentation={presentation} locale={locale} />
         {presentation.facts.length ? (
           <dl className="flex flex-wrap gap-x-5 gap-y-2 text-xs">
             {presentation.facts.map((fact) => (
@@ -124,7 +148,7 @@ export function HashlineEditToolCard({
         {presentation.diff ? (
           <section className="min-w-0">
             <p className="mb-1.5 text-xs font-medium text-muted-foreground">
-              变更 Diff
+              {translate(locale, "session.hashline.diff")}
             </p>
             <Diff value={presentation.diff} />
           </section>
@@ -132,7 +156,7 @@ export function HashlineEditToolCard({
         {presentation.undoSummary ? (
           <section className="rounded-lg bg-muted/50 px-3 py-2 text-sm">
             <p className="text-xs font-medium text-muted-foreground">
-              撤销信息
+              {translate(locale, "session.hashline.undoInfo")}
             </p>
             <p className="mt-1">{presentation.undoSummary}</p>
           </section>
@@ -140,10 +164,16 @@ export function HashlineEditToolCard({
         {result ? (
           <section className="min-w-0">
             <p className="mb-1.5 text-xs font-medium text-muted-foreground">
-              {running ? "实时结果" : "结果"}
+              {running
+                ? translate(locale, "session.tool.liveResult")
+                : translate(locale, "session.tool.result")}
             </p>
             <div className="flex min-w-0 flex-col gap-2 text-sm">
-              <ConversationTextParts parts={result.parts} literal />
+              <ConversationTextParts
+                parts={result.parts}
+                literal
+                locale={locale}
+              />
             </div>
           </section>
         ) : null}

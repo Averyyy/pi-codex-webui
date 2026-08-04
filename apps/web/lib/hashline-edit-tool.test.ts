@@ -75,7 +75,8 @@ test("presents bulk replace requests and the 0.18.1 result details", () => {
           added_lines: 2,
           removed_lines: 1,
         },
-      }
+      },
+      "zh-CN"
     ),
     {
       kind: "replace",
@@ -127,7 +128,8 @@ test("presents flat replace no-op details without inventing a diff", () => {
         warnings: 0,
         classification: "noop",
       },
-    }
+    },
+    "zh-CN"
   )
 
   assert.equal(presentation.classification, "noop")
@@ -160,7 +162,8 @@ test("uses undo metrics as restored and removed line counts", () => {
         added_lines: 3,
         removed_lines: 5,
       },
-    }
+    },
+    "zh-CN"
   )
 
   assert.deepEqual(presentation, {
@@ -177,4 +180,34 @@ test("uses undo metrics as restored and removed line counts", () => {
     undoSummary: "恢复 3 行，移除 5 行",
     classification: "applied",
   })
+})
+
+test("presents hashline details in English when requested", () => {
+  const presentation = hashlineEditToolPresentation(
+    "replace",
+    {
+      path: "src/main.ts",
+      content_lines: ["updated"],
+      hash_range_inclusive: ["MQX", "MQX"],
+    },
+    {
+      metrics: {
+        edits_attempted: 1,
+        edits_noop: 0,
+        warnings: 1,
+        classification: "applied",
+        changed_lines: { first: 7, last: 9 },
+      },
+    },
+    "en-US"
+  )
+
+  assert.equal(presentation.label, "Hashline replace")
+  assert.deepEqual(presentation.facts, [
+    { label: "Requests", value: "1 request" },
+    { label: "Applied", value: "1/1 edit" },
+    { label: "Result", value: "Applied" },
+    { label: "Range", value: "Lines 7–9" },
+    { label: "Warnings", value: "1 warning" },
+  ])
 })

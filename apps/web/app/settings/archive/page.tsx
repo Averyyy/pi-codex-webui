@@ -5,8 +5,10 @@ import { getLocalizedConfig } from "@/lib/i18n-server"
 import { getMutationToken } from "@/lib/request-security"
 
 export default async function ArchiveSettingsPage() {
-  const { t } = await getLocalizedConfig()
-  const sessions = await listArchivedSessions()
+  const [{ t }, sessions] = await Promise.all([
+    getLocalizedConfig(),
+    listArchivedSessions(),
+  ])
   return (
     <SettingsSection
       title={t("settings.page.archive.title")}

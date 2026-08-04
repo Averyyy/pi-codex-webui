@@ -43,6 +43,7 @@ import {
   type ComposerCommand,
 } from "@/components/composer-command-menu"
 import { useI18n } from "@/components/i18n-provider"
+import type { Translator } from "@/lib/i18n"
 
 function modelValue(model: { provider: string; id: string }) {
   return JSON.stringify([model.provider, model.id])
@@ -492,7 +493,7 @@ export function ComposerThinkingSelect({
       value={level}
       onValueChange={(value) => {
         const next = levels.find((available) => available === value)
-        if (!next) throw new Error("选择的 thinking level 不再可用。")
+        if (!next) throw new Error(t("composer.reasoningUnavailable"))
         onLevelChange(next)
       }}
       disabled={disabled || levels.length < 2}
@@ -520,13 +521,14 @@ export function ComposerThinkingSelect({
 
 export function nextThinkingLevel(
   level: ThinkingLevel,
-  levels: ThinkingLevel[]
+  levels: ThinkingLevel[],
+  t: Translator
 ) {
   const currentIndex = levels.indexOf(level)
   if (currentIndex === -1) {
-    throw new Error(`当前 reasoning effort ${level} 不在可选档位中。`)
+    throw new Error(t("composer.reasoningInvalid", { level }))
   }
   const next = levels[(currentIndex + 1) % levels.length]
-  if (!next) throw new Error("当前模型没有可切换的 reasoning effort。")
+  if (!next) throw new Error(t("composer.reasoningNoAlternative"))
   return next
 }

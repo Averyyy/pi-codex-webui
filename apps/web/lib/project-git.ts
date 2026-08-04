@@ -177,6 +177,20 @@ function parseStatus(
 export async function readProjectGitStatus(
   projectPath: string
 ): Promise<ProjectGitStatus> {
+  let canonicalProjectPath: string
+  try {
+    canonicalProjectPath = await realpath(projectPath)
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code
+    if (code === "ENOENT" || code === "ENOTDIR") {
+      return {
+        available: false,
+        error: "The project directory no longer exists.",
+      }
+    }
+    throw error
+  }
+
   let root: GitResult
   try {
     root = await runGit(projectPath, ["rev-parse", "--show-toplevel"])
@@ -191,19 +205,6 @@ export async function readProjectGitStatus(
       available: false,
       error: root.stderr.trim() || "The project is not inside a Git worktree.",
     }
-  }
-  let canonicalProjectPath: string
-  try {
-    canonicalProjectPath = await realpath(projectPath)
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code
-    if (code === "ENOENT" || code === "ENOTDIR") {
-      return {
-        available: false,
-        error: "The project directory no longer exists.",
-      }
-    }
-    throw error
   }
 
   const [branch, commit, upstream, status] = await Promise.all([

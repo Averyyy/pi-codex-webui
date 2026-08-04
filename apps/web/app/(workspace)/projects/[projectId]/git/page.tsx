@@ -1,8 +1,7 @@
 import { notFound } from "next/navigation"
-import { CheckCircle2Icon, GitBranchIcon, RefreshCwIcon } from "lucide-react"
+import { CheckCircle2Icon, GitBranchIcon } from "lucide-react"
 
 import { Badge } from "@workspace/ui/components/badge"
-import { Button } from "@workspace/ui/components/button"
 import {
   Card,
   CardContent,
@@ -11,15 +10,21 @@ import {
   CardTitle,
 } from "@workspace/ui/components/card"
 
+import { ProjectGitRefreshButton } from "@/components/project-git-refresh-button"
 import { ProjectHeader } from "@/components/project-header"
 import { getProject } from "@/lib/catalog"
+import { getLocalizedConfig } from "@/lib/i18n-server"
+import { projectGitErrorCopy } from "@/lib/project-git-display"
 import { readProjectGitStatus } from "@/lib/project-git"
 
 export default async function ProjectGitPage({
   params,
 }: PageProps<"/projects/[projectId]/git">) {
   const { projectId } = await params
-  const project = await getProject(projectId)
+  const [{ config, t }, project] = await Promise.all([
+    getLocalizedConfig(),
+    getProject(projectId),
+  ])
   if (!project) notFound()
   const git = await readProjectGitStatus(project.path)
 
@@ -29,19 +34,18 @@ export default async function ProjectGitPage({
         project={project}
         branch={git.available ? git.branch : null}
         active="git"
+        locale={config.appearance.language}
       >
-        <Button asChild variant="outline" size="sm">
-          <a href={`/projects/${projectId}/git`}>
-            <RefreshCwIcon /> 刷新状态
-          </a>
-        </Button>
+        <ProjectGitRefreshButton />
       </ProjectHeader>
 
       {!git.available ? (
         <Card>
           <CardHeader>
-            <CardTitle>Git 不可用</CardTitle>
-            <CardDescription>{git.error}</CardDescription>
+            <CardTitle>{t("project.git.unavailable")}</CardTitle>
+            <CardDescription>
+              {projectGitErrorCopy(git.error, config.appearance.language)}
+            </CardDescription>
           </CardHeader>
         </Card>
       ) : (
@@ -50,7 +54,7 @@ export default async function ProjectGitPage({
             <CardHeader>
               <CardTitle className="flex flex-wrap items-center gap-2">
                 <GitBranchIcon className="size-4" />
-                {git.branch ?? "Detached HEAD"}
+                {git.branch ?? t("project.git.detachedHead")}
                 {git.commit ? (
                   <Badge variant="outline" className="font-mono">
                     {git.commit}
@@ -65,7 +69,10 @@ export default async function ProjectGitPage({
               <CardContent className="flex flex-wrap gap-2 text-sm">
                 <Badge variant="secondary">{git.upstream}</Badge>
                 <span className="text-muted-foreground">
-                  ahead {git.ahead} · behind {git.behind}
+                  {t("project.git.divergence", {
+                    ahead: git.ahead,
+                    behind: git.behind,
+                  })}
                 </span>
               </CardContent>
             ) : null}
@@ -73,11 +80,16 @@ export default async function ProjectGitPage({
 
           <Card className="gap-0 overflow-hidden">
             <CardHeader className="border-b">
-              <CardTitle>工作区</CardTitle>
+              <CardTitle>{t("project.git.workspace")}</CardTitle>
               <CardDescription>
                 {git.files.length
-                  ? `${git.files.length} 个真实 Git 状态条目。`
-                  : "工作区没有未提交变更。"}
+                  ? t(
+                      git.files.length === 1
+                        ? "project.git.changedSummaryOne"
+                        : "project.git.changedSummary",
+                      { count: git.files.length }
+                    )
+                  : t("project.git.cleanSummary")}
               </CardDescription>
             </CardHeader>
             <CardContent className="p-0">
@@ -96,7 +108,9 @@ export default async function ProjectGitPage({
                         <p>{file.path}</p>
                         {file.originalPath ? (
                           <p className="mt-1 text-muted-foreground">
-                            from {file.originalPath}
+                            {t("project.git.originalPath", {
+                              path: file.originalPath,
+                            })}
                           </p>
                         ) : null}
                       </div>
@@ -106,7 +120,7 @@ export default async function ProjectGitPage({
               ) : (
                 <div className="flex items-center gap-3 p-6 text-sm text-muted-foreground">
                   <CheckCircle2Icon className="size-4" />
-                  Clean
+                  {t("project.git.clean")}
                 </div>
               )}
             </CardContent>

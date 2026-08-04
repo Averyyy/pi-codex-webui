@@ -12,6 +12,7 @@ import { Markdown } from "@/components/markdown"
 import { UserMessage } from "@/components/user-message"
 import { WebUiMessageFallback } from "@/components/webui-message-fallback"
 import { stripAnsi } from "@/lib/ansi"
+import { createTranslator, type Locale, type Translator } from "@/lib/i18n"
 import type { ToolResultView } from "@/lib/message-content"
 import { formatInlinePreview, formatTimestamp } from "@/lib/session-display"
 import type { SessionSnapshot, TranscriptEntry } from "@/lib/session-types"
@@ -31,6 +32,8 @@ function Message({
   mutationToken,
   workspaceUnavailable,
   initialRuntimeStatus,
+  locale,
+  t,
 }: {
   entry: MessageEntry
   toolResults: ReadonlyMap<string, ToolResultView>
@@ -38,6 +41,8 @@ function Message({
   mutationToken: string
   workspaceUnavailable: boolean
   initialRuntimeStatus: RuntimeStatus
+  locale: Locale
+  t: Translator
 }) {
   if (entry.role === "bashExecution") {
     const [command, output] = entry.parts
@@ -51,9 +56,13 @@ function Message({
           preview={commandText}
           icon={<TerminalIcon />}
           tone="execute"
-          status={entry.isError ? "失败" : "完成"}
+          status={
+            entry.isError
+              ? t("session.transcript.failed")
+              : t("session.transcript.complete")
+          }
           statusTone={entry.isError ? "destructive" : "success"}
-          ariaLabel="展开 shell 详情"
+          ariaLabel={t("session.transcript.expandShell")}
         >
           <pre className="max-h-72 overflow-auto rounded-lg border bg-terminal p-3 font-mono text-xs leading-5 whitespace-pre-wrap text-terminal-foreground">
             $ {command?.type === "text" ? stripAnsi(command.text) : ""}
@@ -72,6 +81,7 @@ function Message({
       parts={entry.parts}
       literal={entry.role === "toolResult"}
       toolResults={toolResults}
+      locale={locale}
     />
   )
 
@@ -98,7 +108,7 @@ function Message({
         <div className="flex items-center gap-2 text-xs font-medium">
           <span>{entry.role}</span>
           <span className="font-normal text-muted-foreground">
-            {formatTimestamp(entry.timestamp)}
+            {formatTimestamp(entry.timestamp, locale)}
           </span>
         </div>
       ) : null}
@@ -109,8 +119,10 @@ function Message({
 
 function Event({
   entry,
+  t,
 }: {
   entry: Extract<TranscriptEntry, { kind: "event" }>
+  t: Translator
 }) {
   const summary =
     entry.eventType === "compaction" || entry.eventType === "branch_summary"
@@ -122,7 +134,7 @@ function Event({
           preview={entry.text ? formatInlinePreview(entry.text) : undefined}
           icon={<FileTextIcon />}
           tone="read"
-          ariaLabel={`展开${entry.title}`}
+          ariaLabel={t("session.tool.expand", { name: entry.title })}
           contentClassName="text-sm text-muted-foreground"
         >
           <Markdown>{entry.text ?? ""}</Markdown>
@@ -137,7 +149,7 @@ function Event({
           label={entry.title}
           preview={formatInlinePreview(json(entry.value))}
           icon={<CircleAlertIcon />}
-          ariaLabel={`展开${entry.title}`}
+          ariaLabel={t("session.tool.expand", { name: entry.title })}
         >
           <pre className="max-h-72 overflow-auto rounded-lg bg-muted/60 p-3 text-xs">
             {json(entry.value)}
@@ -167,14 +179,25 @@ function isSettingEvent(entry: TranscriptEntry): entry is SettingEvent {
   )
 }
 
-function SettingChanges({ entries }: { entries: SettingEvent[] }) {
+function SettingChanges({
+  entries,
+  t,
+}: {
+  entries: SettingEvent[]
+  t: Translator
+}) {
   return (
     <ConversationDisclosure
       className={TRANSCRIPT_ITEM_CLASS}
-      label="会话设置变更"
-      preview={`${entries.length} 项`}
+      label={t("session.transcript.settingsChanges")}
+      preview={t(
+        entries.length === 1
+          ? "session.transcript.settingsCountOne"
+          : "session.transcript.settingsCount",
+        { count: entries.length }
+      )}
       icon={<Settings2Icon />}
-      ariaLabel="展开会话设置变更"
+      ariaLabel={t("session.transcript.expandSettings")}
       contentClassName="text-xs text-muted-foreground"
     >
       <div className="flex flex-col gap-2">
@@ -221,13 +244,16 @@ export function SessionTranscript({
   mutationToken,
   workspaceUnavailable,
   initialRuntimeStatus,
+  locale,
 }: {
   snapshot: SessionSnapshot
   sessionId: string
   mutationToken: string
   workspaceUnavailable: boolean
   initialRuntimeStatus: RuntimeStatus
+  locale: Locale
 }) {
+  const t = createTranslator(locale)
   const toolResults = new Map<string, ToolResultView>()
   const renderedToolResults = new Set<string>()
   for (const entry of snapshot.entries) {
@@ -254,7 +280,7 @@ export function SessionTranscript({
     <div className="flex min-w-0 flex-col gap-5">
       {transcriptBlocks(snapshot.entries).map((block) => {
         if (Array.isArray(block)) {
-          return <SettingChanges key={block[0]?.id} entries={block} />
+          return <SettingChanges key={block[0]?.id} entries={block} t={t} />
         }
         const entry = block
         if (
@@ -266,7 +292,7 @@ export function SessionTranscript({
           return null
         }
         if (entry.kind !== "message") {
-          return <Event key={entry.id} entry={entry} />
+          return <Event key={entry.id} entry={entry} t={t} />
         }
         const message = (
           <Message
@@ -277,6 +303,8 @@ export function SessionTranscript({
             mutationToken={mutationToken}
             workspaceUnavailable={workspaceUnavailable}
             initialRuntimeStatus={initialRuntimeStatus}
+            locale={locale}
+            t={t}
           />
         )
         return entry.role.startsWith("custom:") ? (

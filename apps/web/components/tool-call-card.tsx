@@ -21,6 +21,7 @@ import { ConversationTextParts } from "@/components/conversation-text-parts"
 import { HashlineEditToolCard } from "@/components/hashline-edit-tool-card"
 import { useStreamingTool } from "@/components/session-streaming-context"
 import { hashlineEditToolKind } from "@/lib/hashline-edit-tool"
+import { translate, type Locale } from "@/lib/i18n"
 import type { ToolResultView } from "@/lib/message-content"
 import type { TranscriptPart } from "@/lib/session-types"
 import {
@@ -106,17 +107,20 @@ function WebAccessToolCard({
   result,
   running,
   failed,
+  locale,
 }: {
   name: WebAccessToolName
   part: Extract<TranscriptPart, { type: "toolCall" }>
   result?: ToolResultView
   running: boolean
   failed: boolean
+  locale: Locale
 }) {
   const presentation = webAccessToolPresentation(
     name,
     part.arguments,
-    result?.details
+    result?.details,
+    locale
   )
   const hasFailed = failed || presentation.error !== undefined
   return (
@@ -126,16 +130,26 @@ function WebAccessToolCard({
       preview={presentation.preview}
       icon={WEB_ACCESS_ICONS[name]}
       tone="web"
-      status={hasFailed ? "失败" : running ? "运行中" : "完成"}
+      status={
+        hasFailed
+          ? translate(locale, "session.transcript.failed")
+          : running
+            ? translate(locale, "session.transcript.running")
+            : translate(locale, "session.transcript.complete")
+      }
       statusTone={hasFailed ? "destructive" : running ? "running" : "success"}
-      ariaLabel={`展开${presentation.label}详情`}
+      ariaLabel={translate(locale, "session.tool.expand", {
+        name: presentation.label,
+      })}
       contentClassName="max-w-full"
     >
       <div className="flex min-w-0 flex-col gap-4">
         {presentation.inputs.length ? (
           <section>
             <p className="mb-1.5 text-xs font-medium text-muted-foreground">
-              {name === "web_search" ? "查询" : "目标"}
+              {name === "web_search"
+                ? translate(locale, "session.tool.query")
+                : translate(locale, "session.tool.target")}
             </p>
             <ul className="flex min-w-0 flex-col gap-1.5 text-sm">
               {presentation.inputs.map((input) => (
@@ -162,10 +176,12 @@ function WebAccessToolCard({
         {result ? (
           <section className="min-w-0">
             <p className="mb-1.5 text-xs font-medium text-muted-foreground">
-              {running ? "实时结果" : "结果"}
+              {running
+                ? translate(locale, "session.tool.liveResult")
+                : translate(locale, "session.tool.result")}
             </p>
             <div className="flex min-w-0 flex-col gap-2 text-sm">
-              <ConversationTextParts parts={result.parts} />
+              <ConversationTextParts parts={result.parts} locale={locale} />
             </div>
           </section>
         ) : null}
@@ -177,9 +193,11 @@ function WebAccessToolCard({
 export function ToolCallCard({
   part,
   persistedResult,
+  locale,
 }: {
   part: Extract<TranscriptPart, { type: "toolCall" }>
   persistedResult?: ToolResultView
+  locale: Locale
 }) {
   const live = useStreamingTool(part.id)
   const result = useDeferredValue(live?.result ?? persistedResult)
@@ -204,6 +222,7 @@ export function ToolCallCard({
           result={result}
           running={running}
           failed={failed}
+          locale={locale}
         />
       </ToolResultAnchor>
     )
@@ -221,6 +240,7 @@ export function ToolCallCard({
           result={result}
           running={running}
           failed={failed}
+          locale={locale}
         />
       </ToolResultAnchor>
     )
@@ -235,14 +255,22 @@ export function ToolCallCard({
         preview={summary}
         icon={appearance.icon}
         tone={appearance.tone}
-        status={failed ? "失败" : running ? "运行中" : "完成"}
+        status={
+          failed
+            ? translate(locale, "session.transcript.failed")
+            : running
+              ? translate(locale, "session.transcript.running")
+              : translate(locale, "session.transcript.complete")
+        }
         statusTone={failed ? "destructive" : running ? "running" : "success"}
-        ariaLabel={`展开 ${effectivePart.name} 详情`}
+        ariaLabel={translate(locale, "session.tool.expand", {
+          name: effectivePart.name,
+        })}
       >
         <div className="flex min-w-0 flex-col gap-3">
           <section>
             <p className="mb-1.5 text-xs font-medium text-muted-foreground">
-              参数
+              {translate(locale, "session.tool.arguments")}
             </p>
             <pre className="max-h-72 max-w-full overflow-auto rounded-lg bg-muted/60 p-3 font-mono text-xs leading-5">
               {json(effectivePart.arguments)}
@@ -251,10 +279,16 @@ export function ToolCallCard({
           {result ? (
             <div>
               <p className="mb-1.5 text-xs font-medium text-muted-foreground">
-                {running ? "实时结果" : "结果"}
+                {running
+                  ? translate(locale, "session.tool.liveResult")
+                  : translate(locale, "session.tool.result")}
               </p>
               <div className="flex min-w-0 flex-col gap-2 text-sm">
-                <ConversationTextParts parts={result.parts} literal />
+                <ConversationTextParts
+                  parts={result.parts}
+                  literal
+                  locale={locale}
+                />
               </div>
             </div>
           ) : null}

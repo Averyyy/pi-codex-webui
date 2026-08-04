@@ -14,6 +14,7 @@ import { Textarea } from "@workspace/ui/components/textarea"
 import type { RuntimeStatus } from "@workspace/runtime-protocol"
 
 import { useStreamingRuntimeStatus } from "@/components/session-streaming-context"
+import { useI18n } from "@/components/i18n-provider"
 import { responseJson } from "@/lib/api-response"
 import type { TranscriptEntry, TranscriptPart } from "@/lib/session-types"
 
@@ -34,6 +35,7 @@ export function UserMessage({
   initialRuntimeStatus: RuntimeStatus
   children: ReactNode
 }) {
+  const { t } = useI18n()
   const router = useRouter()
   const liveRuntimeStatus = useStreamingRuntimeStatus()
   const [editing, setEditing] = useState(false)
@@ -133,7 +135,7 @@ export function UserMessage({
             <Textarea
               value={editValue}
               onChange={(event) => setEditValue(event.target.value)}
-              aria-label="编辑已发送消息"
+              aria-label={t("session.message.editSent")}
               className="min-h-24 resize-y border-0 bg-transparent px-0 py-0 shadow-none focus-visible:ring-0 dark:bg-transparent"
               autoFocus
               disabled={working}
@@ -147,14 +149,14 @@ export function UserMessage({
                 }}
                 disabled={working}
               >
-                取消
+                {t("session.message.cancel")}
               </Button>
               <Button
                 onClick={() => void submitEdit()}
                 disabled={!editValue.trim() || working || interactionDisabled}
               >
                 {working ? <LoaderCircleIcon className="animate-spin" /> : null}
-                发送
+                {t("session.message.send")}
               </Button>
             </div>
           </>
@@ -169,7 +171,7 @@ export function UserMessage({
               <Button
                 variant="ghost"
                 size="icon-xs"
-                aria-label="上一条消息分支"
+                aria-label={t("session.message.previousBranch")}
                 onClick={() =>
                   void navigateBranch(entry.branch?.previousEntryId)
                 }
@@ -187,7 +189,7 @@ export function UserMessage({
               <Button
                 variant="ghost"
                 size="icon-xs"
-                aria-label="下一条消息分支"
+                aria-label={t("session.message.nextBranch")}
                 onClick={() => void navigateBranch(entry.branch?.nextEntryId)}
                 disabled={
                   working || interactionDisabled || !entry.branch.nextEntryId
@@ -201,7 +203,7 @@ export function UserMessage({
             <Button
               variant="ghost"
               size="icon-xs"
-              aria-label="编辑消息"
+              aria-label={t("session.message.edit")}
               onClick={() => {
                 setEditValue(messageText)
                 setEditing(true)

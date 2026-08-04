@@ -20,7 +20,10 @@ export async function POST(request: Request) {
     )
     if (!parsed.success) {
       return Response.json(
-        { error: "Invalid custom provider." },
+        {
+          error: "Invalid custom provider.",
+          code: "InvalidCustomProvider",
+        },
         { status: 400 }
       )
     }

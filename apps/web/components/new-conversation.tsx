@@ -432,7 +432,8 @@ export function NewConversation({
                     ...current,
                     thinkingLevel: nextThinkingLevel(
                       thinkingLevel,
-                      model.availableThinkingLevels
+                      model.availableThinkingLevels,
+                      t
                     ),
                   }))
               : undefined

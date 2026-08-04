@@ -23,14 +23,20 @@ export async function PATCH(
     )
     if (!parsed.success) {
       return Response.json(
-        { error: "Invalid custom provider." },
+        {
+          error: "Invalid custom provider.",
+          code: "InvalidCustomProvider",
+        },
         { status: 400 }
       )
     }
     const { provider } = await context.params
     if (parsed.data.provider !== provider) {
       return Response.json(
-        { error: "Provider names do not match." },
+        {
+          error: "Provider names do not match.",
+          code: "ProviderMismatch",
+        },
         { status: 400 }
       )
     }

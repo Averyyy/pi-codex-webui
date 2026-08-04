@@ -11,7 +11,11 @@ import {
   readProjectEntry,
   readProjectFile,
 } from "./project-files"
-import { projectFileErrorCopy } from "./project-file-display"
+import {
+  isProjectFileErrorCode,
+  projectFileErrorCopy,
+  projectFileTypeLabel,
+} from "./project-file-display"
 import {
   createProjectWorktree,
   readProjectGitDiff,
@@ -43,6 +47,10 @@ test("project file errors are localized from stable error codes", () => {
     projectFileErrorCopy("OutsideProject", "en-US").description,
     "The requested path is outside the project."
   )
+  assert.equal(isProjectFileErrorCode("OutsideProject"), true)
+  assert.equal(isProjectFileErrorCode("ENOENT"), false)
+  assert.equal(projectFileTypeLabel("directory", "zh-CN"), "目录")
+  assert.equal(projectFileTypeLabel("symbolic-link", "en-US"), "symbolic link")
 })
 
 test("project file browser reads real files and blocks paths outside its root", async () => {
@@ -108,6 +116,10 @@ test("project file browser reads real files and blocks paths outside its root", 
     (error: unknown) =>
       error instanceof ProjectFileError && error.code === "Unavailable"
   )
+  assert.deepEqual(await readProjectGitStatus(project), {
+    available: false,
+    error: "The project directory no longer exists.",
+  })
 })
 
 test("project Git integration reports the real branch and working tree", async () => {
@@ -237,11 +249,11 @@ test("project Git paths and diffs stay relative to a registered subdirectory", a
 test("desktop integrations select native macOS and Windows commands", () => {
   assert.deepEqual(projectFileManager("darwin"), {
     command: "/usr/bin/open",
-    label: "在 Finder 中打开",
+    kind: "finder",
   })
   assert.deepEqual(projectFileManager("win32"), {
     command: "explorer.exe",
-    label: "在文件资源管理器中打开",
+    kind: "file-explorer",
   })
   assert.equal(projectFileManager("linux"), null)
 

@@ -64,6 +64,7 @@ import {
 } from "@workspace/runtime-protocol"
 
 import { PiTuiSurface } from "@/components/pi-tui-surface"
+import { useI18n } from "@/components/i18n-provider"
 import { PromptQueue } from "@/components/prompt-queue"
 import { GoalStatusBar } from "@/components/goal-status-bar"
 import { ConversationCompactionStatus } from "@/components/conversation-compaction-status"
@@ -94,6 +95,7 @@ import { reconcilePromptQueueMutation } from "@/lib/prompt-queue-sync"
 import type { RuntimeStreamMessage } from "@/lib/session-stream-store"
 import { draftAfterAcceptedSend } from "@/lib/session-composer-draft-store"
 import { isVisibleTuiSurface } from "@/lib/tui-surface"
+import type { Translator } from "@/lib/i18n"
 
 interface RuntimeEvent {
   type: string
@@ -135,13 +137,16 @@ function activeExtensionRequest(
   }
 }
 
-const STATUS_LABELS: Record<RuntimeStatus, string> = {
-  stopped: "未激活",
-  starting: "启动中",
-  ready: "就绪",
-  busy: "运行中",
-  stopping: "停止中",
-  crashed: "已崩溃",
+function statusLabel(t: Translator, status: RuntimeStatus) {
+  const keys = {
+    stopped: "session.status.stopped",
+    starting: "session.status.starting",
+    ready: "session.status.ready",
+    busy: "session.status.busy",
+    stopping: "session.status.stopping",
+    crashed: "session.status.crashed",
+  } as const
+  return t(keys[status])
 }
 
 const EVENT_TYPES = [
@@ -289,7 +294,7 @@ function toolExecution(payload: unknown) {
   } & Record<string, unknown>
 }
 
-function retryDescription(payload: unknown) {
+function retryDescription(t: Translator, payload: unknown) {
   if (
     typeof payload !== "object" ||
     payload === null ||
@@ -300,7 +305,10 @@ function retryDescription(payload: unknown) {
   ) {
     throw new Error("Runtime emitted an invalid retry event.")
   }
-  return `重试 ${payload.attempt}/${payload.maxAttempts}`
+  return t("session.runtime.retry", {
+    attempt: payload.attempt,
+    max: payload.maxAttempts,
+  })
 }
 
 export function SessionRuntime({
@@ -318,6 +326,7 @@ export function SessionRuntime({
   initialSnapshot: RuntimeSnapshot | null
   initialGoalState: PiGoalState | null
 }) {
+  const { t } = useI18n()
   const router = useRouter()
   const sessionEvents = useSessionEvents()
   const stream = useSessionStreaming()
@@ -329,6 +338,8 @@ export function SessionRuntime({
     composerDraftStore.read(sessionId)
   )
   const [draft, setDraftState] = useState(initialComposerDraft.text)
+  const composerTextareaRef = useRef<HTMLTextAreaElement>(null)
+  const goalReturnFocusRef = useRef<HTMLElement | null>(null)
   const setDraft = useCallback<Dispatch<SetStateAction<string>>>(
     (nextDraft) => {
       if (typeof nextDraft === "string") {
@@ -481,10 +492,10 @@ export function SessionRuntime({
         "error" in result &&
         typeof result.error === "string"
           ? result.error
-          : `Pi runtime 操作失败（HTTP ${response.status}）。`
+          : t("session.runtime.operationFailed", { status: response.status })
       throw new Error(message)
     }
-    if (result === null) throw new Error("Pi runtime 返回了空响应。")
+    if (result === null) throw new Error(t("session.runtime.emptyResponse"))
     return result as T
   }
 
@@ -507,7 +518,7 @@ export function SessionRuntime({
     setError(null)
     try {
       await mutate(`/api/v1/sessions/${sessionId}/messages`, "POST", {
-        message: text || "请查看附加图片。",
+        message: text || t("session.runtime.imageOnlyMessage"),
         images: promptImages(images),
         streamingBehavior,
       })
@@ -558,7 +569,9 @@ export function SessionRuntime({
         { cache: "no-store" }
       )
       if (!response.ok) {
-        throw new Error(`TUI surfaces 同步失败（HTTP ${response.status}）。`)
+        throw new Error(
+          t("session.runtime.tuiSyncFailed", { status: response.status })
+        )
       }
       const snapshots = tuiSurfaceSnapshotsSchema.parse(await response.json())
       if (
@@ -598,11 +611,15 @@ export function SessionRuntime({
         { cache: "no-store" }
       )
       if (!response.ok) {
-        throw new Error(`Extension UI 同步失败（HTTP ${response.status}）。`)
+        throw new Error(
+          t("session.runtime.extensionSyncFailed", {
+            status: response.status,
+          })
+        )
       }
       const body = (await response.json()) as unknown
       if (!Array.isArray(body)) {
-        throw new Error("Extension UI 同步返回了无效响应。")
+        throw new Error(t("session.runtime.extensionInvalidResponse"))
       }
       const now = Date.now()
       const loaded = body.map((item) => {
@@ -615,7 +632,7 @@ export function SessionRuntime({
           !("expiresAt" in item) ||
           (item.expiresAt !== null && typeof item.expiresAt !== "number")
         ) {
-          throw new Error("Extension UI 同步返回了无效请求。")
+          throw new Error(t("session.runtime.extensionInvalidRequest"))
         }
         return activeExtensionRequest(
           item.requestId,
@@ -668,7 +685,8 @@ export function SessionRuntime({
       }
       if (!response.ok) {
         throw new Error(
-          body.error ?? `Runtime 状态同步失败（HTTP ${response.status}）。`
+          body.error ??
+            t("session.runtime.stateSyncFailed", { status: response.status })
         )
       }
       const nextStatus = runtimeStatusSchema.parse(body.status)
@@ -769,7 +787,10 @@ export function SessionRuntime({
       if (event.type === "runtime.idle") {
         updateRuntimeStatus("ready")
         if (wasBusy.current) {
-          notifyWhenHidden("Pi 已完成", "当前 Agent 轮次已结束。")
+          notifyWhenHidden(
+            t("session.runtime.completedTitle"),
+            t("session.runtime.completedBody")
+          )
           wasBusy.current = false
         }
       }
@@ -811,10 +832,10 @@ export function SessionRuntime({
         setCompactionNotice(null)
         setRetrying(null)
         clearExtensionUi()
-        setError("Pi worker 意外退出；历史 JSONL 仍可读取。")
+        setError(t("session.runtime.crashMessage"))
         notifyWhenHidden(
-          "Pi Runtime 已崩溃",
-          "历史内容仍可读取，可回到 session 显式重启。"
+          t("session.runtime.crashTitle"),
+          t("session.runtime.crashBody")
         )
       }
       if (event.type === "session.message.start") {
@@ -933,7 +954,7 @@ export function SessionRuntime({
         }
       }
       if (event.type === "retry.start") {
-        setRetrying(retryDescription(event.payload))
+        setRetrying(retryDescription(t, event.payload))
       }
       if (event.type === "retry.end") setRetrying(null)
       if (event.type === "tui.surface") {
@@ -1062,7 +1083,7 @@ export function SessionRuntime({
     const unsubscribeEvents = sessionEvents.subscribe(EVENT_TYPES, handle)
     const unsubscribeConnection = sessionEvents.subscribeConnection((state) =>
       setConnectionError(
-        state === "error" ? "实时连接已断开；浏览器正在自动重连。" : null
+        state === "error" ? t("session.runtime.connectionLost") : null
       )
     )
     return () => {
@@ -1075,6 +1096,7 @@ export function SessionRuntime({
     sessionId,
     setDraft,
     stream,
+    t,
     updateQueuedMessages,
     updateRuntimeStatus,
   ])
@@ -1201,7 +1223,7 @@ export function SessionRuntime({
       )
       setSnapshot(nextSnapshot)
       updateQueuedMessages(nextSnapshot.queuedPrompts)
-      toast.success("已重新加载 Pi 扩展、技能、提示词和上下文文件。")
+      toast.success(t("session.runtime.reloadSuccess"))
       router.refresh()
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure))
@@ -1290,6 +1312,11 @@ export function SessionRuntime({
     }
   }
 
+  function openGoalDialog(returnFocus: HTMLElement | null) {
+    goalReturnFocusRef.current = returnFocus
+    setGoalDialogOpen(true)
+  }
+
   async function respondToExtensionUI(response: ExtensionUIResponse) {
     if (!extensionRequest) return
     const requestId = extensionRequest.requestId
@@ -1309,7 +1336,9 @@ export function SessionRuntime({
       })
       if (!result.ok) {
         const body = (await result.json()) as { error?: string }
-        throw new Error(body.error ?? "Extension UI 响应失败。")
+        throw new Error(
+          body.error ?? t("session.runtime.extensionResponseFailed")
+        )
       }
       closedExtensionRequestIds.current.add(requestId)
       setExtensionRequests((current) =>
@@ -1424,6 +1453,7 @@ export function SessionRuntime({
             items={queuedMessages}
             onReplace={replaceQueuedMessages}
             disabled={submitting || aborting || queueUpdating}
+            fallbackFocusRef={composerTextareaRef}
           />
         </div>
         <ConversationComposer
@@ -1450,44 +1480,46 @@ export function SessionRuntime({
                   void setThinkingLevel(
                     nextThinkingLevel(
                       snapshot.thinkingLevel,
-                      snapshot.availableThinkingLevels
+                      snapshot.availableThinkingLevels,
+                      t
                     )
                   )
               : undefined
           }
+          textareaRef={composerTextareaRef}
           commands={[
             ...(goalAvailable
               ? [
                   {
                     id: "goal",
-                    label: "目标",
-                    description: "让 Pi 持续工作直到目标完成",
+                    label: t("session.command.goal"),
+                    description: t("session.command.goalDescription"),
                     icon: TargetIcon,
                     disabled: settingsDisabled,
-                    onSelect: () => setGoalDialogOpen(true),
+                    onSelect: () => openGoalDialog(composerTextareaRef.current),
                   },
                 ]
               : []),
             {
               id: "compact",
-              label: "压缩",
-              description: "主动压缩",
+              label: t("session.command.compact"),
+              description: t("session.command.compactDescription"),
               icon: Minimize2Icon,
               disabled: settingsDisabled,
               onSelect: () => void compact(),
             },
             {
               id: "reload",
-              label: "重新加载",
-              description: "重新加载 Pi 扩展、技能、提示词和上下文",
+              label: t("session.command.reload"),
+              description: t("session.command.reloadDescription"),
               icon: RefreshCwIcon,
               disabled: reloadDisabled,
               onSelect: () => void reload(),
             },
             {
               id: "tree",
-              label: "会话树",
-              description: "查看并切换会话分支",
+              label: t("session.command.tree"),
+              description: t("session.command.treeDescription"),
               icon: GitMergeIcon,
               disabled: ["starting", "busy", "stopping", "crashed"].includes(
                 status
@@ -1515,17 +1547,17 @@ export function SessionRuntime({
                   type="button"
                   variant="ghost"
                   size="sm"
-                  onClick={() => setGoalDialogOpen(true)}
+                  onClick={(event) => openGoalDialog(event.currentTarget)}
                   disabled={settingsDisabled}
                 >
                   <TargetIcon />
-                  目标
+                  {t("session.command.goal")}
                 </Button>
               ) : null}
               <Badge
                 variant={status === "crashed" ? "destructive" : "secondary"}
               >
-                {STATUS_LABELS[status]}
+                {statusLabel(t, status)}
               </Badge>
               <SessionStreamingToolStatus />
               {composerImages.loading ? (
@@ -1535,7 +1567,7 @@ export function SessionRuntime({
                   className="flex items-center gap-1.5 text-xs text-muted-foreground"
                 >
                   <LoaderCircleIcon className="size-3 animate-spin" />
-                  正在读取图片…
+                  {t("session.runtime.imageReading")}
                 </span>
               ) : null}
               {retrying ? (
@@ -1559,12 +1591,19 @@ export function SessionRuntime({
                   onValueChange={selectStreamingBehavior}
                   disabled={aborting}
                 >
-                  <SelectTrigger size="sm" aria-label="消息队列方式">
+                  <SelectTrigger
+                    size="sm"
+                    aria-label={t("session.runtime.queueMode")}
+                  >
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent position="popper" side="top">
-                    <SelectItem value="followUp">完成后继续</SelectItem>
-                    <SelectItem value="steer">当前轮次补充</SelectItem>
+                    <SelectItem value="followUp">
+                      {t("session.runtime.followUp")}
+                    </SelectItem>
+                    <SelectItem value="steer">
+                      {t("session.runtime.steer")}
+                    </SelectItem>
                   </SelectContent>
                 </Select>
               ) : null}
@@ -1574,7 +1613,7 @@ export function SessionRuntime({
                   variant="outline"
                   size="icon"
                   onClick={abort}
-                  aria-label="终止"
+                  aria-label={t("session.runtime.abort")}
                   disabled={aborting}
                 >
                   {aborting ? (
@@ -1616,7 +1655,7 @@ export function SessionRuntime({
                   ) : (
                     <Minimize2Icon />
                   )}
-                  压缩上下文
+                  {t("session.runtime.compactContext")}
                 </Button>
               </>
             ) : null
@@ -1627,12 +1666,13 @@ export function SessionRuntime({
           mutationToken={mutationToken}
           open={treeOpen}
           onOpenChange={setTreeOpen}
+          returnFocusRef={composerTextareaRef}
         />
         <div className="grid max-h-[18svh] min-h-0 gap-3 overflow-y-auto overscroll-contain empty:hidden">
           {status === "crashed" ? (
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3">
               <p role="alert" className="text-sm text-destructive">
-                {error ?? "Pi worker 意外退出；历史 JSONL 仍可读取。"}
+                {error ?? t("session.runtime.crashMessage")}
               </p>
               <Button
                 type="button"
@@ -1644,7 +1684,7 @@ export function SessionRuntime({
                 <RefreshCwIcon
                   className={updating ? "animate-spin" : undefined}
                 />
-                重新启动 Runtime
+                {t("session.runtime.restart")}
               </Button>
             </div>
           ) : error || connectionError ? (
@@ -1669,19 +1709,27 @@ export function SessionRuntime({
       </div>
 
       <Dialog open={goalDialogOpen} onOpenChange={setGoalDialogOpen}>
-        <DialogContent>
+        <DialogContent
+          onCloseAutoFocus={(event) => {
+            event.preventDefault()
+            const focusTarget =
+              goalReturnFocusRef.current ?? composerTextareaRef.current
+            focusTarget?.focus()
+            goalReturnFocusRef.current = null
+          }}
+        >
           <DialogHeader>
-            <DialogTitle>启动目标</DialogTitle>
+            <DialogTitle>{t("session.goal.startTitle")}</DialogTitle>
             <DialogDescription>
-              Pi 会持续推进并验证结果，直到完成、暂停或遇到真正的阻塞。
+              {t("session.goal.startDescription")}
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-3">
             <Textarea
               value={goalObjective}
               onChange={(event) => setGoalObjective(event.target.value)}
-              placeholder="描述需要完成的目标"
-              aria-label="目标内容"
+              placeholder={t("session.goal.objectivePlaceholder")}
+              aria-label={t("session.goal.objective")}
               maxLength={4_000}
               className="min-h-28"
               autoFocus
@@ -1692,14 +1740,14 @@ export function SessionRuntime({
               step={1}
               value={goalTokenBudget}
               onChange={(event) => setGoalTokenBudget(event.target.value)}
-              placeholder="Token 预算（可选）"
-              aria-label="Token 预算"
+              placeholder={t("session.goal.tokenBudgetOptional")}
+              aria-label={t("session.goal.tokenBudget")}
               aria-invalid={!goalTokenBudgetValid}
             />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setGoalDialogOpen(false)}>
-              取消
+              {t("session.goal.cancel")}
             </Button>
             <Button
               onClick={() => void startGoal()}
@@ -1707,7 +1755,7 @@ export function SessionRuntime({
                 !goalObjective.trim() || !goalTokenBudgetValid || submitting
               }
             >
-              启动目标
+              {t("session.goal.start")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1795,7 +1843,7 @@ export function SessionRuntime({
                     )
                   }
                 >
-                  取消
+                  {t("session.runtime.extensionCancel")}
                 </Button>
                 <Button
                   onClick={() =>
@@ -1810,7 +1858,7 @@ export function SessionRuntime({
                     (extensionRequest.method === "select" && !extensionValue)
                   }
                 >
-                  确定
+                  {t("session.runtime.extensionConfirm")}
                 </Button>
               </DialogFooter>
             </div>

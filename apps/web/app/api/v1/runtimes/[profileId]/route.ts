@@ -131,8 +131,17 @@ export async function PATCH(
   } catch (error) {
     if (createdSecret && !committed) await removeSecret(createdSecret)
     if (error instanceof ConfigConflictError) {
+      const current = await loadConfig()
       return Response.json(
-        { error: error.message, revision: error.currentRevision },
+        {
+          error: error.message,
+          code: "ConfigConflict",
+          current: {
+            revision: current.revision,
+            defaultProfileId: current.developer.runtime.default,
+            profiles: runtimeProfileViews(current),
+          },
+        },
         { status: 409 }
       )
     }

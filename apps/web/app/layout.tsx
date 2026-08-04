@@ -2,7 +2,6 @@ import type { CSSProperties } from "react"
 import { connection } from "next/server"
 
 import "@workspace/ui/globals.css"
-import "@git-diff-view/react/styles/diff-view-pure.css"
 import "@xterm/xterm/css/xterm.css"
 import { Toaster } from "@workspace/ui/components/sonner"
 import { TooltipProvider } from "@workspace/ui/components/tooltip"
@@ -23,7 +22,7 @@ export default async function RootLayout({
   children: React.ReactNode
 }>) {
   await connection()
-  const { config } = await getLocalizedConfig()
+  const { config, t } = await getLocalizedConfig()
 
   return (
     <html
@@ -43,7 +42,7 @@ export default async function RootLayout({
               href="#main-content"
               className="sr-only z-50 rounded-md bg-background px-3 py-2 text-sm font-medium shadow-md focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:ring-2 focus:ring-ring"
             >
-              跳到主要内容
+              {t("ui.skipToMain")}
             </a>
             <TooltipProvider>{children}</TooltipProvider>
             <Toaster />

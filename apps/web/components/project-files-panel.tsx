@@ -21,12 +21,18 @@ import {
 import { ScrollArea } from "@workspace/ui/components/scroll-area"
 import { Skeleton } from "@workspace/ui/components/skeleton"
 
+import { useI18n } from "@/components/i18n-provider"
+import { ApiError, responseJson } from "@/lib/api-response"
+import {
+  isProjectFileErrorCode,
+  projectFileErrorCopy,
+  projectFileTypeLabel,
+} from "@/lib/project-file-display"
 import type {
   ProjectDirectory,
   ProjectFile,
   ProjectFileEntry,
 } from "@/lib/project-files"
-import { responseJson } from "@/lib/api-response"
 
 type ProjectEntry = ProjectDirectory | ProjectFile
 
@@ -37,10 +43,10 @@ function FileTypeIcon({ type }: { type: ProjectFileEntry["type"] }) {
   return <FileQuestionIcon className="size-4" />
 }
 
-function pathBreadcrumbs(value: string) {
+function pathBreadcrumbs(value: string, rootLabel: string) {
   const segments = value.split("/").filter(Boolean)
   return [
-    { label: "root", path: "" },
+    { label: rootLabel, path: "" },
     ...segments.map((label, index) => ({
       label,
       path: segments.slice(0, index + 1).join("/"),
@@ -49,6 +55,7 @@ function pathBreadcrumbs(value: string) {
 }
 
 export function ProjectFilesPanel({ projectId }: { projectId: string }) {
+  const { locale, t } = useI18n()
   const [currentPath, setCurrentPath] = useState("")
   const [entry, setEntry] = useState<ProjectEntry | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -62,19 +69,31 @@ export function ProjectFilesPanel({ projectId }: { projectId: string }) {
       signal: controller.signal,
     })
       .then((response) => responseJson<ProjectEntry>(response))
-      .then(setEntry)
+      .then((nextEntry) => {
+        setEntry(nextEntry)
+        setError(null)
+      })
       .catch((failure: unknown) => {
         if (!(
           failure instanceof DOMException && failure.name === "AbortError"
         )) {
-          setError(failure instanceof Error ? failure.message : String(failure))
+          const message =
+            failure instanceof ApiError && isProjectFileErrorCode(failure.code)
+              ? projectFileErrorCopy(failure.code, locale).description
+              : t("project.files.openFailedWithMessage", {
+                  message:
+                    failure instanceof Error
+                      ? failure.message
+                      : String(failure),
+                })
+          setError(message)
         }
       })
       .finally(() => {
         if (!controller.signal.aborted) setLoading(false)
       })
     return () => controller.abort()
-  }, [currentPath, projectId, revision])
+  }, [currentPath, locale, projectId, revision, t])
 
   function openPath(path: string) {
     if (path === currentPath) {
@@ -94,7 +113,10 @@ export function ProjectFilesPanel({ projectId }: { projectId: string }) {
     setRevision((value) => value + 1)
   }
 
-  const breadcrumbs = pathBreadcrumbs(entry?.path ?? currentPath)
+  const breadcrumbs = pathBreadcrumbs(
+    entry?.path ?? currentPath,
+    t("project.files.root")
+  )
   const downloadUrl =
     entry?.kind === "file"
       ? `/api/v1/projects/${projectId}/files?${new URLSearchParams({
@@ -107,7 +129,7 @@ export function ProjectFilesPanel({ projectId }: { projectId: string }) {
     <div className="flex size-full min-h-0 flex-col bg-background">
       <div className="flex min-h-10 shrink-0 items-center gap-1 border-b px-3">
         <nav
-          aria-label="文件路径"
+          aria-label={t("project.files.pathAriaLabel")}
           className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden font-mono text-xs text-muted-foreground"
         >
           {breadcrumbs.map((item, index) => (
@@ -119,6 +141,7 @@ export function ProjectFilesPanel({ projectId }: { projectId: string }) {
                 type="button"
                 className="truncate rounded-sm px-1 py-0.5 hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
                 onClick={() => openPath(item.path)}
+                title={item.label}
                 aria-current={
                   index === breadcrumbs.length - 1 ? "page" : undefined
                 }
@@ -131,7 +154,7 @@ export function ProjectFilesPanel({ projectId }: { projectId: string }) {
         </nav>
         {downloadUrl ? (
           <Button asChild variant="ghost" size="icon-sm">
-            <a href={downloadUrl} aria-label="下载原文件">
+            <a href={downloadUrl} aria-label={t("project.files.download")}>
               <DownloadIcon />
             </a>
           </Button>
@@ -139,7 +162,7 @@ export function ProjectFilesPanel({ projectId }: { projectId: string }) {
         <Button
           variant="ghost"
           size="icon-sm"
-          aria-label="刷新文件"
+          aria-label={t("project.files.refresh")}
           onClick={refresh}
         >
           <RefreshCwIcon />
@@ -158,7 +181,7 @@ export function ProjectFilesPanel({ projectId }: { projectId: string }) {
             <EmptyMedia variant="icon">
               <FileQuestionIcon />
             </EmptyMedia>
-            <EmptyTitle>无法打开文件</EmptyTitle>
+            <EmptyTitle>{t("project.files.openFailed")}</EmptyTitle>
             <EmptyDescription>{error}</EmptyDescription>
           </EmptyHeader>
         </Empty>
@@ -182,8 +205,8 @@ export function ProjectFilesPanel({ projectId }: { projectId: string }) {
                   </span>
                   <span className="text-xs text-muted-foreground tabular-nums">
                     {child.type === "file"
-                      ? `${child.size.toLocaleString()} B`
-                      : child.type}
+                      ? `${child.size.toLocaleString(locale)} B`
+                      : projectFileTypeLabel(child.type, locale)}
                   </span>
                 </button>
               ))}
@@ -195,7 +218,7 @@ export function ProjectFilesPanel({ projectId }: { projectId: string }) {
               <EmptyMedia variant="icon">
                 <FolderIcon />
               </EmptyMedia>
-              <EmptyTitle>目录为空</EmptyTitle>
+              <EmptyTitle>{t("project.files.emptyDirectory")}</EmptyTitle>
             </EmptyHeader>
           </Empty>
         )
@@ -212,11 +235,11 @@ export function ProjectFilesPanel({ projectId }: { projectId: string }) {
               <EmptyMedia variant="icon">
                 <FileIcon />
               </EmptyMedia>
-              <EmptyTitle>无法预览</EmptyTitle>
+              <EmptyTitle>{t("project.files.previewUnavailable")}</EmptyTitle>
               <EmptyDescription>
                 {entry.previewUnavailable === "binary"
-                  ? "这是二进制文件，可下载原文件。"
-                  : "文件超过 1 MiB，可下载原文件。"}
+                  ? t("project.files.binaryDescription")
+                  : t("project.files.tooLargeDescription")}
               </EmptyDescription>
             </EmptyHeader>
           </Empty>

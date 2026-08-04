@@ -1,3 +1,5 @@
+import { createTranslator, type Locale, type Translator } from "@/lib/i18n"
+
 const WEB_ACCESS_TOOLS = [
   "web_search",
   "fetch_content",
@@ -34,19 +36,25 @@ function number(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined
 }
 
-function count(value: number, unit: string) {
-  return `${new Intl.NumberFormat("zh-CN").format(value)} ${unit}`
+function formatted(value: number, locale: Locale) {
+  return new Intl.NumberFormat(locale).format(value)
 }
 
-function listPreview(values: string[], empty: string, unit: string) {
+function listPreview(
+  values: string[],
+  empty: string,
+  countLabel: (count: number) => string
+) {
   if (!values.length) return empty
   if (values.length === 1) return values[0] ?? empty
-  return `${values.length} ${unit} · ${values[0]}`
+  return `${countLabel(values.length)} · ${values[0]}`
 }
 
 function searchPresentation(
   args: Record<string, unknown>,
-  details: Record<string, unknown>
+  details: Record<string, unknown>,
+  locale: Locale,
+  t: Translator
 ): WebAccessToolPresentation {
   const queries = strings(args.queries)
   const query = string(args.query)
@@ -57,33 +65,62 @@ function searchPresentation(
   const totalResults = number(details.totalResults)
   if (successfulQueries !== undefined && queryCount !== undefined) {
     facts.push({
-      label: "查询",
-      value: `${successfulQueries}/${queryCount} 成功`,
+      label: t("session.web.query"),
+      value: t("session.web.success", {
+        value: `${successfulQueries}/${queryCount}`,
+      }),
     })
   }
   if (totalResults !== undefined) {
-    facts.push({ label: "来源", value: count(totalResults, "个") })
+    facts.push({
+      label: t("session.web.sources"),
+      value: t(
+        totalResults === 1
+          ? "session.web.sourceCountOne"
+          : "session.web.sourceCount",
+        {
+          count: formatted(totalResults, locale),
+        }
+      ),
+    })
   }
   const curatedFrom = number(details.curatedFrom)
   if (details.curated === true && queryCount !== undefined) {
     facts.push({
-      label: "筛选",
+      label: t("session.web.filter"),
       value:
         curatedFrom === undefined
-          ? `${queryCount} 个查询`
-          : `${queryCount}/${curatedFrom} 个查询`,
+          ? t(
+              queryCount === 1
+                ? "session.web.queryCountOne"
+                : "session.web.queryCount",
+              { count: queryCount }
+            )
+          : t(
+              curatedFrom === 1
+                ? "session.web.queryCountOne"
+                : "session.web.queryCount",
+              { count: `${queryCount}/${curatedFrom}` }
+            ),
     })
   }
   const searchId = string(details.searchId)
-  if (searchId) facts.push({ label: "搜索 ID", value: searchId })
+  if (searchId)
+    facts.push({ label: t("session.web.searchId"), value: searchId })
   const fetchId = string(details.fetchId)
-  if (fetchId) facts.push({ label: "内容 ID", value: fetchId })
+  if (fetchId) facts.push({ label: t("session.web.contentId"), value: fetchId })
   const summary = record(details.summary)
   const summaryModel = summary ? string(summary.model) : undefined
-  if (summaryModel) facts.push({ label: "摘要模型", value: summaryModel })
+  if (summaryModel) {
+    facts.push({ label: t("session.web.summaryModel"), value: summaryModel })
+  }
   return {
-    label: "网络搜索",
-    preview: listPreview(inputs, "未提供查询", "个查询"),
+    label: t("session.web.webSearch"),
+    preview: listPreview(inputs, t("session.web.noQuery"), (count) =>
+      t(count === 1 ? "session.web.queryCountOne" : "session.web.queryCount", {
+        count,
+      })
+    ),
     inputs,
     facts,
     error: string(details.error),
@@ -92,7 +129,9 @@ function searchPresentation(
 
 function fetchPresentation(
   args: Record<string, unknown>,
-  details: Record<string, unknown>
+  details: Record<string, unknown>,
+  locale: Locale,
+  t: Translator
 ): WebAccessToolPresentation {
   const urls = strings(args.urls)
   const url = string(args.url)
@@ -101,24 +140,55 @@ function fetchPresentation(
   const successful = number(details.successful)
   const urlCount = number(details.urlCount)
   if (successful !== undefined && urlCount !== undefined) {
-    facts.push({ label: "地址", value: `${successful}/${urlCount} 成功` })
+    facts.push({
+      label: t("session.web.address"),
+      value: t("session.web.success", { value: `${successful}/${urlCount}` }),
+    })
   }
   const totalChars = number(details.totalChars)
   if (totalChars !== undefined) {
-    facts.push({ label: "内容", value: count(totalChars, "字符") })
+    facts.push({
+      label: t("session.web.content"),
+      value: t(
+        totalChars === 1
+          ? "session.web.characterCountOne"
+          : "session.web.characterCount",
+        { count: formatted(totalChars, locale) }
+      ),
+    })
   }
   const imageCount = number(details.imageCount)
   if (imageCount !== undefined && imageCount > 0) {
-    facts.push({ label: "图像", value: count(imageCount, "张") })
+    facts.push({
+      label: t("session.web.images"),
+      value: t(
+        imageCount === 1
+          ? "session.web.imageCountOne"
+          : "session.web.imageCount",
+        { count: formatted(imageCount, locale) }
+      ),
+    })
   }
   if (details.truncated === true) {
-    facts.push({ label: "状态", value: "已截断" })
+    facts.push({
+      label: t("session.web.status"),
+      value: t("session.web.truncated"),
+    })
   }
   const responseId = string(details.responseId)
-  if (responseId) facts.push({ label: "内容 ID", value: responseId })
+  if (responseId) {
+    facts.push({ label: t("session.web.contentId"), value: responseId })
+  }
   return {
-    label: "读取网页",
-    preview: listPreview(inputs, "未提供地址", "个地址"),
+    label: t("session.web.readWeb"),
+    preview: listPreview(inputs, t("session.web.noAddress"), (count) =>
+      t(
+        count === 1
+          ? "session.web.addressCountOne"
+          : "session.web.addressCount",
+        { count }
+      )
+    ),
     inputs,
     facts,
     error: string(details.error),
@@ -127,31 +197,51 @@ function fetchPresentation(
 
 function storedContentPresentation(
   args: Record<string, unknown>,
-  details: Record<string, unknown>
+  details: Record<string, unknown>,
+  locale: Locale,
+  t: Translator
 ): WebAccessToolPresentation {
   const selector =
     string(args.query) ??
     string(args.url) ??
     (number(args.queryIndex) !== undefined
-      ? `查询 #${number(args.queryIndex)}`
+      ? t("session.web.queryIndex", { index: number(args.queryIndex)! })
       : undefined) ??
     (number(args.urlIndex) !== undefined
-      ? `地址 #${number(args.urlIndex)}`
+      ? t("session.web.addressIndex", { index: number(args.urlIndex)! })
       : undefined)
   const responseId = string(args.responseId)
   const facts: WebAccessToolPresentation["facts"] = []
-  if (responseId) facts.push({ label: "内容 ID", value: responseId })
+  if (responseId) {
+    facts.push({ label: t("session.web.contentId"), value: responseId })
+  }
   const resultCount = number(details.resultCount)
   if (resultCount !== undefined) {
-    facts.push({ label: "结果", value: count(resultCount, "个") })
+    facts.push({
+      label: t("session.web.results"),
+      value: t(
+        resultCount === 1
+          ? "session.web.resultCountOne"
+          : "session.web.resultCount",
+        { count: formatted(resultCount, locale) }
+      ),
+    })
   }
   const contentLength = number(details.contentLength)
   if (contentLength !== undefined) {
-    facts.push({ label: "内容", value: count(contentLength, "字符") })
+    facts.push({
+      label: t("session.web.content"),
+      value: t(
+        contentLength === 1
+          ? "session.web.characterCountOne"
+          : "session.web.characterCount",
+        { count: formatted(contentLength, locale) }
+      ),
+    })
   }
   return {
-    label: "搜索内容",
-    preview: selector ?? responseId ?? "未提供内容 ID",
+    label: t("session.web.searchContent"),
+    preview: selector ?? responseId ?? t("session.web.noContentId"),
     inputs: selector ? [selector] : [],
     facts,
     error: string(details.error),
@@ -165,10 +255,13 @@ export function isWebAccessToolName(name: string): name is WebAccessToolName {
 export function webAccessToolPresentation(
   name: WebAccessToolName,
   args: Record<string, unknown>,
-  rawDetails?: unknown
+  rawDetails: unknown,
+  locale: Locale
 ) {
   const details = record(rawDetails) ?? {}
-  if (name === "web_search") return searchPresentation(args, details)
-  if (name === "fetch_content") return fetchPresentation(args, details)
-  return storedContentPresentation(args, details)
+  const t = createTranslator(locale)
+  if (name === "web_search") return searchPresentation(args, details, locale, t)
+  if (name === "fetch_content")
+    return fetchPresentation(args, details, locale, t)
+  return storedContentPresentation(args, details, locale, t)
 }

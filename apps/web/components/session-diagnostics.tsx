@@ -14,12 +14,14 @@ import {
   DialogTrigger,
 } from "@workspace/ui/components/dialog"
 
+import { useI18n } from "@/components/i18n-provider"
+import type { Translator } from "@/lib/i18n"
 import type {
   ProtocolEvent,
   RuntimeDiagnostics,
 } from "@/lib/runtime-diagnostics"
 
-async function loadDiagnostics(sessionId: string) {
+async function loadDiagnostics(sessionId: string, t: Translator) {
   const response = await fetch(`/api/v1/sessions/${sessionId}/diagnostics`, {
     cache: "no-store",
   })
@@ -27,7 +29,7 @@ async function loadDiagnostics(sessionId: string) {
     error?: string
   }
   if (!response.ok) {
-    throw new Error(result.error ?? "加载 runtime 诊断失败。")
+    throw new Error(result.error ?? t("session.diagnostics.loadFailed"))
   }
   return result
 }
@@ -69,15 +71,28 @@ function nextStatus(
   }
 }
 
-function formatTime(timestamp: string) {
-  return new Date(timestamp).toLocaleTimeString("zh-CN", {
+function formatTime(timestamp: string, locale: string) {
+  return new Date(timestamp).toLocaleTimeString(locale, {
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
   })
 }
 
+function statusLabel(t: Translator, status: RuntimeDiagnostics["status"]) {
+  const keys = {
+    stopped: "session.status.stopped",
+    starting: "session.status.starting",
+    ready: "session.status.ready",
+    busy: "session.status.busy",
+    stopping: "session.status.stopping",
+    crashed: "session.status.crashed",
+  } as const
+  return t(keys[status])
+}
+
 export function SessionDiagnostics({ sessionId }: { sessionId: string }) {
+  const { locale, t } = useI18n()
   const [open, setOpen] = useState(false)
   const [diagnostics, setDiagnostics] = useState<RuntimeDiagnostics | null>(
     null
@@ -90,7 +105,7 @@ export function SessionDiagnostics({ sessionId }: { sessionId: string }) {
     let active = true
     let loaded = false
     let pendingEvents: ProtocolEvent[] = []
-    void loadDiagnostics(sessionId).then(
+    void loadDiagnostics(sessionId, t).then(
       (result) => {
         if (!active) return
         loaded = true
@@ -123,13 +138,13 @@ export function SessionDiagnostics({ sessionId }: { sessionId: string }) {
       )
     })
     events.onerror = () =>
-      setConnectionError("协议事件连接已断开，正在自动重连。")
+      setConnectionError(t("session.diagnostics.connectionLost"))
     events.onopen = () => setConnectionError(null)
     return () => {
       active = false
       events.close()
     }
-  }, [open, sessionId])
+  }, [open, sessionId, t])
 
   const error = loadError ?? connectionError
 
@@ -145,15 +160,19 @@ export function SessionDiagnostics({ sessionId }: { sessionId: string }) {
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
-        <Button variant="ghost" size="icon" aria-label="Runtime 诊断">
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label={t("session.diagnostics.button")}
+        >
           <ActivityIcon />
         </Button>
       </DialogTrigger>
       <DialogContent className="max-h-[90svh] overflow-hidden sm:max-w-3xl">
         <DialogHeader>
-          <DialogTitle>Runtime 诊断与协议检查器</DialogTitle>
+          <DialogTitle>{t("session.diagnostics.title")}</DialogTitle>
           <DialogDescription>
-            直接读取 Host 管理的 Worker 状态和最近 100 条 Domain Protocol 事件。
+            {t("session.diagnostics.description")}
           </DialogDescription>
         </DialogHeader>
 
@@ -167,7 +186,9 @@ export function SessionDiagnostics({ sessionId }: { sessionId: string }) {
           <div className="grid min-h-0 gap-5 overflow-y-auto pr-1">
             <section className="grid gap-3">
               <div className="flex items-center justify-between gap-3">
-                <h3 className="font-medium">Runtime</h3>
+                <h3 className="font-medium">
+                  {t("session.diagnostics.runtime")}
+                </h3>
                 <Badge
                   variant={
                     diagnostics.status === "crashed"
@@ -175,7 +196,7 @@ export function SessionDiagnostics({ sessionId }: { sessionId: string }) {
                       : "secondary"
                   }
                 >
-                  {diagnostics.status}
+                  {statusLabel(t, diagnostics.status)}
                 </Badge>
               </div>
               <dl className="grid grid-cols-2 gap-x-5 gap-y-3 rounded-lg border p-4 text-xs sm:grid-cols-3">
@@ -184,11 +205,15 @@ export function SessionDiagnostics({ sessionId }: { sessionId: string }) {
                   <dd className="mt-1 font-mono">{diagnostics.pid ?? "—"}</dd>
                 </div>
                 <div>
-                  <dt className="text-muted-foreground">Runtime</dt>
+                  <dt className="text-muted-foreground">
+                    {t("session.diagnostics.runtime")}
+                  </dt>
                   <dd className="mt-1">{diagnostics.runtimeKind ?? "—"}</dd>
                 </div>
                 <div>
-                  <dt className="text-muted-foreground">Profile</dt>
+                  <dt className="text-muted-foreground">
+                    {t("session.diagnostics.profile")}
+                  </dt>
                   <dd
                     className="mt-1 truncate"
                     title={diagnostics.runtimeProfileId ?? ""}
@@ -197,19 +222,25 @@ export function SessionDiagnostics({ sessionId }: { sessionId: string }) {
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-muted-foreground">Pending IPC</dt>
+                  <dt className="text-muted-foreground">
+                    {t("session.diagnostics.pendingIpc")}
+                  </dt>
                   <dd className="mt-1 tabular-nums">
                     {diagnostics.pendingRequests}
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-muted-foreground">Active MCP</dt>
+                  <dt className="text-muted-foreground">
+                    {t("session.diagnostics.activeMcp")}
+                  </dt>
                   <dd className="mt-1 tabular-nums">
                     {diagnostics.activeMcpCalls}
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-muted-foreground">Active tools</dt>
+                  <dt className="text-muted-foreground">
+                    {t("session.diagnostics.activeTools")}
+                  </dt>
                   <dd className="mt-1 tabular-nums">
                     {diagnostics.activeTools.length}
                   </dd>
@@ -217,7 +248,9 @@ export function SessionDiagnostics({ sessionId }: { sessionId: string }) {
               </dl>
               {diagnostics.crash ? (
                 <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-xs">
-                  <p className="font-medium text-destructive">最近一次崩溃</p>
+                  <p className="font-medium text-destructive">
+                    {t("session.diagnostics.lastCrash")}
+                  </p>
                   <p className="mt-2 break-words">
                     {diagnostics.crash.message}
                   </p>
@@ -234,7 +267,9 @@ export function SessionDiagnostics({ sessionId }: { sessionId: string }) {
 
             <section className="grid min-h-0 gap-3">
               <div className="flex items-center justify-between gap-3">
-                <h3 className="font-medium">Protocol events</h3>
+                <h3 className="font-medium">
+                  {t("session.diagnostics.protocolEvents")}
+                </h3>
                 <span className="text-xs text-muted-foreground tabular-nums">
                   {diagnostics.events.length}
                 </span>
@@ -251,7 +286,7 @@ export function SessionDiagnostics({ sessionId }: { sessionId: string }) {
                       >
                         <summary className="flex cursor-pointer list-none items-center gap-3 px-3 py-2 text-xs hover:bg-muted/50">
                           <span className="w-16 shrink-0 text-muted-foreground tabular-nums">
-                            {formatTime(event.timestamp)}
+                            {formatTime(event.timestamp, locale)}
                           </span>
                           <code className="min-w-0 truncate">{event.type}</code>
                           <span className="ml-auto text-muted-foreground tabular-nums">
@@ -265,7 +300,7 @@ export function SessionDiagnostics({ sessionId }: { sessionId: string }) {
                     ))
                 ) : (
                   <p className="p-4 text-xs text-muted-foreground">
-                    当前 Host 生命周期中还没有这个 session 的事件。
+                    {t("session.diagnostics.noEvents")}
                   </p>
                 )}
               </div>

@@ -1,7 +1,12 @@
 "use client"
 
-import { useEffect, useEffectEvent, useRef, useState } from "react"
-import dynamic from "next/dynamic"
+import {
+  useEffect,
+  useEffectEvent,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react"
 import { CheckCircle2Icon, FileDiffIcon, GitBranchIcon } from "lucide-react"
 
 import { Badge } from "@workspace/ui/components/badge"
@@ -15,19 +20,11 @@ import {
 import { ScrollArea } from "@workspace/ui/components/scroll-area"
 import { Skeleton } from "@workspace/ui/components/skeleton"
 
+import { GitDiffSurface } from "@/components/git-diff-surface"
+import { useI18n } from "@/components/i18n-provider"
 import { responseJson } from "@/lib/api-response"
+import { projectGitErrorCopy } from "@/lib/project-git-display"
 import type { ProjectGitDiff, ProjectGitStatus } from "@/lib/project-git"
-
-const GitDiffSurface = dynamic(
-  () =>
-    import("@/components/git-diff-surface").then(
-      (module) => module.GitDiffSurface
-    ),
-  {
-    ssr: false,
-    loading: () => <Skeleton className="m-3 h-72" />,
-  }
-)
 
 function firstChangedPath(status: ProjectGitStatus) {
   return status.available ? (status.files[0]?.path ?? null) : null
@@ -40,6 +37,7 @@ export function ProjectReviewPanel({
   projectId: string
   initialGit: ProjectGitStatus
 }) {
+  const { locale, t } = useI18n()
   const [git, setGit] = useState(initialGit)
   const [selectedPath, setSelectedPath] = useState(() =>
     firstChangedPath(initialGit)
@@ -49,6 +47,8 @@ export function ProjectReviewPanel({
   const [diffRevision, setDiffRevision] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const statusRequest = useRef<AbortController | null>(null)
+  const fileButtons = useRef(new Map<string, HTMLButtonElement>())
+  const pendingSelectionFocus = useRef<string | null>(null)
 
   const refresh = useEffectEvent(async (changedPath: string | null) => {
     statusRequest.current?.abort()
@@ -65,6 +65,14 @@ export function ProjectReviewPanel({
         ? selectedPath
         : (body.files[0]?.path ?? null)
       : null
+    if (
+      selectedPath &&
+      nextPath &&
+      nextPath !== selectedPath &&
+      document.activeElement === fileButtons.current.get(selectedPath)
+    ) {
+      pendingSelectionFocus.current = nextPath
+    }
     const statusChanged = JSON.stringify(body) !== JSON.stringify(git)
     const diffChanged =
       statusChanged ||
@@ -78,6 +86,15 @@ export function ProjectReviewPanel({
       setDiffRevision((value) => value + 1)
     }
   })
+
+  useLayoutEffect(() => {
+    const path = pendingSelectionFocus.current
+    if (!path) return
+    const button = fileButtons.current.get(path)
+    if (!button) return
+    pendingSelectionFocus.current = null
+    button.focus()
+  }, [git, selectedPath])
 
   useEffect(() => {
     const changes = new EventSource(`/api/v1/projects/${projectId}/changes`)
@@ -136,8 +153,10 @@ export function ProjectReviewPanel({
           <EmptyMedia variant="icon">
             <GitBranchIcon />
           </EmptyMedia>
-          <EmptyTitle>Git 不可用</EmptyTitle>
-          <EmptyDescription>{git.error}</EmptyDescription>
+          <EmptyTitle>{t("project.git.unavailable")}</EmptyTitle>
+          <EmptyDescription>
+            {projectGitErrorCopy(git.error, locale)}
+          </EmptyDescription>
         </EmptyHeader>
       </Empty>
     )
@@ -150,9 +169,9 @@ export function ProjectReviewPanel({
           <EmptyMedia variant="icon">
             <CheckCircle2Icon />
           </EmptyMedia>
-          <EmptyTitle>工作区没有变更</EmptyTitle>
+          <EmptyTitle>{t("project.review.cleanTitle")}</EmptyTitle>
           <EmptyDescription>
-            审阅显示当前工作区相对 HEAD 的改动。
+            {t("project.review.cleanDescription")}
           </EmptyDescription>
         </EmptyHeader>
       </Empty>
@@ -160,23 +179,38 @@ export function ProjectReviewPanel({
   }
 
   return (
-    <div className="grid size-full min-h-0 grid-cols-[10rem_minmax(0,1fr)] bg-background">
-      <div className="flex min-h-0 min-w-0 flex-col border-r">
+    <div className="flex size-full min-h-0 flex-col bg-background">
+      <div className="flex max-h-48 min-h-20 shrink-0 flex-col border-b">
         <div className="flex min-h-10 shrink-0 items-center gap-2 border-b px-3 text-xs">
           <GitBranchIcon className="size-3.5 text-muted-foreground" />
           <span className="min-w-0 flex-1 truncate">
-            {git.branch ?? "Detached HEAD"}
+            {git.branch ?? t("project.git.detachedHead")}
           </span>
-          <Badge variant="outline">{git.files.length}</Badge>
+          <Badge
+            variant="outline"
+            aria-label={t(
+              git.files.length === 1
+                ? "project.review.changeCountOne"
+                : "project.review.changeCount",
+              { count: git.files.length }
+            )}
+          >
+            {git.files.length.toLocaleString(locale)}
+          </Badge>
         </div>
         <ScrollArea className="min-h-0 flex-1">
-          <div className="p-1.5">
+          <nav className="p-1.5" aria-label={t("project.review.fileList")}>
             {git.files.map((file) => (
               <button
                 key={file.path}
+                ref={(node) => {
+                  if (node) fileButtons.current.set(file.path, node)
+                  else fileButtons.current.delete(file.path)
+                }}
                 type="button"
                 className="flex w-full min-w-0 items-start gap-2 rounded-md px-2 py-2 text-left text-xs transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none data-[active=true]:bg-muted"
                 data-active={file.path === selectedPath}
+                data-review-path={file.path}
                 aria-pressed={file.path === selectedPath}
                 onClick={() => selectPath(file.path)}
               >
@@ -193,11 +227,11 @@ export function ProjectReviewPanel({
                 </code>
               </button>
             ))}
-          </div>
+          </nav>
         </ScrollArea>
       </div>
 
-      <ScrollArea className="min-h-0 min-w-0">
+      <ScrollArea className="min-h-0 min-w-0 flex-1">
         {diffLoading ? (
           <Skeleton className="m-3 h-72" />
         ) : error ? (
@@ -206,21 +240,23 @@ export function ProjectReviewPanel({
               <EmptyMedia variant="icon">
                 <FileDiffIcon />
               </EmptyMedia>
-              <EmptyTitle>无法读取差异</EmptyTitle>
-              <EmptyDescription>{error}</EmptyDescription>
+              <EmptyTitle>{t("project.review.diffReadFailed")}</EmptyTitle>
+              <EmptyDescription>
+                {projectGitErrorCopy(error, locale)}
+              </EmptyDescription>
             </EmptyHeader>
           </Empty>
         ) : diff?.hunks.length ? (
-          <GitDiffSurface diff={diff} />
+          <GitDiffSurface key={`${diff.path}:${diffRevision}`} diff={diff} />
         ) : (
           <Empty className="min-h-72">
             <EmptyHeader>
               <EmptyMedia variant="icon">
                 <FileDiffIcon />
               </EmptyMedia>
-              <EmptyTitle>没有文本差异</EmptyTitle>
+              <EmptyTitle>{t("project.review.noTextDiffTitle")}</EmptyTitle>
               <EmptyDescription>
-                该条目可能只包含文件模式或二进制变更。
+                {t("project.review.noTextDiffDescription")}
               </EmptyDescription>
             </EmptyHeader>
           </Empty>

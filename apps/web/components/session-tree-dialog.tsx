@@ -33,35 +33,37 @@ import {
   sessionTreeEntryCount,
   type SessionTreeFilter,
 } from "@/lib/session-tree"
+import { useI18n } from "@/components/i18n-provider"
+import type { Translator } from "@/lib/i18n"
 
 const rowHeight = 46
 const treeOrigin = 22
 const depthStep = 26
 
-const filters: Array<{ value: SessionTreeFilter; label: string }> = [
-  { value: "default", label: "默认" },
-  { value: "user", label: "仅用户" },
-  { value: "labeled", label: "已标记" },
-  { value: "all", label: "全部" },
-]
+const filters: SessionTreeFilter[] = ["default", "user", "labeled", "all"]
 
-const timeFormatter = new Intl.DateTimeFormat("zh-CN", {
-  hour: "2-digit",
-  minute: "2-digit",
-})
+function filterLabel(t: Translator, filter: SessionTreeFilter) {
+  const keys = {
+    default: "session.tree.filter.default",
+    user: "session.tree.filter.user",
+    labeled: "session.tree.filter.labeled",
+    all: "session.tree.filter.all",
+  } as const
+  return t(keys[filter])
+}
 
 function compactText(value: string) {
   return value.replace(/\s+/g, " ").trim()
 }
 
-function entryText(entry: SessionTree["entries"][number]) {
+function entryText(entry: SessionTree["entries"][number], t: Translator) {
   if (entry.text) return compactText(entry.text)
   if (entry.label) return entry.label
-  if (entry.role === "user") return "用户消息"
-  if (entry.role === "assistant") return "助手回复"
-  if (entry.role === "toolResult") return "工具结果"
-  if (entry.type === "compaction") return "上下文压缩"
-  if (entry.type === "branch_summary") return "分支摘要"
+  if (entry.role === "user") return t("session.tree.userMessage")
+  if (entry.role === "assistant") return t("session.tree.assistantReply")
+  if (entry.role === "toolResult") return t("session.tree.toolResult")
+  if (entry.type === "compaction") return t("session.tree.compaction")
+  if (entry.type === "branch_summary") return t("session.tree.branchSummary")
   return entry.type
 }
 
@@ -95,12 +97,21 @@ export function SessionTreeDialog({
   onCancel: () => void
   onNavigate: () => void
 }) {
+  const { locale, t } = useI18n()
   const [query, setQuery] = useState("")
   const [filter, setFilter] = useState<SessionTreeFilter>("default")
   const [foldedIds, setFoldedIds] = useState<Set<string>>(() => new Set())
   const deferredQuery = useDeferredValue(query)
   const currentLeafRef = useRef<HTMLDivElement>(null)
   const locatedLeafId = useRef<string | null>(null)
+  const timeFormatter = useMemo(
+    () =>
+      new Intl.DateTimeFormat(locale, {
+        hour: "2-digit",
+        minute: "2-digit",
+      }),
+    [locale]
+  )
 
   const rows = useMemo(
     () =>
@@ -139,11 +150,19 @@ export function SessionTreeDialog({
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <DialogHeader className="shrink-0 gap-1 border-b px-5 py-4 pr-14 text-left">
-        <DialogTitle className="text-lg">会话树</DialogTitle>
+        <DialogTitle className="text-lg">{t("session.tree.title")}</DialogTitle>
         <DialogDescription>
           {tree
-            ? `${sessionTreeEntryCount(tree)} 个条目 · 当前分支 ${activeCount}`
-            : "正在读取真实的 JSONL 分支…"}
+            ? t(
+                sessionTreeEntryCount(tree) === 1
+                  ? "session.tree.summaryOne"
+                  : "session.tree.summary",
+                {
+                  count: sessionTreeEntryCount(tree),
+                  active: activeCount,
+                }
+              )
+            : t("session.tree.loadingBranches")}
         </DialogDescription>
       </DialogHeader>
 
@@ -154,29 +173,29 @@ export function SessionTreeDialog({
             value={query}
             disabled={working}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="搜索消息或标签"
-            aria-label="搜索 session tree"
+            placeholder={t("session.tree.searchPlaceholder")}
+            aria-label={t("session.tree.searchAria")}
             className="pl-8"
           />
         </div>
         <div
           className="grid grid-cols-4 rounded-lg bg-muted p-0.5"
-          aria-label="会话树过滤器"
+          role="group"
+          aria-label={t("session.tree.filterAria")}
         >
           {filters.map((option) => (
             <button
-              key={option.value}
+              key={option}
               type="button"
               disabled={working}
-              aria-pressed={filter === option.value}
+              aria-pressed={filter === option}
               className={cn(
                 "h-7 rounded-md px-2.5 text-xs font-medium text-muted-foreground transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
-                filter === option.value &&
-                  "bg-background text-foreground shadow-xs"
+                filter === option && "bg-background text-foreground shadow-xs"
               )}
-              onClick={() => setFilter(option.value)}
+              onClick={() => setFilter(option)}
             >
-              {option.label}
+              {filterLabel(t, option)}
             </button>
           ))}
         </div>
@@ -189,7 +208,7 @@ export function SessionTreeDialog({
         {working && !tree ? (
           <div className="flex h-full min-h-56 items-center justify-center gap-2 text-muted-foreground">
             <LoaderCircleIcon className="size-4 animate-spin" />
-            正在读取会话树…
+            {t("session.tree.loading")}
           </div>
         ) : null}
 
@@ -197,7 +216,7 @@ export function SessionTreeDialog({
           <div
             className="relative min-w-0"
             role="list"
-            aria-label="会话条目"
+            aria-label={t("session.tree.entriesAria")}
             style={{ height: rows.length * rowHeight }}
           >
             <svg
@@ -255,7 +274,11 @@ export function SessionTreeDialog({
                       className="absolute top-1/2 z-10 flex size-4 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-sm border bg-background text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
                       style={{ left: x }}
                       onClick={() => toggleFold(row.entry.id)}
-                      aria-label={row.folded ? "展开分支" : "折叠分支"}
+                      aria-label={
+                        row.folded
+                          ? t("session.tree.expandBranch")
+                          : t("session.tree.collapseBranch")
+                      }
                       aria-expanded={!row.folded}
                     >
                       {row.folded ? (
@@ -292,7 +315,9 @@ export function SessionTreeDialog({
                     aria-pressed={selected}
                     aria-current={row.current ? "true" : undefined}
                   >
-                    <span className="sr-only">层级 {row.depth + 1}。</span>
+                    <span className="sr-only">
+                      {t("session.tree.depth", { count: row.depth + 1 })}
+                    </span>
                     <Icon className="size-3.5 shrink-0" aria-hidden="true" />
                     {labelBesideText ? (
                       <span className="shrink-0 rounded bg-muted-foreground/10 px-1.5 py-0.5 text-[10px] font-medium">
@@ -300,11 +325,11 @@ export function SessionTreeDialog({
                       </span>
                     ) : null}
                     <span className="min-w-0 flex-1 truncate">
-                      {entryText(row.entry)}
+                      {entryText(row.entry, t)}
                     </span>
                     {row.current ? (
                       <span className="shrink-0 rounded-full bg-foreground px-1.5 py-0.5 text-[10px] font-medium text-background">
-                        当前
+                        {t("session.tree.current")}
                       </span>
                     ) : null}
                     <time
@@ -322,7 +347,7 @@ export function SessionTreeDialog({
 
         {tree && !rows.length ? (
           <div className="flex h-full min-h-56 items-center justify-center text-center text-muted-foreground">
-            没有符合当前条件的节点
+            {t("session.tree.noMatches")}
           </div>
         ) : null}
       </div>
@@ -336,11 +361,13 @@ export function SessionTreeDialog({
           <p className="truncate text-xs text-muted-foreground">
             {selectedEntry ? (
               <>
-                已选择 · {entryText(selectedEntry)} ·{" "}
-                {timeFormatter.format(new Date(selectedEntry.timestamp))}
+                {t("session.tree.selected", {
+                  name: entryText(selectedEntry, t),
+                  time: timeFormatter.format(new Date(selectedEntry.timestamp)),
+                })}
               </>
             ) : (
-              "选择一个节点"
+              t("session.tree.selectNode")
             )}
           </p>
           <label
@@ -354,12 +381,12 @@ export function SessionTreeDialog({
               disabled={working}
               onCheckedChange={onSummarizeChange}
             />
-            总结放弃的分支
+            {t("session.tree.summarize")}
           </label>
         </div>
         <div className="flex shrink-0 justify-end gap-2">
           <Button variant="outline" onClick={onCancel} disabled={working}>
-            取消
+            {t("session.tree.cancel")}
           </Button>
           <Button
             onClick={onNavigate}
@@ -368,7 +395,7 @@ export function SessionTreeDialog({
             }
           >
             {working ? <LoaderCircleIcon className="animate-spin" /> : null}
-            切换到此节点
+            {t("session.tree.navigate")}
           </Button>
         </div>
       </div>

@@ -1,7 +1,8 @@
 export class ApiError extends Error {
   constructor(
     message: string,
-    readonly code?: string
+    readonly code?: string,
+    readonly details?: unknown
   ) {
     super(message)
   }
@@ -27,7 +28,8 @@ export async function responseJson<T>(
   if (!response.ok) {
     throw new ApiError(
       result?.error ?? fallbackError ?? `操作失败（HTTP ${response.status}）。`,
-      result?.code
+      result?.code,
+      result
     )
   }
   if (!result) {

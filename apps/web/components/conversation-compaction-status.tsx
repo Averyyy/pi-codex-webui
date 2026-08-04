@@ -1,10 +1,15 @@
+"use client"
+
 import { CheckCircle2Icon, LoaderCircleIcon } from "lucide-react"
+
+import { useI18n } from "@/components/i18n-provider"
 
 export function ConversationCompactionStatus({
   state,
 }: {
   state: "running" | "complete"
 }) {
+  const { t } = useI18n()
   const running = state === "running"
 
   return (
@@ -18,7 +23,11 @@ export function ConversationCompactionStatus({
       ) : (
         <CheckCircle2Icon className="text-muted-foreground" />
       )}
-      <span>{running ? "正在压缩上下文" : "上下文已压缩"}</span>
+      <span>
+        {running
+          ? t("session.compaction.running")
+          : t("session.compaction.complete")}
+      </span>
     </div>
   )
 }

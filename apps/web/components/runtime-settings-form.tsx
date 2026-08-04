@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useRef, useState, useTransition } from "react"
+import { useEffect, useMemo, useRef, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
 import { CheckCircle2Icon, LoaderCircleIcon, UnplugIcon } from "lucide-react"
 import { toast } from "sonner"
@@ -19,6 +19,7 @@ import {
   Field,
   FieldContent,
   FieldDescription,
+  FieldError,
   FieldGroup,
   FieldLabel,
   FieldTitle,
@@ -35,7 +36,7 @@ import {
 import { Switch } from "@workspace/ui/components/switch"
 
 import { useI18n } from "@/components/i18n-provider"
-import { responseJson } from "@/lib/api-response"
+import { ApiError, responseJson } from "@/lib/api-response"
 
 interface RuntimeProfileView {
   id: string
@@ -64,6 +65,48 @@ function piClientProfile(profiles: RuntimeProfileView[]) {
   return profile
 }
 
+function conflictRuntimeSettings(error: unknown) {
+  if (!(error instanceof ApiError) || error.code !== "ConfigConflict") {
+    return null
+  }
+  const details = error.details
+  const current =
+    typeof details === "object" && details !== null && "current" in details
+      ? details.current
+      : null
+  if (
+    typeof current !== "object" ||
+    current === null ||
+    !("revision" in current) ||
+    !Number.isInteger(current.revision) ||
+    !("defaultProfileId" in current) ||
+    typeof current.defaultProfileId !== "string" ||
+    !("profiles" in current) ||
+    !Array.isArray(current.profiles)
+  ) {
+    return null
+  }
+  const profiles = current.profiles
+  if (
+    profiles.some(
+      (profile) =>
+        typeof profile !== "object" ||
+        profile === null ||
+        !("id" in profile) ||
+        typeof profile.id !== "string" ||
+        !("kind" in profile) ||
+        (profile.kind !== "pi" && profile.kind !== "pi-client") ||
+        !("enabled" in profile) ||
+        typeof profile.enabled !== "boolean" ||
+        !("isDefault" in profile) ||
+        typeof profile.isDefault !== "boolean"
+    )
+  ) {
+    return null
+  }
+  return current as RuntimeSettingsView
+}
+
 export function RuntimeSettingsForm({
   initial,
   mutationToken,
@@ -83,9 +126,11 @@ export function RuntimeSettingsForm({
   const [authToken, setAuthToken] = useState("")
   const [clearAuthToken, setClearAuthToken] = useState(false)
   const [diagnostic, setDiagnostic] = useState<DiagnosticResult | null>(null)
+  const [error, setError] = useState<string | null>(null)
   const [saving, startSaving] = useTransition()
   const [testing, startTesting] = useTransition()
   const busyRef = useRef(false)
+  const errorRef = useRef<HTMLDivElement | null>(null)
   const router = useRouter()
   const dirty =
     enabled !== savedClient.enabled ||
@@ -94,7 +139,18 @@ export function RuntimeSettingsForm({
     authToken.length > 0 ||
     clearAuthToken
 
+  useEffect(() => {
+    if (!error || saving || testing) return
+    const frame = requestAnimationFrame(() => errorRef.current?.focus())
+    return () => cancelAnimationFrame(frame)
+  }, [error, saving, testing])
+
+  function reportError(message: string) {
+    setError(message)
+  }
+
   function updateEnabled(next: boolean) {
+    setError(null)
     setEnabled(next)
     if (!next && defaultProfileId === savedClient.id) {
       setDefaultProfileId("pi")
@@ -102,6 +158,7 @@ export function RuntimeSettingsForm({
   }
 
   function updateDefault(profileId: string) {
+    setError(null)
     setDefaultProfileId(profileId)
     if (profileId === savedClient.id) setEnabled(true)
   }
@@ -109,6 +166,7 @@ export function RuntimeSettingsForm({
   function save() {
     if (busyRef.current || !dirty) return
     busyRef.current = true
+    setError(null)
     startSaving(async () => {
       try {
         const response = await fetch(
@@ -145,12 +203,29 @@ export function RuntimeSettingsForm({
         router.refresh()
         toast.success(t("settings.runtime.saved"))
       } catch (error) {
-        router.refresh()
-        toast.error(
-          error instanceof Error
-            ? error.message
-            : t("settings.runtime.saveFailed")
-        )
+        const current = conflictRuntimeSettings(error)
+        if (current) {
+          const latestClient = piClientProfile(current.profiles)
+          const enabledChanged = enabled !== savedClient.enabled
+          const serverUrlChanged = serverUrl !== (savedClient.serverUrl ?? "")
+          const defaultChanged = defaultProfileId !== saved.defaultProfileId
+          setSaved(current)
+          if (!enabledChanged) setEnabled(latestClient.enabled)
+          if (!serverUrlChanged) {
+            setServerUrl(latestClient.serverUrl ?? "")
+          }
+          if (!defaultChanged) setDefaultProfileId(current.defaultProfileId)
+        } else {
+          router.refresh()
+        }
+        const message =
+          error instanceof ApiError && error.code === "ConfigConflict"
+            ? t("settings.common.conflict")
+            : error instanceof Error
+              ? error.message
+              : t("settings.runtime.saveFailed")
+        reportError(message)
+        toast.error(message)
       } finally {
         busyRef.current = false
       }
@@ -160,6 +235,7 @@ export function RuntimeSettingsForm({
   function testConnection() {
     if (busyRef.current || dirty || !savedClient.serverUrl) return
     busyRef.current = true
+    setError(null)
     startTesting(async () => {
       setDiagnostic(null)
       try {
@@ -179,11 +255,12 @@ export function RuntimeSettingsForm({
         setDiagnostic(result)
         toast.success(t("settings.runtime.connected"))
       } catch (error) {
-        toast.error(
+        const message =
           error instanceof Error
             ? error.message
             : t("settings.runtime.testFailed")
-        )
+        reportError(message)
+        toast.error(message)
       } finally {
         busyRef.current = false
       }
@@ -256,7 +333,10 @@ export function RuntimeSettingsForm({
                 type="url"
                 required={enabled}
                 value={serverUrl}
-                onChange={(event) => setServerUrl(event.target.value)}
+                onChange={(event) => {
+                  setServerUrl(event.target.value)
+                  setError(null)
+                }}
                 placeholder="http://127.0.0.1:4217"
                 className="w-full max-w-sm"
               />
@@ -285,6 +365,7 @@ export function RuntimeSettingsForm({
                   value={authToken}
                   onChange={(event) => {
                     setAuthToken(event.target.value)
+                    setError(null)
                     if (event.target.value) setClearAuthToken(false)
                   }}
                   placeholder={
@@ -300,6 +381,7 @@ export function RuntimeSettingsForm({
                     onClick={() => {
                       setClearAuthToken((current) => !current)
                       setAuthToken("")
+                      setError(null)
                     }}
                   >
                     {clearAuthToken
@@ -318,8 +400,24 @@ export function RuntimeSettingsForm({
                 })}
                 {diagnostic.sessionCount === undefined
                   ? null
-                  : ` · ${diagnostic.sessionCount} sessions`}
+                  : ` · ${t(
+                      diagnostic.sessionCount === 1
+                        ? "settings.runtime.sessionCountOne"
+                        : "settings.runtime.sessionCountMany",
+                      {
+                        count: diagnostic.sessionCount,
+                      }
+                    )}`}
               </div>
+            ) : null}
+            {error ? (
+              <FieldError
+                ref={errorRef}
+                tabIndex={-1}
+                className="rounded-lg bg-destructive/5 p-3"
+              >
+                {error}
+              </FieldError>
             ) : null}
           </FieldGroup>
         </CardContent>

@@ -20,6 +20,7 @@ import {
 import { NewSessionButton } from "@/components/new-session-button"
 import { ProjectHeader } from "@/components/project-header"
 import { getProject, listProjectSessions } from "@/lib/catalog"
+import { getLocalizedConfig } from "@/lib/i18n-server"
 import { readProjectGitStatus } from "@/lib/project-git"
 import { displaySessionTitle, formatTimestamp } from "@/lib/session-display"
 
@@ -27,12 +28,17 @@ export default async function ProjectPage({
   params,
 }: PageProps<"/projects/[projectId]">) {
   const { projectId } = await params
-  const [project, sessions] = await Promise.all([
+  const [{ config, t }, project, sessions] = await Promise.all([
+    getLocalizedConfig(),
     getProject(projectId),
     listProjectSessions(projectId),
   ])
   if (!project) notFound()
   const git = await readProjectGitStatus(project.path)
+  const sessionTitleFallback = {
+    task: t("workspace.nav.newTask"),
+    conversation: t("workspace.nav.unnamedConversation"),
+  }
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-4 py-8 sm:px-6 md:px-10 md:py-14">
@@ -40,11 +46,18 @@ export default async function ProjectPage({
         project={project}
         branch={git.available ? git.branch : null}
         active="sessions"
+        locale={config.appearance.language}
       >
-        <NewSessionButton projectId={projectId} />
+        <NewSessionButton
+          projectId={projectId}
+          locale={config.appearance.language}
+        />
       </ProjectHeader>
 
-      <section className="grid gap-3" aria-label="项目会话">
+      <section
+        className="grid gap-3"
+        aria-label={t("project.sessions.ariaLabel")}
+      >
         {sessions.map((session) => (
           <Link
             key={session.id}
@@ -56,15 +69,31 @@ export default async function ProjectPage({
                 <div className="flex min-w-0 items-start justify-between gap-4">
                   <div className="min-w-0 flex-1">
                     <CardTitle className="truncate">
-                      {displaySessionTitle(session)}
+                      {displaySessionTitle(session, sessionTitleFallback)}
                     </CardTitle>
                     <CardDescription className="mt-1">
-                      {formatTimestamp(session.updatedAt)}
+                      <time dateTime={session.updatedAt}>
+                        {formatTimestamp(
+                          session.updatedAt,
+                          config.appearance.language
+                        )}
+                      </time>
                     </CardDescription>
                   </div>
-                  <Badge variant="secondary" className="shrink-0">
+                  <Badge
+                    variant="secondary"
+                    className="shrink-0"
+                    aria-label={t(
+                      session.messageCount === 1
+                        ? "project.sessions.messageCountOne"
+                        : "project.sessions.messageCount",
+                      { count: session.messageCount }
+                    )}
+                  >
                     <MessageSquareTextIcon />
-                    {session.messageCount}
+                    {session.messageCount.toLocaleString(
+                      config.appearance.language
+                    )}
                   </Badge>
                 </div>
               </CardHeader>
@@ -77,9 +106,9 @@ export default async function ProjectPage({
               <EmptyMedia variant="icon">
                 <MessageSquareTextIcon />
               </EmptyMedia>
-              <EmptyTitle>还没有会话</EmptyTitle>
+              <EmptyTitle>{t("project.sessions.emptyTitle")}</EmptyTitle>
               <EmptyDescription>
-                从上方新建会话，开始在这个项目中工作。
+                {t("project.sessions.emptyDescription")}
               </EmptyDescription>
             </EmptyHeader>
           </Empty>
