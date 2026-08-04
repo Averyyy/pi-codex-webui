@@ -9,13 +9,11 @@ import {
   MAX_PROMPT_IMAGES,
   MAX_PROMPT_IMAGE_BASE64_LENGTH,
   promptImageBase64Length,
+  type ComposerImage,
   type PromptImage,
 } from "@/lib/prompt-images"
 
-export type ComposerImage = PromptImage & {
-  id: string
-  name: string
-}
+export type { ComposerImage } from "@/lib/prompt-images"
 
 function readImage(file: File) {
   return new Promise<ComposerImage>((resolve, reject) => {
@@ -45,13 +43,22 @@ function readImage(file: File) {
   })
 }
 
-export function useComposerImages() {
-  const [images, setImages] = useState<ComposerImage[]>([])
+export function useComposerImages(
+  initialImages: ComposerImage[] = [],
+  onImagesChange?: (images: ComposerImage[]) => void
+) {
+  const [images, setImages] = useState<ComposerImage[]>(initialImages)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
-  const imagesRef = useRef<ComposerImage[]>([])
+  const imagesRef = useRef<ComposerImage[]>(initialImages)
   const pendingCountRef = useRef(0)
   const revisionRef = useRef(0)
+
+  function updateImages(next: ComposerImage[]) {
+    imagesRef.current = next
+    setImages(next)
+    onImagesChange?.(next)
+  }
 
   async function addImages(files: File[]) {
     setError(null)
@@ -79,8 +86,7 @@ export function useComposerImages() {
       for (const file of files) added.push(await readImage(file))
       if (revision !== revisionRef.current) return
       const next = [...imagesRef.current, ...added]
-      imagesRef.current = next
-      setImages(next)
+      updateImages(next)
     } catch (failure) {
       if (revision === revisionRef.current) {
         setError(failure instanceof Error ? failure.message : String(failure))
@@ -93,14 +99,12 @@ export function useComposerImages() {
 
   function removeImage(id: string) {
     const next = imagesRef.current.filter((image) => image.id !== id)
-    imagesRef.current = next
-    setImages(next)
+    updateImages(next)
   }
 
   function clearImages() {
     revisionRef.current += 1
-    imagesRef.current = []
-    setImages([])
+    updateImages([])
     setError(null)
   }
 

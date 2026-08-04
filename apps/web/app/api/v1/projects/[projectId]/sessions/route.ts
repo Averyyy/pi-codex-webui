@@ -54,10 +54,7 @@ export async function POST(
     const text = await request.text()
     const parsed = createSchema.safeParse(text ? JSON.parse(text) : {})
     if (!parsed.success) {
-      return Response.json(
-        { error: "Invalid runtime profile selection." },
-        { status: 400 }
-      )
+      return Response.json({ error: "Invalid session input." }, { status: 400 })
     }
     return Response.json(
       await getRuntimeSupervisor().createSession(projectId, {

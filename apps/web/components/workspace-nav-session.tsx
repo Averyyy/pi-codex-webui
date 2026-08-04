@@ -26,17 +26,10 @@ import {
 import { cn } from "@workspace/ui/lib/utils"
 
 import { displaySessionTitle } from "@/lib/session-display"
+import { responseJson } from "@/lib/api-response"
 import type { SessionSummary } from "@/lib/session-types"
 
 export type ConversationShortcutModifier = "⌘" | "Ctrl"
-
-async function responseJson(response: Response) {
-  const body = (await response.json()) as { error?: string }
-  if (!response.ok) {
-    throw new Error(body.error ?? `操作失败（HTTP ${response.status}）。`)
-  }
-  return body
-}
 
 export function WorkspaceNavSession({
   session,

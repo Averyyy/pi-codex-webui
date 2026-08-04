@@ -43,7 +43,7 @@ export function ProjectHeader({
       </div>
       <nav className="flex flex-wrap gap-2" aria-label="项目工具">
         <Button asChild variant="outline" size="sm">
-          <Link href={`/projects/${project.id}`}>Sessions</Link>
+          <Link href={`/projects/${project.id}`}>会话</Link>
         </Button>
         <Button asChild variant="outline" size="sm">
           <Link href={`/projects/${project.id}/files`}>

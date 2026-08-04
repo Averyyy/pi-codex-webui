@@ -21,6 +21,7 @@ import { Field, FieldGroup, FieldLabel } from "@workspace/ui/components/field"
 import { Input } from "@workspace/ui/components/input"
 
 import { searchSessions } from "@/lib/catalog"
+import { searchEntryTypeLabel } from "@/lib/search-result-display"
 import { displaySessionTitle, formatTimestamp } from "@/lib/session-display"
 
 export default async function SearchPage({
@@ -105,7 +106,7 @@ export default async function SearchPage({
                     </CardDescription>
                   </div>
                   <Badge variant="secondary" className="shrink-0">
-                    {result.entryId === null ? "标题" : result.entryType}
+                    {searchEntryTypeLabel(result.entryType)}
                   </Badge>
                 </CardHeader>
                 <CardContent className="text-sm leading-6 break-words whitespace-pre-wrap">

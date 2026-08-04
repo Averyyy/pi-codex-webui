@@ -7,6 +7,7 @@ import {
 } from "@workspace/ui/components/sidebar"
 
 import { WorkspaceNav } from "@/components/workspace-nav"
+import { SessionComposerDraftProvider } from "@/components/session-composer-draft-context"
 import { listWorkspaceProjects, listWorkspaceTasks } from "@/lib/catalog"
 import { getMutationToken } from "@/lib/request-security"
 import { getRuntimeSupervisor } from "@/lib/runtime-supervisor"
@@ -29,30 +30,32 @@ export default async function WorkspaceLayout({
     .map((session) => session.id)
 
   return (
-    <SidebarProvider
-      style={
-        {
-          "--sidebar-width": "var(--app-sidebar-width)",
-        } as CSSProperties
-      }
-    >
-      <WorkspaceNav
-        projects={projects}
-        tasks={tasks}
-        initialRunningSessionIds={initialRunningSessionIds}
-        mutationToken={getMutationToken()}
-      />
-      <SidebarInset
-        id="main-content"
-        tabIndex={-1}
-        className="min-h-svh overflow-hidden"
+    <SessionComposerDraftProvider>
+      <SidebarProvider
+        style={
+          {
+            "--sidebar-width": "var(--app-sidebar-width)",
+          } as CSSProperties
+        }
       >
-        <header className="flex h-12 shrink-0 items-center border-b px-3 md:hidden">
-          <SidebarTrigger aria-label="切换侧边栏" />
-          <span className="ml-2 font-medium">pi-web-codex</span>
-        </header>
-        {children}
-      </SidebarInset>
-    </SidebarProvider>
+        <WorkspaceNav
+          projects={projects}
+          tasks={tasks}
+          initialRunningSessionIds={initialRunningSessionIds}
+          mutationToken={getMutationToken()}
+        />
+        <SidebarInset
+          id="main-content"
+          tabIndex={-1}
+          className="min-h-svh overflow-hidden"
+        >
+          <header className="flex h-12 shrink-0 items-center border-b px-3 md:hidden">
+            <SidebarTrigger />
+            <span className="ml-2 font-medium">pi-web-codex</span>
+          </header>
+          {children}
+        </SidebarInset>
+      </SidebarProvider>
+    </SessionComposerDraftProvider>
   )
 }

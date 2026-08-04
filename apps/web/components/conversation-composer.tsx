@@ -42,6 +42,7 @@ import {
   removeComposerSlashCommand,
   type ComposerCommand,
 } from "@/components/composer-command-menu"
+import { useI18n } from "@/components/i18n-provider"
 
 function modelValue(model: { provider: string; id: string }) {
   return JSON.stringify([model.provider, model.id])
@@ -471,6 +472,7 @@ export function ComposerThinkingSelect({
   onLevelChange: (level: ThinkingLevel) => void
   disabled?: boolean
 }) {
+  const { t } = useI18n()
   if (levels.length === 0) return null
 
   return (
@@ -485,17 +487,17 @@ export function ComposerThinkingSelect({
     >
       <SelectTrigger
         size="sm"
-        aria-label="Reasoning effort"
+        aria-label={t("composer.reasoningEffort")}
         aria-keyshortcuts="Alt+Shift+R"
-        title="Alt+Shift+R 切换 reasoning effort"
+        title={t("composer.reasoningShortcut")}
       >
-        <SelectValue>Reasoning: {level}</SelectValue>
+        <SelectValue>{t("composer.reasoningLevel", { level })}</SelectValue>
       </SelectTrigger>
       <SelectContent position="popper" side="top">
         <SelectGroup>
           {levels.map((available) => (
             <SelectItem key={available} value={available}>
-              Reasoning: {available}
+              {t("composer.reasoningLevel", { level: available })}
             </SelectItem>
           ))}
         </SelectGroup>

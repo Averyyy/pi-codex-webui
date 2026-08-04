@@ -2,7 +2,7 @@ import { z } from "zod"
 
 import { addWorkspaceProject, listWorkspaceProjects } from "@/lib/catalog"
 import { validateLocalMutation } from "@/lib/request-security"
-import { readJsonBody } from "@/lib/runtime-api"
+import { readJsonBody, runtimeErrorResponse } from "@/lib/runtime-api"
 
 export const runtime = "nodejs"
 
@@ -21,11 +21,11 @@ export async function POST(request: Request) {
     return Response.json({ error: securityError }, { status: 403 })
   }
 
-  const parsed = createSchema.safeParse(await readJsonBody(request))
-  if (!parsed.success) {
-    return Response.json({ error: "Invalid project path." }, { status: 400 })
-  }
   try {
+    const parsed = createSchema.safeParse(await readJsonBody(request))
+    if (!parsed.success) {
+      return Response.json({ error: "Invalid project path." }, { status: 400 })
+    }
     return Response.json(await addWorkspaceProject(parsed.data.path), {
       status: 201,
       headers: { "Cache-Control": "no-store" },
@@ -41,6 +41,6 @@ export async function POST(request: Request) {
         { status: 400 }
       )
     }
-    throw error
+    return runtimeErrorResponse(error)
   }
 }

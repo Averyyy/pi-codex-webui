@@ -139,10 +139,10 @@ export function SessionTreeDialog({
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <DialogHeader className="shrink-0 gap-1 border-b px-5 py-4 pr-14 text-left">
-        <DialogTitle className="text-lg">Session tree</DialogTitle>
+        <DialogTitle className="text-lg">会话树</DialogTitle>
         <DialogDescription>
           {tree
-            ? `${sessionTreeEntryCount(tree)} entries · 当前分支 ${activeCount}`
+            ? `${sessionTreeEntryCount(tree)} 个条目 · 当前分支 ${activeCount}`
             : "正在读取真实的 JSONL 分支…"}
         </DialogDescription>
       </DialogHeader>
@@ -161,7 +161,7 @@ export function SessionTreeDialog({
         </div>
         <div
           className="grid grid-cols-4 rounded-lg bg-muted p-0.5"
-          aria-label="Session tree 过滤器"
+          aria-label="会话树过滤器"
         >
           {filters.map((option) => (
             <button
@@ -189,7 +189,7 @@ export function SessionTreeDialog({
         {working && !tree ? (
           <div className="flex h-full min-h-56 items-center justify-center gap-2 text-muted-foreground">
             <LoaderCircleIcon className="size-4 animate-spin" />
-            读取 Session tree…
+            正在读取会话树…
           </div>
         ) : null}
 
@@ -197,7 +197,7 @@ export function SessionTreeDialog({
           <div
             className="relative min-w-0"
             role="list"
-            aria-label="Session entries"
+            aria-label="会话条目"
             style={{ height: rows.length * rowHeight }}
           >
             <svg

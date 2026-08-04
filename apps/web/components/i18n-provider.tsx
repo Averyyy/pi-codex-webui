@@ -9,6 +9,8 @@ import {
   useState,
 } from "react"
 
+import { UiLabelsProvider } from "@workspace/ui/components/ui-labels"
+
 import { createTranslator, type Locale, type MessageKey } from "@/lib/i18n"
 
 interface I18nContextValue {
@@ -41,7 +43,18 @@ export function I18nProvider({
     [locale, setLocale, t]
   )
 
-  return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>
+  return (
+    <I18nContext.Provider value={value}>
+      <UiLabelsProvider
+        close={t("ui.close")}
+        sidebarTitle={t("ui.sidebarTitle")}
+        sidebarDescription={t("ui.sidebarDescription")}
+        toggleSidebar={t("ui.toggleSidebar")}
+      >
+        {children}
+      </UiLabelsProvider>
+    </I18nContext.Provider>
+  )
 }
 
 export function useI18n() {

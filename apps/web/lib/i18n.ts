@@ -4,6 +4,30 @@ export type Locale = (typeof locales)[number]
 export const DEFAULT_LOCALE: Locale = "zh-CN"
 
 const messages = {
+  "ui.close": { "zh-CN": "关闭", "en-US": "Close" },
+  "ui.sidebarTitle": { "zh-CN": "侧边栏", "en-US": "Sidebar" },
+  "ui.sidebarDescription": {
+    "zh-CN": "显示移动端侧边栏。",
+    "en-US": "Displays the mobile sidebar.",
+  },
+  "ui.toggleSidebar": {
+    "zh-CN": "切换侧边栏",
+    "en-US": "Toggle Sidebar",
+  },
+
+  "composer.reasoningEffort": {
+    "zh-CN": "推理强度",
+    "en-US": "Reasoning effort",
+  },
+  "composer.reasoningLevel": {
+    "zh-CN": "推理：{level}",
+    "en-US": "Reasoning: {level}",
+  },
+  "composer.reasoningShortcut": {
+    "zh-CN": "Alt+Shift+R 切换推理强度",
+    "en-US": "Alt+Shift+R cycles reasoning effort",
+  },
+
   "settings.nav.general": { "zh-CN": "常规", "en-US": "General" },
   "settings.nav.appearance": { "zh-CN": "外观", "en-US": "Appearance" },
   "settings.nav.archive": { "zh-CN": "归档", "en-US": "Archive" },
@@ -228,14 +252,24 @@ const messages = {
   },
   "settings.archive.archivedAt": { "zh-CN": "归档于", "en-US": "Archived" },
   "settings.archive.delete": { "zh-CN": "删除", "en-US": "Delete" },
+  "settings.archive.deleting": { "zh-CN": "删除中…", "en-US": "Deleting…" },
+  "settings.archive.deleteSession": {
+    "zh-CN": "删除对话：{title}",
+    "en-US": "Delete conversation: {title}",
+  },
+  "settings.archive.deletingSession": {
+    "zh-CN": "正在删除对话：{title}",
+    "en-US": "Deleting conversation: {title}",
+  },
   "settings.archive.cancel": { "zh-CN": "取消", "en-US": "Cancel" },
   "settings.archive.confirmDeleteTitle": {
     "zh-CN": "永久删除归档对话？",
     "en-US": "Permanently delete this archived conversation?",
   },
   "settings.archive.confirmDelete": {
-    "zh-CN": "对应的 Pi JSONL 也会被删除。此操作无法撤销。",
-    "en-US": "Its Pi JSONL will also be deleted. This action cannot be undone.",
+    "zh-CN": "“{title}”对应的 Pi JSONL 也会被删除。此操作无法撤销。",
+    "en-US":
+      "The Pi JSONL for “{title}” will also be deleted. This action cannot be undone.",
   },
   "settings.archive.deleteFailed": {
     "zh-CN": "删除归档对话失败。",

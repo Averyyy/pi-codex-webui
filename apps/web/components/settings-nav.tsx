@@ -4,6 +4,7 @@ import { useEffect } from "react"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import {
+  ArrowLeftIcon,
   ArchiveIcon,
   BlocksIcon,
   Code2Icon,
@@ -11,7 +12,6 @@ import {
   PackageIcon,
   PaletteIcon,
   Settings2Icon,
-  SettingsIcon,
   SlidersHorizontalIcon,
   SparklesIcon,
 } from "lucide-react"
@@ -106,7 +106,11 @@ export function SettingsNav() {
                       isActive={pathname === href}
                       tooltip={label}
                     >
-                      <Link href={href} replace>
+                      <Link
+                        href={href}
+                        replace
+                        aria-current={pathname === href ? "page" : undefined}
+                      >
                         <Icon />
                         <span>{label}</span>
                       </Link>
@@ -121,10 +125,14 @@ export function SettingsNav() {
       <SidebarFooter inert={navigationHidden} aria-hidden={navigationHidden}>
         <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuButton asChild isActive tooltip={t("settings.label")}>
-              <button type="button" onClick={() => router.back()}>
-                <SettingsIcon />
-                <span>{t("settings.label")}</span>
+            <SidebarMenuButton asChild tooltip={t("settings.back")}>
+              <button
+                type="button"
+                aria-label={t("settings.back")}
+                onClick={() => router.back()}
+              >
+                <ArrowLeftIcon />
+                <span>{t("settings.back")}</span>
               </button>
             </SidebarMenuButton>
           </SidebarMenuItem>

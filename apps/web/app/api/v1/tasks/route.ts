@@ -39,10 +39,7 @@ export async function POST(request: Request) {
     const text = await request.text()
     const parsed = createSchema.safeParse(text ? JSON.parse(text) : {})
     if (!parsed.success) {
-      return Response.json(
-        { error: "Invalid runtime profile selection." },
-        { status: 400 }
-      )
+      return Response.json({ error: "Invalid task input." }, { status: 400 })
     }
     return Response.json(
       await getRuntimeSupervisor().createTask({

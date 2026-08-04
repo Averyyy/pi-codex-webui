@@ -1,3 +1,5 @@
+import { responseJson } from "@/lib/api-response"
+
 export interface AddedProject {
   id: string
   name: string
@@ -11,9 +13,5 @@ export async function pickWorkspaceProject(mutationToken: string) {
   })
   if (response.status === 204) return null
 
-  const body = (await response.json()) as AddedProject & { error?: string }
-  if (!response.ok) {
-    throw new Error(body.error ?? `操作失败（HTTP ${response.status}）。`)
-  }
-  return body
+  return responseJson<AddedProject>(response)
 }

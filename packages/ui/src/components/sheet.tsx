@@ -5,6 +5,7 @@ import { Dialog as SheetPrimitive } from "radix-ui"
 
 import { cn } from "@workspace/ui/lib/utils"
 import { Button } from "@workspace/ui/components/button"
+import { useUiLabels } from "@workspace/ui/components/ui-labels"
 import { XIcon } from "lucide-react"
 
 function Sheet({ ...props }: React.ComponentProps<typeof SheetPrimitive.Root>) {
@@ -55,6 +56,8 @@ function SheetContent({
   side?: "top" | "right" | "bottom" | "left"
   showCloseButton?: boolean
 }) {
+  const { close } = useUiLabels()
+
   return (
     <SheetPortal>
       <SheetOverlay />
@@ -76,7 +79,7 @@ function SheetContent({
               size="icon-sm"
             >
               <XIcon />
-              <span className="sr-only">Close</span>
+              <span className="sr-only">{close}</span>
             </Button>
           </SheetPrimitive.Close>
         )}

@@ -14,6 +14,7 @@ import test from "node:test"
 
 import {
   addWorkspaceProject,
+  archiveProjectSessions,
   archiveSession,
   deleteArchivedSession,
   getProject,
@@ -21,6 +22,7 @@ import {
   getSessionRuntimeTarget,
   getSessionSnapshot,
   isProjectDirectoryAvailable,
+  isSessionArchived,
   listArchivedSessions,
   listWorkspaceProjects,
   listWorkspaceTasks,
@@ -154,6 +156,7 @@ test("standalone sessions survive reindexing and remain outside projects", async
   const projectCwd = path.join(root, "project")
   const taskCwd = path.join(root, "task")
   const emptyCwd = path.join(root, "empty-project")
+  const failingCwd = path.join(root, "failing-project")
   const previous = {
     config: process.env.PI_WEB_CODEX_CONFIG_DIR,
     sessions: process.env.PI_CODING_AGENT_SESSION_DIR,
@@ -169,10 +172,12 @@ test("standalone sessions survive reindexing and remain outside projects", async
       mkdir(projectCwd, { recursive: true }),
       mkdir(taskCwd, { recursive: true }),
       mkdir(emptyCwd, { recursive: true }),
+      mkdir(failingCwd, { recursive: true }),
     ])
     const projectFile = path.join(sessionRoot, "project.jsonl")
     const taskFile = path.join(sessionRoot, "task.jsonl")
     const branchFile = path.join(sessionRoot, "branch.jsonl")
+    const failingFile = path.join(sessionRoot, "registration-failure.jsonl")
     await Promise.all([
       writeFile(
         projectFile,
@@ -188,11 +193,51 @@ test("standalone sessions survive reindexing and remain outside projects", async
         sessionJsonl("native-task", taskCwd, "standalone needle")
       ),
       writeFile(branchFile, branchedSessionJsonl("native-branch", taskCwd)),
+      writeFile(
+        failingFile,
+        `${JSON.stringify({
+          type: "session",
+          version: 3,
+          id: "native-registration-failure",
+          timestamp: "2026-07-14T00:00:00.000Z",
+          cwd: failingCwd,
+        })}\n{invalid json}\n`
+      ),
     ])
 
     await syncPiSessionIndex()
     assert.deepEqual(await listWorkspaceProjects(), [])
     assert.deepEqual(await listWorkspaceTasks(), [])
+
+    const failedRegistrations = await Promise.allSettled([
+      addWorkspaceProject(failingCwd),
+      addWorkspaceProject(failingCwd),
+    ])
+    assert.deepEqual(
+      failedRegistrations.map(({ status }) => status),
+      ["rejected", "rejected"]
+    )
+    assert.deepEqual(await listWorkspaceProjects(), [])
+    assert.equal(globalThis.piWebCodexProjectRegistrations?.size, 0)
+    await rm(failingFile)
+    const [recoveredProject, duplicateRegistration] = await Promise.all([
+      addWorkspaceProject(failingCwd),
+      addWorkspaceProject(failingCwd),
+    ])
+    assert.equal(duplicateRegistration.id, recoveredProject.id)
+    assert.equal(recoveredProject.sessionCount, 0)
+    assert.equal(globalThis.piWebCodexProjectRegistrations?.size, 0)
+    const database = await getDatabase()
+    assert.equal(
+      database
+        .prepare(
+          `SELECT count(*) AS count FROM project_registrations
+           WHERE project_id = ?`
+        )
+        .get(recoveredProject.id)?.count,
+      1
+    )
+    assert.equal(await removeWorkspaceProject(recoveredProject.id), true)
 
     const registered = await addWorkspaceProject(projectCwd)
     const canonicalProjectCwd = await realpath(projectCwd)
@@ -206,6 +251,7 @@ test("standalone sessions survive reindexing and remain outside projects", async
     const taskSession = await getSessionIdentityByNativeFile(taskFile)
     assert.ok(projectSession)
     assert.ok(taskSession)
+    assert.equal(await isSessionArchived(projectSession.id), false)
     assert.equal(projectSession.hasUnreadCompletion, false)
     const projectId = projectSession.projectId
     assert.ok(projectId)
@@ -245,7 +291,6 @@ test("standalone sessions survive reindexing and remain outside projects", async
     )
     assert.equal((await searchSessions("release roadmap")).length, 0)
 
-    const database = await getDatabase()
     const sessionRowsBeforeRemoval = database
       .prepare("SELECT count(*) AS count FROM sessions WHERE project_id = ?")
       .get(projectId)?.count
@@ -414,6 +459,27 @@ test("standalone sessions survive reindexing and remain outside projects", async
     assert.deepEqual(await listArchivedSessions(), [])
     await assert.rejects(stat(taskFile))
 
+    assert.equal(await setSessionPinned(projectSession.id, true), true)
+    assert.equal(
+      await archiveProjectSessions(projectId, [
+        projectSession.id,
+        projectSession.id,
+        "missing-session",
+      ]),
+      1
+    )
+    assert.equal(await isSessionArchived(projectSession.id), true)
+    assert.equal(
+      (await listArchivedSessions()).find(
+        (session) => session.id === projectSession.id
+      )?.isPinned,
+      false
+    )
+    assert.equal(
+      await archiveProjectSessions(projectId, [projectSession.id]),
+      0
+    )
+
     await rm(projectCwd, { recursive: true })
     assert.deepEqual(await listWorkspaceProjects(), [])
     assert.equal((await getProject(projectId))?.path, canonicalProjectCwd)
@@ -422,6 +488,7 @@ test("standalone sessions survive reindexing and remain outside projects", async
     database.close()
     globalThis.piWebCodexDatabase = undefined
     globalThis.piWebCodexIndexSync = undefined
+    globalThis.piWebCodexProjectRegistrations = undefined
     if (previous.config === undefined)
       delete process.env.PI_WEB_CODEX_CONFIG_DIR
     else process.env.PI_WEB_CODEX_CONFIG_DIR = previous.config

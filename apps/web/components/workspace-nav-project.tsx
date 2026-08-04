@@ -63,6 +63,7 @@ import {
 } from "@workspace/ui/components/sidebar"
 
 import type { WorkspaceProject } from "@/lib/session-types"
+import { responseJson } from "@/lib/api-response"
 import {
   WorkspaceNavSession,
   type ConversationShortcutModifier,
@@ -78,14 +79,6 @@ interface MenuAction {
   onSelect: () => void
   destructive?: boolean
   separatorBefore?: boolean
-}
-
-async function responseJson(response: Response) {
-  const body = (await response.json()) as { error?: string }
-  if (!response.ok) {
-    throw new Error(body.error ?? `操作失败（HTTP ${response.status}）。`)
-  }
-  return body
 }
 
 export function WorkspaceNavProject({

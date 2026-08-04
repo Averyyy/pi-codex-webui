@@ -1,7 +1,13 @@
 "use client"
 
 import Link from "next/link"
-import { useRef, useState, useTransition, type FormEvent } from "react"
+import {
+  useCallback,
+  useRef,
+  useState,
+  useTransition,
+  type FormEvent,
+} from "react"
 import { useRouter } from "next/navigation"
 import {
   BugIcon,
@@ -44,8 +50,11 @@ import {
   ConversationComposer,
   nextThinkingLevel,
 } from "@/components/conversation-composer"
+import { useSessionComposerDraftStore } from "@/components/session-composer-draft-context"
 import { ApiError, responseJson } from "@/lib/api-response"
 import { pickWorkspaceProject } from "@/lib/project-picker-client"
+import type { ComposerImage } from "@/lib/prompt-images"
+import { NEW_CONVERSATION_DRAFT_ID } from "@/lib/session-composer-draft-store"
 
 const NO_PROJECT = "__none__"
 
@@ -125,6 +134,7 @@ export function NewConversation({
   mutationToken: string
 }) {
   const router = useRouter()
+  const composerDraftStore = useSessionComposerDraftStore()
   const projectId = initialProjectId
   const [modelSelection, setModelSelection] = useState<ModelSelection>(() => {
     const model = initialModel(initialModelSettings)
@@ -164,7 +174,17 @@ export function NewConversation({
     })
   }
   const { model, thinkingLevel } = modelSelection
-  const [message, setMessage] = useState("")
+  const [initialComposerDraft] = useState(() =>
+    composerDraftStore.read(NEW_CONVERSATION_DRAFT_ID)
+  )
+  const [message, setMessageState] = useState(initialComposerDraft.text)
+  const setMessage = useCallback(
+    (nextMessage: string) => {
+      composerDraftStore.setText(NEW_CONVERSATION_DRAFT_ID, nextMessage)
+      setMessageState(nextMessage)
+    },
+    [composerDraftStore]
+  )
   const [projectSelectOpen, setProjectSelectOpen] = useState(false)
   const [addingProject, setAddingProject] = useState(false)
   const [submitting, setSubmitting] = useState(false)
@@ -172,7 +192,15 @@ export function NewConversation({
   const [loadingModels, startProjectTransition] = useTransition()
   const [error, setError] = useState<ApiError | null>(null)
   const messageInputRef = useRef<HTMLTextAreaElement>(null)
-  const composerImages = useComposerImages()
+  const updateStoredComposerImages = useCallback(
+    (images: ComposerImage[]) =>
+      composerDraftStore.setImages(NEW_CONVERSATION_DRAFT_ID, images),
+    [composerDraftStore]
+  )
+  const composerImages = useComposerImages(
+    initialComposerDraft.images,
+    updateStoredComposerImages
+  )
   const selectedProject = projects.find((project) => project.id === projectId)
   const models = enabledModels(initialModelSettings)
 
@@ -256,6 +284,8 @@ export function NewConversation({
         )
       )
 
+      setMessage("")
+      composerImages.clearImages()
       router.push(
         created.projectId === null
           ? `/tasks/${created.sessionId}`

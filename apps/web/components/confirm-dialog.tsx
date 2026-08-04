@@ -1,6 +1,6 @@
 "use client"
 
-import type { ReactNode } from "react"
+import { useRef, type ReactNode } from "react"
 
 import {
   AlertDialog,
@@ -30,9 +30,26 @@ export function ConfirmDialog({
   confirmLabel: ReactNode
   onConfirm: () => void | Promise<void>
 }) {
+  const restoreFocusRef = useRef<HTMLElement | null>(null)
+
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
-      <AlertDialogContent>
+      <AlertDialogContent
+        onOpenAutoFocus={() => {
+          restoreFocusRef.current =
+            document.activeElement instanceof HTMLElement
+              ? document.activeElement
+              : null
+        }}
+        onCloseAutoFocus={(event) => {
+          const restoreFocus = restoreFocusRef.current
+          restoreFocusRef.current = null
+          if (!restoreFocus?.isConnected) return
+
+          event.preventDefault()
+          restoreFocus.focus()
+        }}
+      >
         <AlertDialogHeader>
           <AlertDialogTitle>{title}</AlertDialogTitle>
           <AlertDialogDescription>{description}</AlertDialogDescription>

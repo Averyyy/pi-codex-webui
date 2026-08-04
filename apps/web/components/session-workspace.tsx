@@ -167,7 +167,7 @@ function PanelTabs({
         </div>
       ) : (
         <span className="min-w-0 flex-1 px-2 text-xs text-muted-foreground">
-          侧边栏
+          会话侧栏
         </span>
       )}
 
@@ -177,7 +177,7 @@ function PanelTabs({
             variant="ghost"
             size="icon-sm"
             data-workspace-add-tab
-            aria-label="添加侧边栏标签页"
+            aria-label="添加会话侧栏标签页"
           >
             <PlusIcon />
           </Button>
@@ -204,7 +204,7 @@ function PanelTabs({
       <Button
         variant="ghost"
         size="icon-sm"
-        aria-label="关闭侧边栏"
+        aria-label="关闭会话侧栏"
         onClick={onClosePanel}
       >
         <XIcon />
@@ -253,6 +253,8 @@ export function SessionWorkspace({
   const workspaceElementRef = useRef<HTMLDivElement>(null)
   const conversationScrollRef = useRef<HTMLDivElement>(null)
   const conversationContentRef = useRef<HTMLDivElement>(null)
+  const bottomTerminalToggleRef = useRef<HTMLButtonElement>(null)
+  const sidebarToggleRef = useRef<HTMLButtonElement>(null)
   const desktopLayoutRef = useRef<boolean | null>(null)
   const [isDesktop, setIsDesktop] = useState(false)
   const [sideOpen, setSideOpen] = useState(false)
@@ -364,6 +366,11 @@ export function SessionWorkspace({
     setSideOpen(false)
   }
 
+  function closeSidebar() {
+    hideSidebar()
+    requestAnimationFrame(() => sidebarToggleRef.current?.focus())
+  }
+
   function selectTab(tab: WorkspaceTab) {
     setActiveTab(tab)
     if (tab === "terminal") {
@@ -456,6 +463,7 @@ export function SessionWorkspace({
     bottomPanelRef.current?.collapse()
     setBottomOpen(false)
     void stopTerminal()
+    requestAnimationFrame(() => bottomTerminalToggleRef.current?.focus())
   }
 
   function moveTerminalToSidebar() {
@@ -497,12 +505,12 @@ export function SessionWorkspace({
         onSelect={selectTab}
         onAdd={addTab}
         onCloseTab={closeTab}
-        onClosePanel={hideSidebar}
+        onClosePanel={closeSidebar}
       />
       <div
         role="region"
         aria-label={
-          activeTab ? `${TAB_METADATA[activeTab].label}视图` : "侧边栏视图"
+          activeTab ? `${TAB_METADATA[activeTab].label}视图` : "会话侧栏视图"
         }
         className="min-h-0 flex-1 animate-in duration-150 fade-in-0 motion-reduce:animate-none"
       >
@@ -585,6 +593,7 @@ export function SessionWorkspace({
                       ) : null}
                       <IconTooltip label="底部终端">
                         <Button
+                          ref={bottomTerminalToggleRef}
                           variant="ghost"
                           size="icon-sm"
                           disabled={!workspaceAvailable}
@@ -595,12 +604,13 @@ export function SessionWorkspace({
                           <PanelBottomIcon />
                         </Button>
                       </IconTooltip>
-                      <IconTooltip label="侧边栏">
+                      <IconTooltip label="会话侧栏">
                         <Button
+                          ref={sidebarToggleRef}
                           variant="ghost"
                           size="icon-sm"
                           disabled={!availableTabs.length}
-                          aria-label="切换侧边栏"
+                          aria-label="切换会话侧栏"
                           aria-pressed={sideOpen}
                           onClick={toggleSidebar}
                         >
@@ -741,10 +751,19 @@ export function SessionWorkspace({
       >
         <SheetContent
           side="right"
-          className="w-[min(42rem,calc(100vw-0.5rem))] gap-0 overflow-hidden p-0 sm:max-w-none"
+          showCloseButton={false}
+          onCloseAutoFocus={(event) => {
+            event.preventDefault()
+            sidebarToggleRef.current?.focus()
+          }}
+          className="gap-0 overflow-hidden p-0"
+          style={{
+            width: "min(42rem, calc(100vw - 0.5rem))",
+            maxWidth: "none",
+          }}
         >
           <SheetHeader className="sr-only">
-            <SheetTitle>会话侧边栏</SheetTitle>
+            <SheetTitle>会话侧栏</SheetTitle>
             <SheetDescription>
               查看代码审阅、项目文件、终端或子智能体。
             </SheetDescription>

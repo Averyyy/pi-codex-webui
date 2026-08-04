@@ -57,20 +57,13 @@ import type {
 
 import { SessionTreeViewer } from "@/components/session-tree-viewer"
 import { useStreamingRuntimeStatus } from "@/components/session-streaming-context"
+import { responseJson } from "@/lib/api-response"
 
 type DialogKind = "rename" | "fork" | "stats" | "import" | "runtime"
 
 interface ReplacementResult {
   projectId: string | null
   sessionId: string
-}
-
-async function responseJson<T>(response: Response) {
-  const result = (await response.json()) as T & { error?: string }
-  if (!response.ok) {
-    throw new Error(result.error ?? `操作失败（HTTP ${response.status}）。`)
-  }
-  return result
 }
 
 function treeLabel(entry: SessionTree["entries"][number]) {
@@ -326,7 +319,7 @@ export function SessionOperations({
           <Button
             variant="ghost"
             size="icon"
-            aria-label="Session tree"
+            aria-label="会话树"
             aria-haspopup="dialog"
             disabled={working || runtimeOperationDisabled}
             onClick={() => setTreeOpen(true)}
@@ -334,7 +327,7 @@ export function SessionOperations({
             <GitMergeIcon />
           </Button>
         </TooltipTrigger>
-        <TooltipContent side="bottom">Session tree</TooltipContent>
+        <TooltipContent side="bottom">会话树</TooltipContent>
       </Tooltip>
 
       <DropdownMenu>
@@ -342,7 +335,7 @@ export function SessionOperations({
           <Button
             variant="ghost"
             size="icon"
-            aria-label="Session 操作"
+            aria-label="会话操作"
             disabled={working}
           >
             {working ? (
@@ -366,21 +359,21 @@ export function SessionOperations({
             disabled={runtimeOperationDisabled}
             onSelect={clone}
           >
-            <CopyIcon /> Clone 当前分支
+            <CopyIcon /> 克隆当前分支
           </DropdownMenuItem>
           {runtimeTargets.length ? (
             <DropdownMenuItem
               disabled={runtimeOperationDisabled}
               onSelect={() => openDialog("runtime")}
             >
-              <Repeat2Icon /> Duplicate into runtime
+              <Repeat2Icon /> 复制到运行环境
             </DropdownMenuItem>
           ) : null}
           <DropdownMenuItem
             disabled={runtimeOperationDisabled}
             onSelect={() => void openFork()}
           >
-            <GitForkIcon /> Fork
+            <GitForkIcon /> 派生
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem
@@ -437,7 +430,7 @@ export function SessionOperations({
                 </DialogDescription>
               </DialogHeader>
               <div className="grid gap-2">
-                <Label htmlFor="session-rename-name">Session 名称</Label>
+                <Label htmlFor="session-rename-name">会话名称</Label>
                 <Input
                   id="session-rename-name"
                   value={name}
@@ -460,7 +453,7 @@ export function SessionOperations({
           {dialog === "fork" ? (
             <div className="grid gap-5">
               <DialogHeader>
-                <DialogTitle>Fork session</DialogTitle>
+                <DialogTitle>派生会话</DialogTitle>
                 <DialogDescription>
                   从一条真实的用户消息创建新的 Pi session。
                 </DialogDescription>
@@ -471,7 +464,7 @@ export function SessionOperations({
                   onValueChange={setSelectedEntryId}
                   disabled={working || runtimeOperationDisabled}
                 >
-                  <SelectTrigger className="w-full" aria-label="Session entry">
+                  <SelectTrigger className="w-full" aria-label="会话条目">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -503,7 +496,7 @@ export function SessionOperations({
           {dialog === "stats" ? (
             <div className="grid gap-5">
               <DialogHeader>
-                <DialogTitle>Session 统计</DialogTitle>
+                <DialogTitle>会话统计</DialogTitle>
                 <DialogDescription>
                   统计由当前 Pi AgentSession 计算。
                 </DialogDescription>
@@ -527,11 +520,11 @@ export function SessionOperations({
                     </dd>
                   </div>
                   <div>
-                    <dt className="text-muted-foreground">Tool calls</dt>
+                    <dt className="text-muted-foreground">工具调用</dt>
                     <dd className="text-lg font-medium">{stats.toolCalls}</dd>
                   </div>
                   <div>
-                    <dt className="text-muted-foreground">Tokens</dt>
+                    <dt className="text-muted-foreground">令牌</dt>
                     <dd className="text-lg font-medium">
                       {stats.tokens.total.toLocaleString()}
                     </dd>
@@ -558,7 +551,7 @@ export function SessionOperations({
           {dialog === "runtime" ? (
             <div className="grid gap-5">
               <DialogHeader>
-                <DialogTitle>Duplicate into selected runtime</DialogTitle>
+                <DialogTitle>复制到所选运行环境</DialogTitle>
                 <DialogDescription>
                   复制当前分支并绑定到目标 runtime；原 session 与绑定保持不变。
                 </DialogDescription>

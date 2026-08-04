@@ -16,7 +16,12 @@ interface FakeRuntime {
   cleaned: boolean
   pendingResourceReload: boolean
   pending: Map<string, unknown>
-  child: { kill(): boolean }
+  stopPromise: Promise<void> | null
+  child: {
+    exitCode: number | null
+    signalCode: NodeJS.Signals | null
+    kill(): boolean
+  }
 }
 
 interface RuntimeSupervisorInternals {
@@ -25,6 +30,7 @@ interface RuntimeSupervisorInternals {
   request(runtime: FakeRuntime, message: { type: string }): Promise<unknown>
   reloadRuntimeResources(runtime: FakeRuntime): Promise<RuntimeSnapshot>
   refreshSettledRuntimeSnapshot(runtime: FakeRuntime): Promise<void>
+  waitForExit(runtime: FakeRuntime["child"], timeoutMs: number): Promise<void>
 }
 
 function snapshot(sessionId: string, leafId: string): RuntimeSnapshot {
@@ -58,7 +64,8 @@ function runtime(
     cleaned: false,
     pendingResourceReload: false,
     pending: new Map(),
-    child: { kill },
+    stopPromise: null,
+    child: { exitCode: null, signalCode: null, kill },
   }
 }
 
@@ -152,4 +159,42 @@ test("settled runtime refresh replaces the stale leaf snapshot", async () => {
   assert.deepEqual(managed.snapshot, settled)
   assert.equal(managed.snapshot?.leafId, "assistant-entry")
   assert.equal(managed.status, "ready")
+})
+
+test("concurrent stop requests share one runtime shutdown", async () => {
+  const events = new EventHub()
+  const supervisor = new RuntimeSupervisor(events)
+  const state = internals(supervisor)
+  const managed = runtime(
+    "session-e",
+    "ready",
+    snapshot("session-e", "assistant-entry")
+  )
+  state.runtimes.set(managed.webSessionId, managed)
+  let shutdownRequests = 0
+  let finishShutdown!: () => void
+  const shutdown = new Promise<void>((resolve) => {
+    finishShutdown = resolve
+  })
+  state.request = async (_runtime, message) => {
+    assert.equal(message.type, "runtime.shutdown")
+    shutdownRequests += 1
+    await shutdown
+  }
+  state.waitForExit = async () => {}
+
+  const first = supervisor.stop(managed.webSessionId)
+  const second = supervisor.stop(managed.webSessionId)
+  assert.equal(shutdownRequests, 1)
+  assert.equal(managed.status, "stopping")
+  assert.equal(
+    events
+      .recent(managed.webSessionId)
+      .filter((event) => event.type === "runtime.stopping").length,
+    1
+  )
+
+  finishShutdown()
+  await Promise.all([first, second])
+  assert.equal(managed.stopPromise, null)
 })

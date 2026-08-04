@@ -6,7 +6,7 @@ import {
   setProjectPinned,
 } from "@/lib/catalog"
 import { validateLocalMutation } from "@/lib/request-security"
-import { readJsonBody } from "@/lib/runtime-api"
+import { readJsonBody, runtimeErrorResponse } from "@/lib/runtime-api"
 
 export const runtime = "nodejs"
 
@@ -23,20 +23,27 @@ export async function PATCH(
   if (securityError) {
     return Response.json({ error: securityError }, { status: 403 })
   }
-  const parsed = updateSchema.safeParse(await readJsonBody(request))
-  if (!parsed.success) {
-    return Response.json({ error: "Invalid project update." }, { status: 400 })
-  }
+  try {
+    const parsed = updateSchema.safeParse(await readJsonBody(request))
+    if (!parsed.success) {
+      return Response.json(
+        { error: "Invalid project update." },
+        { status: 400 }
+      )
+    }
 
-  const { projectId } = await context.params
-  const updated =
-    "name" in parsed.data
-      ? await renameWorkspaceProject(projectId, parsed.data.name)
-      : await setProjectPinned(projectId, parsed.data.pinned)
-  if (!updated) {
-    return Response.json({ error: "Project not found." }, { status: 404 })
+    const { projectId } = await context.params
+    const updated =
+      "name" in parsed.data
+        ? await renameWorkspaceProject(projectId, parsed.data.name)
+        : await setProjectPinned(projectId, parsed.data.pinned)
+    if (!updated) {
+      return Response.json({ error: "Project not found." }, { status: 404 })
+    }
+    return Response.json({ projectId })
+  } catch (error) {
+    return runtimeErrorResponse(error)
   }
-  return Response.json({ projectId })
 }
 
 export async function DELETE(

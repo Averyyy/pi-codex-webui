@@ -17,6 +17,7 @@ import {
   SheetTitle,
 } from "@workspace/ui/components/sheet"
 import { Skeleton } from "@workspace/ui/components/skeleton"
+import { useUiLabels } from "@workspace/ui/components/ui-labels"
 import {
   Tooltip,
   TooltipContent,
@@ -194,6 +195,7 @@ function Sidebar({
   collapsible?: "offcanvas" | "icon" | "none"
 }) {
   const { isMobile, state, openMobile, setOpenMobile } = useSidebar()
+  const { sidebarTitle, sidebarDescription } = useUiLabels()
 
   if (collapsible === "none") {
     return (
@@ -227,8 +229,8 @@ function Sidebar({
           side={side}
         >
           <SheetHeader className="sr-only">
-            <SheetTitle>Sidebar</SheetTitle>
-            <SheetDescription>Displays the mobile sidebar.</SheetDescription>
+            <SheetTitle>{sidebarTitle}</SheetTitle>
+            <SheetDescription>{sidebarDescription}</SheetDescription>
           </SheetHeader>
           <div className="flex h-full w-full flex-col">{children}</div>
         </SheetContent>
@@ -288,6 +290,7 @@ function SidebarTrigger({
   ...props
 }: React.ComponentProps<typeof Button>) {
   const { toggleSidebar } = useSidebar()
+  const { toggleSidebar: toggleSidebarLabel } = useUiLabels()
 
   return (
     <Button
@@ -303,7 +306,7 @@ function SidebarTrigger({
       {...props}
     >
       <PanelLeftIcon />
-      <span className="sr-only">Toggle Sidebar</span>
+      <span className="sr-only">{toggleSidebarLabel}</span>
     </Button>
   )
 }

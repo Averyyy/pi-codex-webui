@@ -8,7 +8,9 @@ import {
   useRef,
   useState,
   useTransition,
+  type Dispatch,
   type FormEvent,
+  type SetStateAction,
 } from "react"
 import { useRouter } from "next/navigation"
 import {
@@ -78,6 +80,7 @@ import {
   nextThinkingLevel,
 } from "@/components/conversation-composer"
 import { SessionTreeViewer } from "@/components/session-tree-viewer"
+import { useSessionComposerDraftStore } from "@/components/session-composer-draft-context"
 import {
   SessionStreamingToolStatus,
   useSessionStreaming,
@@ -86,6 +89,7 @@ import { stripAnsi } from "@/lib/ansi"
 import { notifyWhenHidden } from "@/lib/browser-notifications"
 import { compactionEndOutcome } from "@/lib/compaction-events"
 import type { PiGoalState } from "@/lib/pi-goal"
+import { reconcilePromptQueueMutation } from "@/lib/prompt-queue-sync"
 import type { RuntimeStreamMessage } from "@/lib/session-stream-store"
 import { isVisibleTuiSurface } from "@/lib/tui-surface"
 
@@ -314,11 +318,38 @@ export function SessionRuntime({
 }) {
   const router = useRouter()
   const stream = useSessionStreaming()
+  const composerDraftStore = useSessionComposerDraftStore()
   const [, startTranscriptTransition] = useTransition()
   const [status, setStatus] = useState(initialStatus)
   const [snapshot, setSnapshot] = useState(initialSnapshot)
-  const [draft, setDraft] = useState("")
-  const composerImages = useComposerImages()
+  const [initialComposerDraft] = useState(() =>
+    composerDraftStore.read(sessionId)
+  )
+  const [draft, setDraftState] = useState(initialComposerDraft.text)
+  const setDraft = useCallback<Dispatch<SetStateAction<string>>>(
+    (nextDraft) => {
+      if (typeof nextDraft === "string") {
+        composerDraftStore.setText(sessionId, nextDraft)
+        setDraftState(nextDraft)
+        return
+      }
+      setDraftState((current) => {
+        const next = nextDraft(current)
+        composerDraftStore.setText(sessionId, next)
+        return next
+      })
+    },
+    [composerDraftStore, sessionId]
+  )
+  const updateStoredComposerImages = useCallback(
+    (images: ComposerImage[]) =>
+      composerDraftStore.setImages(sessionId, images),
+    [composerDraftStore, sessionId]
+  )
+  const composerImages = useComposerImages(
+    initialComposerDraft.images,
+    updateStoredComposerImages
+  )
   const [submitting, setSubmitting] = useState(false)
   const submittingRef = useRef(false)
   const [aborting, setAborting] = useState(false)
@@ -346,6 +377,7 @@ export function SessionRuntime({
   const [queuedMessages, setQueuedMessages] = useState<QueuedPromptItem[]>(
     initialSnapshot?.queuedPrompts ?? []
   )
+  const queuedMessagesRevision = useRef(0)
   const [retrying, setRetrying] = useState<string | null>(null)
   const [extensionRequests, setExtensionRequests] = useState<
     ActiveExtensionRequest[]
@@ -405,6 +437,11 @@ export function SessionRuntime({
     },
     [stream]
   )
+
+  const updateQueuedMessages = useCallback((items: QueuedPromptItem[]) => {
+    queuedMessagesRevision.current += 1
+    setQueuedMessages(items)
+  }, [])
 
   useLayoutEffect(() => {
     stream.setRuntimeStatus(status)
@@ -641,7 +678,7 @@ export function SessionRuntime({
 
       updateRuntimeStatus(nextStatus)
       setSnapshot(nextSnapshot)
-      setQueuedMessages(nextSnapshot?.queuedPrompts ?? [])
+      updateQueuedMessages(nextSnapshot?.queuedPrompts ?? [])
       setCompacting(nextSnapshot?.isCompacting ?? false)
       setCompactionNotice(nextSnapshot?.isCompacting ? "running" : null)
       agentRunActive.current = nextStatus === "busy"
@@ -711,7 +748,7 @@ export function SessionRuntime({
         const nextSnapshot = runtimeSnapshotSchema.parse(event.payload)
         updateRuntimeStatus("ready")
         setSnapshot(nextSnapshot)
-        setQueuedMessages(nextSnapshot.queuedPrompts)
+        updateQueuedMessages(nextSnapshot.queuedPrompts)
         setCompacting(nextSnapshot.isCompacting)
         setCompactionNotice(nextSnapshot.isCompacting ? "running" : null)
         setError(null)
@@ -748,7 +785,7 @@ export function SessionRuntime({
         }
         updateRuntimeStatus("stopped")
         setSnapshot(null)
-        setQueuedMessages([])
+        updateQueuedMessages([])
         setTuiSurfaces({})
         pendingSurfaceEvents.current.clear()
         closingTuiSurfaceIds.current.clear()
@@ -767,7 +804,7 @@ export function SessionRuntime({
         }
         wasBusy.current = false
         updateRuntimeStatus("crashed")
-        setQueuedMessages([])
+        updateQueuedMessages([])
         setTuiSurfaces({})
         pendingSurfaceEvents.current.clear()
         closingTuiSurfaceIds.current.clear()
@@ -879,7 +916,7 @@ export function SessionRuntime({
         })
       }
       if (event.type === "queue.updated") {
-        setQueuedMessages(queueUpdatedEventSchema.parse(event.payload).items)
+        updateQueuedMessages(queueUpdatedEventSchema.parse(event.payload).items)
       }
       if (event.type === "compaction.start") {
         setCompacting(true)
@@ -1030,7 +1067,15 @@ export function SessionRuntime({
     }
     events.onopen = () => setConnectionError(null)
     return () => events.close()
-  }, [initialEventCursor, router, sessionId, stream, updateRuntimeStatus])
+  }, [
+    initialEventCursor,
+    router,
+    sessionId,
+    setDraft,
+    stream,
+    updateQueuedMessages,
+    updateRuntimeStatus,
+  ])
 
   useEffect(() => {
     if (!extensionRequest?.expiresAt) return
@@ -1087,7 +1132,7 @@ export function SessionRuntime({
       }>(`/api/v1/sessions/${sessionId}/activate`, "POST")
       updateRuntimeStatus(state.status)
       setSnapshot(state.snapshot)
-      setQueuedMessages(state.snapshot?.queuedPrompts ?? [])
+      updateQueuedMessages(state.snapshot?.queuedPrompts ?? [])
       setCompacting(state.snapshot?.isCompacting ?? false)
       setCompactionNotice(state.snapshot?.isCompacting ? "running" : null)
     } catch (failure) {
@@ -1153,7 +1198,7 @@ export function SessionRuntime({
         "POST"
       )
       setSnapshot(nextSnapshot)
-      setQueuedMessages(nextSnapshot.queuedPrompts)
+      updateQueuedMessages(nextSnapshot.queuedPrompts)
       toast.success("已重新加载 Pi 扩展、技能、提示词和上下文文件。")
       router.refresh()
     } catch (failure) {
@@ -1167,6 +1212,7 @@ export function SessionRuntime({
   async function replaceQueuedMessages(next: QueuedPromptItem[]) {
     if (queueUpdatingRef.current || abortingRef.current) return
     queueUpdatingRef.current = true
+    const revisionAtStart = queuedMessagesRevision.current
     setQueueUpdating(true)
     setError(null)
     try {
@@ -1176,7 +1222,14 @@ export function SessionRuntime({
           next,
         })
       )
-      setQueuedMessages(state.items)
+      setQueuedMessages((current) =>
+        reconcilePromptQueueMutation(
+          current,
+          state.items,
+          revisionAtStart,
+          queuedMessagesRevision.current
+        )
+      )
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure))
       throw failure

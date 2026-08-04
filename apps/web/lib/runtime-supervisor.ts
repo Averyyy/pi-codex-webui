@@ -56,6 +56,7 @@ import {
   deleteArchivedSession as deleteStoredArchivedSession,
   getSessionIdentityByNativeFile,
   getSessionRuntimeTarget,
+  isSessionArchived,
   markSessionCompleted as markStoredSessionCompleted,
   markSessionStandalone,
 } from "@/lib/catalog"
@@ -133,6 +134,7 @@ interface ManagedRuntime {
   mcpServerIds: Set<string>
   mcpCalls: Map<string, AbortController>
   cleanupPromise: Promise<void> | null
+  stopPromise: Promise<void> | null
   webUiStatuses: Map<string, WebUiExtensionStatus>
   extensionUiRequests?: Map<
     string,
@@ -1114,6 +1116,17 @@ export class RuntimeSupervisor {
   async stop(sessionId: string) {
     const runtime = this.runtimes.get(sessionId)
     if (!runtime || runtime.cleaned) return
+    if (runtime.stopPromise) return runtime.stopPromise
+
+    const operation = this.stopRuntime(runtime).finally(() => {
+      if (runtime.stopPromise === operation) runtime.stopPromise = null
+    })
+    runtime.stopPromise = operation
+    return operation
+  }
+
+  private async stopRuntime(runtime: ManagedRuntime) {
+    const sessionId = runtime.webSessionId
     runtime.status = "stopping"
     this.eventHub.publish({
       type: "runtime.stopping",
@@ -1149,6 +1162,12 @@ export class RuntimeSupervisor {
   }
 
   async deleteArchivedSession(sessionId: string) {
+    if (!(await isSessionArchived(sessionId))) {
+      throw new RuntimeRequestError(
+        "SessionNotFound",
+        "Archived session not found."
+      )
+    }
     await this.stop(sessionId)
     if (!(await deleteStoredArchivedSession(sessionId))) {
       throw new RuntimeRequestError(
@@ -1373,6 +1392,7 @@ export class RuntimeSupervisor {
       mcpServerIds: new Set(mcpTools.map((tool) => tool.serverId)),
       mcpCalls: new Map(),
       cleanupPromise: null,
+      stopPromise: null,
       webUiStatuses: new Map(),
       extensionUiRequests: new Map(),
     }
@@ -1563,6 +1583,7 @@ export class RuntimeSupervisor {
       mcpServerIds: new Set(mcpTools.map((tool) => tool.serverId)),
       mcpCalls: new Map(),
       cleanupPromise: null,
+      stopPromise: null,
       webUiStatuses: new Map(),
       extensionUiRequests: new Map(),
     }

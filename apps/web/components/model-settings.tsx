@@ -255,12 +255,12 @@ export function ModelSettings({
   return (
     <div className="grid gap-6">
       <Card>
-        <CardHeader>
+        <CardHeader className="flex flex-col gap-3 sm:grid sm:gap-1">
           <CardTitle>{t("settings.models.cardTitle")}</CardTitle>
           <CardDescription>
             {t("settings.models.cardDescription")}
           </CardDescription>
-          <CardAction className="flex flex-wrap items-center justify-end gap-2">
+          <CardAction className="flex w-full flex-wrap items-center justify-start gap-2 sm:w-auto sm:justify-end">
             <Button
               type="button"
               variant="outline"

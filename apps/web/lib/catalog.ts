@@ -98,6 +98,11 @@ interface ProjectRuntimeRow {
   default_runtime_profile_id: string | null
 }
 
+declare global {
+  var piWebCodexProjectRegistrations:
+    Map<string, Promise<ProjectSummary>> | undefined
+}
+
 function projectSummary(row: ProjectRow): ProjectSummary {
   return {
     id: row.id,
@@ -159,19 +164,14 @@ export async function isProjectDirectoryAvailable(canonicalPath: string) {
   }
 }
 
-export async function addWorkspaceProject(inputPath: string) {
-  const canonicalPath = await realpath(path.resolve(inputPath))
-  if (!(await stat(canonicalPath)).isDirectory()) {
-    throw new Error("Project path must be a directory.")
-  }
-
+async function registerWorkspaceProject(canonicalPath: string) {
   const database = await getDatabase()
   const existing = database
     .prepare("SELECT id FROM projects WHERE canonical_path = ?")
     .get(canonicalPath) as { id: string } | undefined
   const projectId = existing?.id ?? randomUUID()
   const now = new Date().toISOString()
-  inTransaction(database, () => {
+  const registrationAdded = inTransaction(database, () => {
     if (!existing) {
       database
         .prepare(
@@ -181,18 +181,52 @@ export async function addWorkspaceProject(inputPath: string) {
         )
         .run(projectId, canonicalPath, path.basename(canonicalPath), now, now)
     }
-    database
-      .prepare(
-        `INSERT INTO project_registrations(project_id, registered_at)
+    return (
+      database
+        .prepare(
+          `INSERT INTO project_registrations(project_id, registered_at)
          VALUES (?, ?) ON CONFLICT(project_id) DO NOTHING`
-      )
-      .run(projectId, now)
+        )
+        .run(projectId, now).changes === 1
+    )
   })
 
-  await syncPiProjectSessions(projectId)
-  const project = await getProject(projectId)
-  if (!project) throw new Error("Registered project could not be loaded.")
-  return project
+  try {
+    await syncPiProjectSessions(projectId)
+    const project = await getProject(projectId)
+    if (!project) throw new Error("Registered project could not be loaded.")
+    return project
+  } catch (error) {
+    if (registrationAdded) {
+      database
+        .prepare(
+          `DELETE FROM project_registrations
+           WHERE project_id = ? AND registered_at = ?`
+        )
+        .run(projectId, now)
+    }
+    throw error
+  }
+}
+
+export async function addWorkspaceProject(inputPath: string) {
+  const canonicalPath = await realpath(path.resolve(inputPath))
+  if (!(await stat(canonicalPath)).isDirectory()) {
+    throw new Error("Project path must be a directory.")
+  }
+
+  const registrations = (globalThis.piWebCodexProjectRegistrations ??=
+    new Map())
+  const pending = registrations.get(canonicalPath)
+  if (pending) return pending
+
+  const registration = registerWorkspaceProject(canonicalPath).finally(() => {
+    if (registrations.get(canonicalPath) === registration) {
+      registrations.delete(canonicalPath)
+    }
+  })
+  registrations.set(canonicalPath, registration)
+  return registration
 }
 
 export async function renameWorkspaceProject(projectId: string, name: string) {
@@ -421,6 +455,42 @@ export async function archiveSession(sessionId: string) {
       .run(archivedAt, sessionId)
     return archivedAt
   })
+}
+
+export async function archiveProjectSessions(
+  projectId: string,
+  sessionIds: string[]
+) {
+  const ids = [...new Set(sessionIds)]
+  if (ids.length === 0) return 0
+
+  const database = await getDatabase()
+  const archivedAt = new Date().toISOString()
+  return inTransaction(database, () => {
+    const archive = database.prepare(
+      `UPDATE sessions
+       SET archived_at = ?, pinned_at = NULL
+       WHERE id = ? AND project_id = ? AND archived_at IS NULL`
+    )
+    let archived = 0
+    for (const sessionId of ids) {
+      archived += Number(archive.run(archivedAt, sessionId, projectId).changes)
+    }
+    return archived
+  })
+}
+
+export async function isSessionArchived(sessionId: string) {
+  await syncPiSessionIndex()
+  const database = await getDatabase()
+  return Boolean(
+    database
+      .prepare(
+        `SELECT 1 FROM sessions
+         WHERE id = ? AND archived_at IS NOT NULL`
+      )
+      .get(sessionId)
+  )
 }
 
 export async function deleteArchivedSession(sessionId: string) {

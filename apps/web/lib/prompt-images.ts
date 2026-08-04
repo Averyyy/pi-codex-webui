@@ -19,3 +19,8 @@ export const promptImagesSchema = z
   .default([])
 
 export type PromptImage = z.infer<typeof promptImageSchema>
+
+export type ComposerImage = PromptImage & {
+  id: string
+  name: string
+}
