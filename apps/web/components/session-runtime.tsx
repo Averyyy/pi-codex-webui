@@ -88,6 +88,7 @@ import {
   useSessionStreaming,
 } from "@/components/session-streaming"
 import { stripAnsi } from "@/lib/ansi"
+import { ApiError, responseJson } from "@/lib/api-response"
 import { notifyWhenHidden } from "@/lib/browser-notifications"
 import { compactionEndOutcome } from "@/lib/compaction-events"
 import type { PiGoalState } from "@/lib/pi-goal"
@@ -483,20 +484,12 @@ export function SessionRuntime({
       },
       body: body === undefined ? undefined : JSON.stringify(body),
     })
-    const text = await response.text()
-    const result = text ? (JSON.parse(text) as unknown) : null
-    if (!response.ok) {
-      const message =
-        typeof result === "object" &&
-        result !== null &&
-        "error" in result &&
-        typeof result.error === "string"
-          ? result.error
-          : t("session.runtime.operationFailed", { status: response.status })
-      throw new Error(message)
-    }
-    if (result === null) throw new Error(t("session.runtime.emptyResponse"))
-    return result as T
+    return responseJson<T>(
+      response,
+      response.ok
+        ? t("session.runtime.emptyResponse")
+        : t("session.runtime.operationFailed", { status: response.status })
+    )
   }
 
   async function sendMessage(
@@ -1255,8 +1248,12 @@ export function SessionRuntime({
         )
       )
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure))
-      throw failure
+      const error =
+        failure instanceof ApiError && failure.code === "QueueConflict"
+          ? new ApiError(t("session.queue.conflict"), failure.code)
+          : failure
+      setError(error instanceof Error ? error.message : String(error))
+      throw error
     } finally {
       queueUpdatingRef.current = false
       setQueueUpdating(false)

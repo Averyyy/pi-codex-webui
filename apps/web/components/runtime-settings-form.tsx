@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
 import { CheckCircle2Icon, LoaderCircleIcon, UnplugIcon } from "lucide-react"
 import { toast } from "sonner"
+import { z } from "zod"
 
 import { Badge } from "@workspace/ui/components/badge"
 import { Button } from "@workspace/ui/components/button"
@@ -36,30 +37,22 @@ import {
 import { Switch } from "@workspace/ui/components/switch"
 
 import { useI18n } from "@/components/i18n-provider"
-import { ApiError, responseJson } from "@/lib/api-response"
+import { ApiError, validatedResponseJson } from "@/lib/api-response"
+import {
+  runtimeSettingsViewSchema,
+  type RuntimeSettingsView,
+} from "@/lib/config-schema"
 
-interface RuntimeProfileView {
-  id: string
-  kind: "pi" | "pi-client"
-  enabled: boolean
-  isDefault: boolean
-  serverUrl?: string
-  hasAuthToken?: boolean
-}
+const diagnosticResultSchema = z.object({
+  ok: z.literal(true),
+  kind: z.enum(["pi", "pi-client"]),
+  latencyMs: z.number().int().nonnegative(),
+  sessionCount: z.number().int().nonnegative().optional(),
+})
 
-interface RuntimeSettingsView {
-  revision: number
-  defaultProfileId: string
-  profiles: RuntimeProfileView[]
-}
+type DiagnosticResult = z.infer<typeof diagnosticResultSchema>
 
-interface DiagnosticResult {
-  ok: true
-  latencyMs: number
-  sessionCount?: number
-}
-
-function piClientProfile(profiles: RuntimeProfileView[]) {
+function piClientProfile(profiles: RuntimeSettingsView["profiles"]) {
   const profile = profiles.find((candidate) => candidate.kind === "pi-client")
   if (!profile) throw new Error("Pi Client runtime profile is missing.")
   return profile
@@ -74,37 +67,8 @@ function conflictRuntimeSettings(error: unknown) {
     typeof details === "object" && details !== null && "current" in details
       ? details.current
       : null
-  if (
-    typeof current !== "object" ||
-    current === null ||
-    !("revision" in current) ||
-    !Number.isInteger(current.revision) ||
-    !("defaultProfileId" in current) ||
-    typeof current.defaultProfileId !== "string" ||
-    !("profiles" in current) ||
-    !Array.isArray(current.profiles)
-  ) {
-    return null
-  }
-  const profiles = current.profiles
-  if (
-    profiles.some(
-      (profile) =>
-        typeof profile !== "object" ||
-        profile === null ||
-        !("id" in profile) ||
-        typeof profile.id !== "string" ||
-        !("kind" in profile) ||
-        (profile.kind !== "pi" && profile.kind !== "pi-client") ||
-        !("enabled" in profile) ||
-        typeof profile.enabled !== "boolean" ||
-        !("isDefault" in profile) ||
-        typeof profile.isDefault !== "boolean"
-    )
-  ) {
-    return null
-  }
-  return current as RuntimeSettingsView
+  const parsed = runtimeSettingsViewSchema.safeParse(current)
+  return parsed.success ? parsed.data : null
 }
 
 export function RuntimeSettingsForm({
@@ -151,6 +115,7 @@ export function RuntimeSettingsForm({
 
   function updateEnabled(next: boolean) {
     setError(null)
+    setDiagnostic(null)
     setEnabled(next)
     if (!next && defaultProfileId === savedClient.id) {
       setDefaultProfileId("pi")
@@ -159,6 +124,7 @@ export function RuntimeSettingsForm({
 
   function updateDefault(profileId: string) {
     setError(null)
+    setDiagnostic(null)
     setDefaultProfileId(profileId)
     if (profileId === savedClient.id) setEnabled(true)
   }
@@ -167,6 +133,7 @@ export function RuntimeSettingsForm({
     if (busyRef.current || !dirty) return
     busyRef.current = true
     setError(null)
+    setDiagnostic(null)
     startSaving(async () => {
       try {
         const response = await fetch(
@@ -187,8 +154,9 @@ export function RuntimeSettingsForm({
             }),
           }
         )
-        const result = await responseJson<RuntimeSettingsView>(
+        const result = await validatedResponseJson(
           response,
+          (value) => runtimeSettingsViewSchema.parse(value),
           t("settings.runtime.saveFailed")
         )
 
@@ -248,8 +216,9 @@ export function RuntimeSettingsForm({
             },
           }
         )
-        const result = await responseJson<DiagnosticResult>(
+        const result = await validatedResponseJson(
           response,
+          (value) => diagnosticResultSchema.parse(value),
           t("settings.runtime.testFailed")
         )
         setDiagnostic(result)
@@ -336,6 +305,7 @@ export function RuntimeSettingsForm({
                 onChange={(event) => {
                   setServerUrl(event.target.value)
                   setError(null)
+                  setDiagnostic(null)
                 }}
                 placeholder="http://127.0.0.1:4217"
                 className="w-full max-w-sm"
@@ -366,6 +336,7 @@ export function RuntimeSettingsForm({
                   onChange={(event) => {
                     setAuthToken(event.target.value)
                     setError(null)
+                    setDiagnostic(null)
                     if (event.target.value) setClearAuthToken(false)
                   }}
                   placeholder={
@@ -382,6 +353,7 @@ export function RuntimeSettingsForm({
                       setClearAuthToken((current) => !current)
                       setAuthToken("")
                       setError(null)
+                      setDiagnostic(null)
                     }}
                   >
                     {clearAuthToken

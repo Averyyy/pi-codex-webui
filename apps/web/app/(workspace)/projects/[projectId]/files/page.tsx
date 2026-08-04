@@ -1,5 +1,5 @@
 import Link from "next/link"
-import { notFound } from "next/navigation"
+import { notFound, redirect } from "next/navigation"
 import {
   DownloadIcon,
   FileIcon,
@@ -25,6 +25,11 @@ import {
   projectFileTypeLabel,
 } from "@/lib/project-file-display"
 import {
+  canonicalProjectFilesHref,
+  projectFilesHref,
+  requestedProjectFilePath,
+} from "@/lib/project-files-route"
+import {
   ProjectFileError,
   readProjectEntry,
   type ProjectFileEntry,
@@ -37,11 +42,6 @@ function fileIcon(type: ProjectFileEntry["type"]) {
   if (type === "symbolic-link") return <LinkIcon className="size-4" />
   if (type === "file") return <FileIcon className="size-4" />
   return <FileQuestionIcon className="size-4" />
-}
-
-function entryHref(projectId: string, entryPath: string) {
-  const query = new URLSearchParams({ path: entryPath })
-  return `/projects/${projectId}/files?${query}`
 }
 
 function breadcrumbs(
@@ -62,7 +62,7 @@ function breadcrumbs(
       className="flex max-w-full min-w-0 items-center gap-1"
     >
       <Link
-        href={entryHref(projectId, item.path)}
+        href={projectFilesHref(projectId, item.path)}
         className="min-w-0 truncate hover:text-foreground"
         title={item.label}
         aria-current={index === items.length - 1 ? "page" : undefined}
@@ -80,7 +80,7 @@ export default async function ProjectFilesPage({
 }: PageProps<"/projects/[projectId]/files">) {
   const { projectId } = await params
   const query = await searchParams
-  const requestedPath = typeof query.path === "string" ? query.path : ""
+  const requestedPath = requestedProjectFilePath(query.path)
   const [{ config, t }, project] = await Promise.all([
     getLocalizedConfig(),
     getProject(projectId),
@@ -112,6 +112,13 @@ export default async function ProjectFilesPage({
     )
   }
 
+  const canonicalHref = canonicalProjectFilesHref(
+    projectId,
+    query.path,
+    entry.path
+  )
+  if (canonicalHref) redirect(canonicalHref)
+
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-8 px-4 py-8 sm:px-6 md:px-10 md:py-14">
       <ProjectHeader
@@ -140,7 +147,7 @@ export default async function ProjectFilesPage({
                 {entry.entries.map((child) => (
                   <Link
                     key={child.name}
-                    href={entryHref(projectId, child.path)}
+                    href={projectFilesHref(projectId, child.path)}
                     className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-4 py-3 text-sm hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none focus-visible:ring-inset sm:px-6"
                   >
                     <span className="flex min-w-0 items-center gap-3">

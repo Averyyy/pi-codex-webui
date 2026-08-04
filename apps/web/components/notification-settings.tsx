@@ -39,10 +39,14 @@ function notificationSnapshot() {
 
 function subscribe(listener: () => void) {
   window.addEventListener("storage", listener)
+  window.addEventListener("focus", listener)
   window.addEventListener(NOTIFICATION_SETTINGS_EVENT, listener)
+  document.addEventListener("visibilitychange", listener)
   return () => {
     window.removeEventListener("storage", listener)
+    window.removeEventListener("focus", listener)
     window.removeEventListener(NOTIFICATION_SETTINGS_EVENT, listener)
+    document.removeEventListener("visibilitychange", listener)
   }
 }
 

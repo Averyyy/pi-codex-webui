@@ -43,6 +43,7 @@ export function ArchivedSessions({
     sessionId: string
     operation: ArchiveOperation
   } | null>(null)
+  const workingRef = useRef(false)
   const [pendingDelete, setPendingDelete] = useState<ArchivedSession | null>(
     null
   )
@@ -82,6 +83,8 @@ export function ArchivedSessions({
   }, [removedSessionIds, working])
 
   async function restoreSession(sessionId: string) {
+    if (workingRef.current) return
+    workingRef.current = true
     const successFocusTarget = nextArchiveFocusTarget(
       sessions.map((session) => session.id),
       sessionId
@@ -107,6 +110,7 @@ export function ArchivedSessions({
         sessionId: restored ? successFocusTarget : sessionId,
         operation: "restore",
       }
+      workingRef.current = false
       setWorking(null)
     }
   }
@@ -115,6 +119,8 @@ export function ArchivedSessions({
     sessionId: string,
     successFocusTarget: string | null
   ) {
+    if (workingRef.current) return
+    workingRef.current = true
     setWorking({ sessionId, operation: "delete" })
     let deleted = false
     try {
@@ -136,6 +142,7 @@ export function ArchivedSessions({
         sessionId: deleted ? successFocusTarget : sessionId,
         operation: "delete",
       }
+      workingRef.current = false
       setWorking(null)
     }
   }

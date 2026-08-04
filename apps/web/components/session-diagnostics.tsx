@@ -15,23 +15,24 @@ import {
 } from "@workspace/ui/components/dialog"
 
 import { useI18n } from "@/components/i18n-provider"
+import { validatedResponseJson } from "@/lib/api-response"
 import type { Translator } from "@/lib/i18n"
-import type {
-  ProtocolEvent,
-  RuntimeDiagnostics,
+import {
+  protocolEventSchema,
+  runtimeDiagnosticsSchema,
+  type ProtocolEvent,
+  type RuntimeDiagnostics,
 } from "@/lib/runtime-diagnostics"
 
 async function loadDiagnostics(sessionId: string, t: Translator) {
   const response = await fetch(`/api/v1/sessions/${sessionId}/diagnostics`, {
     cache: "no-store",
   })
-  const result = (await response.json()) as RuntimeDiagnostics & {
-    error?: string
-  }
-  if (!response.ok) {
-    throw new Error(result.error ?? t("session.diagnostics.loadFailed"))
-  }
-  return result
+  return validatedResponseJson(
+    response,
+    runtimeDiagnosticsSchema.parse,
+    t("session.diagnostics.loadFailed")
+  )
 }
 
 function nextStatus(
@@ -126,9 +127,16 @@ export function SessionDiagnostics({ sessionId }: { sessionId: string }) {
       `/api/v1/events?sessionId=${sessionId}&inspect=1`
     )
     events.addEventListener("protocol.event", (source) => {
-      const event = JSON.parse(
-        (source as MessageEvent<string>).data
-      ) as ProtocolEvent
+      let event: ProtocolEvent
+      try {
+        event = protocolEventSchema.parse(
+          JSON.parse((source as MessageEvent<string>).data)
+        )
+      } catch {
+        setConnectionError(t("session.diagnostics.invalidEvent"))
+        return
+      }
+      setConnectionError(null)
       if (!loaded) {
         pendingEvents.push(event)
         return
@@ -307,7 +315,11 @@ export function SessionDiagnostics({ sessionId }: { sessionId: string }) {
             </section>
           </div>
         ) : null}
-        {error ? <p className="text-xs text-destructive">{error}</p> : null}
+        {error ? (
+          <p role="alert" className="text-xs text-destructive">
+            {error}
+          </p>
+        ) : null}
       </DialogContent>
     </Dialog>
   )

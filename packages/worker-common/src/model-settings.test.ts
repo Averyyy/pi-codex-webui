@@ -14,6 +14,10 @@ type ProviderMessage = Extract<
   HostToWorkerMessage,
   { type: "providers.save" | "providers.remove" }
 >
+type ModelScopeMessage = Extract<
+  HostToWorkerMessage,
+  { type: "models.catalog" | "models.set-scope" }
+>
 
 const modelThinking: ModelThinkingModule = {
   getSupportedThinkingLevels: (model) =>
@@ -147,6 +151,89 @@ test("custom provider settings persist, edit, and remove through Pi files", asyn
       removed.providers.some(({ provider }) => provider === "local-provider"),
       false
     )
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test("stale model scope mutations cannot overwrite a newer scope", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "pi-model-scope-"))
+  const resourceMessage = <T extends ModelScopeMessage["type"]>(
+    type: T,
+    payload: Extract<ModelScopeMessage, { type: T }>["payload"]
+  ) =>
+    ({ requestId: type, type, payload }) as Extract<
+      ModelScopeMessage,
+      { type: T }
+    >
+  const providerMessage = (
+    payload: Extract<ProviderMessage, { type: "providers.save" }>["payload"]
+  ) =>
+    ({
+      requestId: "providers.save",
+      type: "providers.save",
+      payload,
+    }) as Extract<ProviderMessage, { type: "providers.save" }>
+
+  try {
+    const basePayload = { cwd: root, agentDir: root }
+    const initial = await handleModelSettingsMessage(
+      codingAgent,
+      modelThinking,
+      providerMessage({
+        ...basePayload,
+        provider: "scope-provider",
+        api: "openai-completions",
+        baseUrl: "http://127.0.0.1:9000/v1",
+        apiKey: "test-key",
+        models: ["model-a", "model-b"].map((id) => ({
+          id,
+          name: id,
+          reasoning: false,
+          input: ["text"],
+          contextWindow: 32_000,
+          maxTokens: 4_000,
+        })),
+      })
+    )
+    const initiallyEnabled = initial.models
+      .filter((model) => model.enabled)
+      .map((model) => `${model.provider}/${model.id}`)
+    assert.deepEqual(initiallyEnabled, [
+      "scope-provider/model-a",
+      "scope-provider/model-b",
+    ])
+
+    const saved = await handleModelSettingsMessage(
+      codingAgent,
+      modelThinking,
+      resourceMessage("models.set-scope", {
+        ...basePayload,
+        enabledModelIds: ["scope-provider/model-a"],
+        expectedEnabledModelIds: initiallyEnabled,
+      })
+    )
+    assert.deepEqual(saved.enabledModels, ["scope-provider/model-a"])
+
+    await assert.rejects(
+      handleModelSettingsMessage(
+        codingAgent,
+        modelThinking,
+        resourceMessage("models.set-scope", {
+          ...basePayload,
+          enabledModelIds: ["scope-provider/model-b"],
+          expectedEnabledModelIds: initiallyEnabled,
+        })
+      ),
+      { name: "ModelScopeConflict" }
+    )
+
+    const current = await handleModelSettingsMessage(
+      codingAgent,
+      modelThinking,
+      resourceMessage("models.catalog", basePayload)
+    )
+    assert.deepEqual(current.enabledModels, ["scope-provider/model-a"])
   } finally {
     await rm(root, { recursive: true, force: true })
   }

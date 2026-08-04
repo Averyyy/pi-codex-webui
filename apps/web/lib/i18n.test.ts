@@ -12,6 +12,9 @@ test("shared UI labels follow the Chinese locale", () => {
   assert.equal(t("ui.sidebarDescription"), "显示移动端侧边栏。")
   assert.equal(t("ui.toggleSidebar"), "切换侧边栏")
   assert.equal(t("ui.resizeSidebar"), "调整侧边栏宽度；点击折叠或展开")
+  assert.equal(t("app.notFound.title"), "页面不存在")
+  assert.equal(t("app.notFound.home"), "返回首页")
+  assert.equal(t("app.error.retry"), "重试")
   assert.equal(t("settings.nav.ariaLabel"), "设置导航")
   assert.equal(t("settings.nav.packages"), "软件包")
   assert.equal(t("settings.nav.extensions"), "扩展")
@@ -62,6 +65,10 @@ test("shared UI labels follow the Chinese locale", () => {
     "设置已在其他页面更新；当前修改已保留，请检查后重试。"
   )
   assert.equal(
+    t("settings.models.conflict"),
+    "模型范围已在其他页面更新；已加载最新状态，请重试。"
+  )
+  assert.equal(
     t("settings.provider.deleteModel", { model: "audit-model" }),
     "删除模型 audit-model"
   )
@@ -80,6 +87,26 @@ test("shared UI labels follow the Chinese locale", () => {
     "移除 screen.png"
   )
   assert.equal(t("composer.model.select"), "选择模型")
+  assert.equal(
+    t("session.readFailed", { status: 500 }),
+    "标记会话为已读失败（HTTP 500）。"
+  )
+  assert.equal(
+    t("session.readInvalidResponse"),
+    "服务器返回了其他会话的已读状态。"
+  )
+  assert.equal(
+    t("session.operations.invalidResponse"),
+    "服务器返回了无效的会话操作结果。"
+  )
+  assert.equal(
+    t("session.queue.conflict"),
+    "待处理消息已变化，请根据最新队列重试。"
+  )
+  assert.equal(
+    t("session.diagnostics.invalidEvent"),
+    "收到无效的协议事件；后续事件仍会继续监听。"
+  )
   assert.equal(t("session.transcript.settingsCountOne", { count: 1 }), "1 项")
   assert.equal(t("session.subagents.status.running"), "运行中")
   assert.equal(t("session.workspace.openFinder"), "在 Finder 中打开")
@@ -103,6 +130,10 @@ test("shared UI labels follow the Chinese locale", () => {
 
 test("shared UI labels retain their English defaults", () => {
   const t = createTranslator("en-US")
+
+  assert.equal(t("app.notFound.title"), "Page not found")
+  assert.equal(t("app.notFound.home"), "Return home")
+  assert.equal(t("app.error.retry"), "Try again")
 
   assert.equal(t("ui.close"), "Close")
   assert.equal(t("ui.skipToMain"), "Skip to main content")
@@ -166,6 +197,10 @@ test("shared UI labels retain their English defaults", () => {
     "Settings changed on another page. Your edits were kept; review them and try again."
   )
   assert.equal(
+    t("settings.models.conflict"),
+    "The model scope changed on another page. The latest state was loaded; try again."
+  )
+  assert.equal(
     t("settings.provider.deleteModel", { model: "audit-model" }),
     "Delete model audit-model"
   )
@@ -191,6 +226,26 @@ test("shared UI labels retain their English defaults", () => {
     "Remove screen.png"
   )
   assert.equal(t("composer.model.select"), "Select model")
+  assert.equal(
+    t("session.readFailed", { status: 500 }),
+    "Failed to mark the conversation as read (HTTP 500)."
+  )
+  assert.equal(
+    t("session.readInvalidResponse"),
+    "The server returned read status for a different conversation."
+  )
+  assert.equal(
+    t("session.operations.invalidResponse"),
+    "The server returned an invalid conversation operation result."
+  )
+  assert.equal(
+    t("session.queue.conflict"),
+    "The pending messages changed. Review the latest queue and try again."
+  )
+  assert.equal(
+    t("session.diagnostics.invalidEvent"),
+    "An invalid protocol event was received. Listening for later events continues."
+  )
   assert.equal(
     t("session.transcript.settingsCountOne", { count: 1 }),
     "1 change"

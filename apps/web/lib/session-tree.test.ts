@@ -6,6 +6,7 @@ import type { SessionTree } from "@workspace/runtime-protocol"
 import {
   buildSessionTreeRows,
   sessionTreeActiveCount,
+  sessionTreeActiveUserEntryId,
   sessionTreeCurrentEntryId,
   sessionTreeEntryCount,
 } from "./session-tree"
@@ -143,4 +144,21 @@ test("reconnects messages across internal state entries", () => {
       ["child", "parent"],
     ]
   )
+})
+
+test("selects the latest user message on the active branch", () => {
+  const branchedTree: SessionTree = {
+    entries: [
+      entry("root", null, { role: "assistant" }),
+      entry("active-user", "root", { role: "user" }),
+      entry("active-answer", "active-user", { role: "assistant" }),
+      entry("later-abandoned-user", "root", { role: "user" }),
+      entry("later-abandoned-answer", "later-abandoned-user", {
+        role: "assistant",
+      }),
+    ],
+    leafId: "active-answer",
+  }
+
+  assert.equal(sessionTreeActiveUserEntryId(branchedTree), "active-user")
 })

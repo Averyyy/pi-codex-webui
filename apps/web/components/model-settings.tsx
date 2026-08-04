@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useLayoutEffect, useRef, useState } from "react"
 import {
   ChevronDownIcon,
   LoaderCircleIcon,
@@ -49,6 +49,7 @@ import { ConfirmDialog } from "@/components/confirm-dialog"
 import { useI18n } from "@/components/i18n-provider"
 import { ApiError, responseJson } from "@/lib/api-response"
 import type { Translator } from "@/lib/i18n"
+import { nextModelProviderFocusTarget } from "@/lib/model-settings-focus"
 
 function modelKey(model: Pick<ModelSettingsModel, "provider" | "id">) {
   return `${model.provider}/${model.id}`
@@ -83,6 +84,9 @@ function operationError(failure: unknown, t: Translator) {
   if (failure instanceof ApiError && failure.code === "InvalidCustomProvider") {
     return t("settings.models.invalidProvider")
   }
+  if (failure instanceof ApiError && failure.code === "ModelScopeConflict") {
+    return t("settings.models.conflict")
+  }
   return failure instanceof Error ? failure.message : String(failure)
 }
 
@@ -106,6 +110,11 @@ export function ModelSettings({
   )
   const [providerDialogOpen, setProviderDialogOpen] = useState(false)
   const providerDialogTriggerRef = useRef<HTMLButtonElement | null>(null)
+  const addProviderButtonRef = useRef<HTMLButtonElement | null>(null)
+  const providerSummaryRefs = useRef(new Map<string, HTMLElement>())
+  const focusAfterProviderRemovalRef = useRef<string | null | undefined>(
+    undefined
+  )
   const [editingProvider, setEditingProvider] =
     useState<ModelSettingsProvider | null>(null)
   const [pendingProviderDelete, setPendingProviderDelete] = useState<{
@@ -121,6 +130,15 @@ export function ModelSettings({
     const frame = requestAnimationFrame(() => errorRef.current?.focus())
     return () => cancelAnimationFrame(frame)
   }, [error, providerDialogOpen, working])
+
+  useLayoutEffect(() => {
+    const provider = focusAfterProviderRemovalRef.current
+    if (provider === undefined) return
+    focusAfterProviderRemovalRef.current = undefined
+    const target = provider ? providerSummaryRefs.current.get(provider) : null
+    const focusTarget = target ?? addProviderButtonRef.current
+    focusTarget?.focus()
+  }, [settings.providers])
 
   async function readSettings(response: Response) {
     const fallback = t("settings.models.operationFailed")
@@ -146,9 +164,10 @@ export function ModelSettings({
   }
 
   async function setModelEnabled(model: ModelSettingsModel, enabled: boolean) {
-    const enabledIds = new Set(
-      settings.models.filter((entry) => entry.enabled).map(modelKey)
-    )
+    const expectedEnabledModelIds = settings.models
+      .filter((entry) => entry.enabled)
+      .map(modelKey)
+    const enabledIds = new Set(expectedEnabledModelIds)
     const key = modelKey(model)
     if (enabled) enabledIds.add(key)
     else enabledIds.delete(key)
@@ -163,11 +182,29 @@ export function ModelSettings({
             "Content-Type": "application/json",
             "X-Pi-Web-Codex-Mutation-Token": mutationToken,
           },
-          body: JSON.stringify({ enabledModelIds: [...enabledIds] }),
+          body: JSON.stringify({
+            enabledModelIds: [...enabledIds],
+            expectedEnabledModelIds,
+          }),
         })
       )
       setSettings(next)
     } catch (failure) {
+      if (
+        failure instanceof ApiError &&
+        failure.code === "ModelScopeConflict"
+      ) {
+        try {
+          setSettings(
+            await readSettings(
+              await fetch(`/api/v1/model-settings${query(sessionId)}`)
+            )
+          )
+        } catch (refreshFailure) {
+          setError(operationError(refreshFailure, t))
+          return
+        }
+      }
       setError(operationError(failure, t))
     } finally {
       finishWorking()
@@ -202,6 +239,10 @@ export function ModelSettings({
   }
 
   async function removeProvider(provider: string) {
+    const nextFocusTarget = nextModelProviderFocusTarget(
+      settings.providers.map((entry) => entry.provider),
+      provider
+    )
     if (!beginWorking(provider)) return
     setError(null)
     try {
@@ -216,6 +257,11 @@ export function ModelSettings({
           }
         )
       )
+      focusAfterProviderRemovalRef.current = next.providers.some(
+        (entry) => entry.provider === provider
+      )
+        ? provider
+        : nextFocusTarget
       setSettings(next)
     } catch (failure) {
       setError(operationError(failure, t))
@@ -304,6 +350,7 @@ export function ModelSettings({
           </CardDescription>
           <CardAction className="flex w-full flex-wrap items-center justify-start gap-2 sm:w-auto sm:justify-end">
             <Button
+              ref={addProviderButtonRef}
               type="button"
               variant="outline"
               size="sm"
@@ -385,6 +432,16 @@ export function ModelSettings({
                 }}
               >
                 <summary
+                  ref={(summary) => {
+                    if (summary) {
+                      providerSummaryRefs.current.set(
+                        provider.provider,
+                        summary
+                      )
+                    } else {
+                      providerSummaryRefs.current.delete(provider.provider)
+                    }
+                  }}
                   className={`flex list-none items-center gap-3 px-4 py-4 [&::-webkit-details-marker]:hidden ${normalizedSearch ? "cursor-default" : "cursor-pointer"}`}
                   onClick={(event) => {
                     if (normalizedSearch) event.preventDefault()

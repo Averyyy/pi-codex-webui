@@ -195,9 +195,12 @@ export const sessionStatsSchema = z.object({
   cost: z.number().nonnegative(),
   contextUsage: z
     .object({
-      tokens: z.number().nonnegative(),
+      tokens: z.number().nonnegative().nullable(),
       contextWindow: z.number().positive(),
-      percent: z.number().nonnegative(),
+      percent: z.number().nonnegative().nullable(),
+    })
+    .refine((usage) => (usage.tokens === null) === (usage.percent === null), {
+      message: "Context tokens and percent must be known or unknown together.",
     })
     .optional(),
 })
@@ -665,7 +668,10 @@ export const modelSettingsProviderInputSchema = z.object({
     .regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/),
   name: z.string().trim().min(1).max(100).optional(),
   api: modelProviderApiSchema,
-  baseUrl: z.string().trim().min(1),
+  baseUrl: z
+    .string()
+    .trim()
+    .pipe(z.url({ protocol: /^https?$/ }).max(2_048)),
   apiKey: z.string().optional(),
   models: z.array(modelSettingsCustomModelSchema).min(1),
 })
@@ -1008,6 +1014,7 @@ const modelScopeSetMessageSchema = resourceRequestBaseSchema.extend({
   type: z.literal("models.set-scope"),
   payload: resourceRequestBaseSchema.shape.payload.extend({
     enabledModelIds: z.array(z.string().min(1)).nullable(),
+    expectedEnabledModelIds: z.array(z.string().min(1)),
   }),
 })
 

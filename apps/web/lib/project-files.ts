@@ -155,11 +155,15 @@ export async function readProjectEntry(
     previewUnavailable = "too-large"
   } else {
     const contents = await readFile(target)
-    try {
-      preview = new TextDecoder("utf-8", { fatal: true }).decode(contents)
-    } catch (error) {
-      if (!(error instanceof TypeError)) throw error
+    if (contents.includes(0)) {
       previewUnavailable = "binary"
+    } else {
+      try {
+        preview = new TextDecoder("utf-8", { fatal: true }).decode(contents)
+      } catch (error) {
+        if (!(error instanceof TypeError)) throw error
+        previewUnavailable = "binary"
+      }
     }
   }
 

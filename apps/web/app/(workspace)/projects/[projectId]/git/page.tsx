@@ -52,9 +52,14 @@ export default async function ProjectGitPage({
         <>
           <Card>
             <CardHeader>
-              <CardTitle className="flex flex-wrap items-center gap-2">
-                <GitBranchIcon className="size-4" />
-                {git.branch ?? t("project.git.detachedHead")}
+              <CardTitle className="flex min-w-0 flex-wrap items-center gap-2">
+                <GitBranchIcon className="size-4 shrink-0" />
+                <span
+                  className="max-w-full min-w-0 truncate"
+                  title={git.branch ?? t("project.git.detachedHead")}
+                >
+                  {git.branch ?? t("project.git.detachedHead")}
+                </span>
                 {git.commit ? (
                   <Badge variant="outline" className="font-mono">
                     {git.commit}
@@ -67,11 +72,17 @@ export default async function ProjectGitPage({
             </CardHeader>
             {git.upstream ? (
               <CardContent className="flex flex-wrap gap-2 text-sm">
-                <Badge variant="secondary">{git.upstream}</Badge>
+                <Badge variant="secondary" className="max-w-full min-w-0">
+                  <span className="min-w-0 truncate" title={git.upstream}>
+                    {git.upstream}
+                  </span>
+                </Badge>
                 <span className="text-muted-foreground">
                   {t("project.git.divergence", {
-                    ahead: git.ahead,
-                    behind: git.behind,
+                    ahead: git.ahead.toLocaleString(config.appearance.language),
+                    behind: git.behind.toLocaleString(
+                      config.appearance.language
+                    ),
                   })}
                 </span>
               </CardContent>
@@ -87,7 +98,11 @@ export default async function ProjectGitPage({
                       git.files.length === 1
                         ? "project.git.changedSummaryOne"
                         : "project.git.changedSummary",
-                      { count: git.files.length }
+                      {
+                        count: git.files.length.toLocaleString(
+                          config.appearance.language
+                        ),
+                      }
                     )
                   : t("project.git.cleanSummary")}
               </CardDescription>

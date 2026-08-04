@@ -1,7 +1,9 @@
 import { watch, type FSWatcher } from "node:fs"
+import { stat } from "node:fs/promises"
 import path from "node:path"
 
 import { requireProject } from "@/lib/resource-api"
+import { runtimeErrorResponse } from "@/lib/runtime-api"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -70,14 +72,37 @@ export async function GET(
   request: Request,
   context: RouteContext<"/api/v1/projects/[projectId]/changes">
 ) {
-  const { projectId } = await context.params
-  const project = await requireProject(projectId)
-  return new Response(projectChangeStream(project.path, request.signal), {
-    headers: {
-      "Cache-Control": "no-cache, no-transform",
-      Connection: "keep-alive",
-      "Content-Type": "text/event-stream",
-      "X-Accel-Buffering": "no",
-    },
-  })
+  try {
+    const { projectId } = await context.params
+    const project = await requireProject(projectId)
+    const projectStats = await stat(project.path)
+    if (!projectStats.isDirectory()) {
+      return Response.json(
+        {
+          error: "The project directory no longer exists.",
+          code: "Unavailable",
+        },
+        { status: 410 }
+      )
+    }
+    return new Response(projectChangeStream(project.path, request.signal), {
+      headers: {
+        "Cache-Control": "no-cache, no-transform",
+        Connection: "keep-alive",
+        "Content-Type": "text/event-stream",
+        "X-Accel-Buffering": "no",
+      },
+    })
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return Response.json(
+        {
+          error: "The project directory no longer exists.",
+          code: "Unavailable",
+        },
+        { status: 410 }
+      )
+    }
+    return runtimeErrorResponse(error)
+  }
 }

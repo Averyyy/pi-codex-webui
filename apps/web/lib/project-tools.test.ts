@@ -61,6 +61,7 @@ test("project file browser reads real files and blocks paths outside its root", 
   await Promise.all([
     writeFile(path.join(project, "README.md"), "# Fixture\n"),
     writeFile(path.join(project, "binary.dat"), Uint8Array.from([0xff, 0xfe])),
+    writeFile(path.join(project, "nul-binary.dat"), Uint8Array.from([0, 1, 2])),
     writeFile(path.join(project, "large.txt"), Buffer.alloc(1024 * 1024 + 1)),
     writeFile(outside, "outside"),
   ])
@@ -70,7 +71,14 @@ test("project file browser reads real files and blocks paths outside its root", 
   assert.equal(root.kind, "directory")
   assert.deepEqual(
     root.entries.map((entry) => entry.name),
-    ["src", "binary.dat", "large.txt", "outside-link", "README.md"]
+    [
+      "src",
+      "binary.dat",
+      "large.txt",
+      "nul-binary.dat",
+      "outside-link",
+      "README.md",
+    ]
   )
 
   const text = await readProjectEntry(project, "README.md")
@@ -79,6 +87,9 @@ test("project file browser reads real files and blocks paths outside its root", 
   const binary = await readProjectEntry(project, "binary.dat")
   assert.equal(binary.kind, "file")
   assert.equal(binary.previewUnavailable, "binary")
+  const nulBinary = await readProjectEntry(project, "nul-binary.dat")
+  assert.equal(nulBinary.kind, "file")
+  assert.equal(nulBinary.previewUnavailable, "binary")
   const large = await readProjectEntry(project, "large.txt")
   assert.equal(large.kind, "file")
   assert.equal(large.previewUnavailable, "too-large")

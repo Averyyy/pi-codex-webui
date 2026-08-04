@@ -382,10 +382,23 @@ async function readModelSettings(
 
 async function setModelScope(
   state: ModelSettingsState,
-  enabledModelIds: string[] | null
+  enabledModelIds: string[] | null,
+  expectedEnabledModelIds: string[]
 ) {
-  const availableModels = state.modelRegistry.getAvailable()
-  const availableIds = new Set(availableModels.map(modelKey))
+  const current = await readModelSettings(state)
+  const availableIds = new Set(current.models.map(modelKey))
+  const currentEnabledModelIds = current.models
+    .filter((model) => model.enabled)
+    .map(modelKey)
+  const expectedIds = new Set(expectedEnabledModelIds)
+  if (
+    expectedIds.size !== currentEnabledModelIds.length ||
+    currentEnabledModelIds.some((id) => !expectedIds.has(id))
+  ) {
+    const error = new Error("The model scope changed after this page loaded.")
+    error.name = "ModelScopeConflict"
+    throw error
+  }
 
   if (enabledModelIds === null) {
     state.settingsManager.setEnabledModels(undefined)
@@ -396,7 +409,7 @@ async function setModelScope(
     const invalid = enabledModelIds.find((id) => !availableIds.has(id))
     if (invalid) throw new Error(`Model ${invalid} is not available.`)
     state.settingsManager.setEnabledModels(
-      enabledModelIds.length === availableModels.length
+      enabledModelIds.length === current.models.length
         ? undefined
         : [...enabledModelIds]
     )
@@ -520,7 +533,11 @@ export function handleModelSettingsMessage(
   )
   if (message.type === "models.catalog") return readModelSettings(state)
   if (message.type === "models.set-scope") {
-    return setModelScope(state, message.payload.enabledModelIds)
+    return setModelScope(
+      state,
+      message.payload.enabledModelIds,
+      message.payload.expectedEnabledModelIds
+    )
   }
   if (message.type === "providers.remove") {
     return removeProvider(state, message.payload.provider)

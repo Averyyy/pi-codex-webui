@@ -15,6 +15,7 @@ export function runtimeErrorResponse(error: unknown) {
               error.code === "RuntimeNotActive" ||
               error.code === "RuntimeBusy" ||
               error.code === "QueueConflict" ||
+              error.code === "ModelScopeConflict" ||
               error.code === "SessionOperationCancelled"
             ? 409
             : 422

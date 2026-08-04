@@ -5,8 +5,10 @@ import path from "node:path"
 import test from "node:test"
 
 import { POST as createProject } from "../app/api/v1/projects/route"
+import { GET as projectChanges } from "../app/api/v1/projects/[projectId]/changes/route"
 import { PATCH as updateProject } from "../app/api/v1/projects/[projectId]/route"
 import { POST as createWorktree } from "../app/api/v1/projects/[projectId]/worktrees/route"
+import { POST as importSession } from "../app/api/v1/sessions/[sessionId]/import/route"
 import { POST as pinSession } from "../app/api/v1/sessions/[sessionId]/pin/route"
 import { getMutationToken } from "./request-security"
 
@@ -63,6 +65,28 @@ test("project and pin lifecycle routes return structured invalid JSON errors", a
   }
 })
 
+test("session import returns a structured malformed multipart error", async () => {
+  const response = await importSession(
+    new Request(`http://${host}/api/v1/sessions/session-a/import`, {
+      method: "POST",
+      headers: {
+        host,
+        origin: `http://${host}`,
+        "content-type": "text/plain",
+        "x-pi-web-codex-mutation-token": token,
+      },
+      body: "not multipart form data",
+    }),
+    { params: Promise.resolve({ sessionId: "session-a" }) }
+  )
+
+  assert.equal(response.status, 400)
+  assert.deepEqual(await response.json(), {
+    error: "Invalid multipart form data.",
+    code: "InvalidFormData",
+  })
+})
+
 test("project lifecycle routes reject invalid filesystem and Git paths", async () => {
   const directory = await mkdtemp(path.join(tmpdir(), "pi-web-project-route-"))
   const file = path.join(directory, "not-a-directory")
@@ -95,7 +119,32 @@ test("project lifecycle routes reject invalid filesystem and Git paths", async (
     assert.deepEqual(await nulWorktreeResponse.json(), {
       error: "Invalid worktree path or branch.",
     })
+
+    const relativeWorktreeResponse = await createWorktree(
+      jsonRequest("/api/v1/projects/project-a/worktrees", {
+        path: "relative-worktree",
+        branch: "fixture-branch",
+      }),
+      { params: Promise.resolve({ projectId: "project-a" }) }
+    )
+    assert.equal(relativeWorktreeResponse.status, 400)
+    assert.deepEqual(await relativeWorktreeResponse.json(), {
+      error: "Invalid worktree path or branch.",
+    })
   } finally {
     await rm(directory, { recursive: true, force: true })
   }
+})
+
+test("project change stream returns a structured missing-project error", async () => {
+  const response = await projectChanges(
+    new Request(`http://${host}/api/v1/projects/missing-project/changes`),
+    { params: Promise.resolve({ projectId: "missing-project" }) }
+  )
+
+  assert.equal(response.status, 404)
+  assert.deepEqual(await response.json(), {
+    error: "Project not found.",
+    code: "ProjectNotFound",
+  })
 })

@@ -32,6 +32,16 @@ export async function POST(
       { status: 501 }
     )
   }
-  await execFileAsync(fileManager.command, [project.path])
-  return Response.json({ projectId })
+  try {
+    await execFileAsync(fileManager.command, [project.path])
+    return Response.json({ projectId })
+  } catch {
+    return Response.json(
+      {
+        error: "Could not open the project folder.",
+        code: "RevealFailed",
+      },
+      { status: 422 }
+    )
+  }
 }

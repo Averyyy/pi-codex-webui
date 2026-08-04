@@ -52,6 +52,7 @@ export function PromptQueue({
   const [editing, setEditing] = useState<QueuedPromptItem | null>(null)
   const [editText, setEditText] = useState("")
   const [updatingId, setUpdatingId] = useState<string | null>(null)
+  const updatingRef = useRef(false)
   const editButtonRefs = useRef(new Map<string, HTMLButtonElement>())
   const editingTriggerId = useRef<string | null>(null)
 
@@ -62,6 +63,8 @@ export function PromptQueue({
   if (items.length === 0 && editing === null) return null
 
   async function replace(next: QueuedPromptItem[], itemId: string) {
+    if (updatingRef.current) return false
+    updatingRef.current = true
     setUpdatingId(itemId)
     try {
       await onReplace(next)
@@ -69,6 +72,7 @@ export function PromptQueue({
     } catch {
       return false
     } finally {
+      updatingRef.current = false
       setUpdatingId(null)
     }
   }
@@ -203,7 +207,7 @@ export function PromptQueue({
       <Dialog
         open={editing !== null && editingStillQueued}
         onOpenChange={(open) => {
-          if (!open && updatingId === null) setEditing(null)
+          if (!open && !updatingRef.current) setEditing(null)
         }}
       >
         <DialogContent

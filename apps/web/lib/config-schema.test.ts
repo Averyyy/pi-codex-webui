@@ -7,6 +7,7 @@ import {
   DEFAULT_CONFIG,
   mergeConfig,
   parseConfig,
+  runtimeSettingsViewSchema,
 } from "./config-schema"
 
 test("settings patches preserve authority boundaries", () => {
@@ -86,6 +87,57 @@ test("runtime defaults can only select enabled profiles", () => {
   assert.deepEqual(
     configSchema.parse(disabledClientDefault).developer.runtime,
     disabledClientDefault.developer.runtime
+  )
+})
+
+test("runtime settings responses keep revision and default flags coherent", () => {
+  const view = {
+    revision: 7,
+    defaultProfileId: "pi",
+    profiles: [
+      { id: "pi", kind: "pi", enabled: true, isDefault: true },
+      {
+        id: "pi-client-default",
+        kind: "pi-client",
+        enabled: false,
+        isDefault: false,
+        serverUrl: "",
+        hasAuthToken: false,
+      },
+    ],
+  }
+  assert.deepEqual(runtimeSettingsViewSchema.parse(view), view)
+  assert.equal(
+    runtimeSettingsViewSchema.safeParse({
+      ...view,
+      profiles: view.profiles.map((profile) => ({
+        ...profile,
+        isDefault: false,
+      })),
+    }).success,
+    false
+  )
+
+  assert.equal(
+    runtimeSettingsViewSchema.safeParse({
+      ...view,
+      profiles: view.profiles.map((profile) =>
+        profile.id === "pi" ? { ...profile, enabled: false } : profile
+      ),
+    }).success,
+    false
+  )
+
+  assert.equal(
+    runtimeSettingsViewSchema.safeParse({
+      ...view,
+      defaultProfileId: "pi-client-default",
+      profiles: view.profiles.map((profile) => ({
+        ...profile,
+        isDefault: profile.id === "pi-client-default",
+      })),
+    }).success,
+    false
   )
 })
 

@@ -114,6 +114,77 @@ export const runtimeProfileSchema = z.discriminatedUnion("kind", [
   piClientRuntimeProfileSchema,
 ])
 
+const runtimeProfileViewBaseSchema = z.object({
+  id: runtimeProfileIdSchema,
+  enabled: z.boolean(),
+  isDefault: z.boolean(),
+})
+
+export const runtimeProfileViewSchema = z.discriminatedUnion("kind", [
+  runtimeProfileViewBaseSchema.extend({
+    kind: z.literal("pi"),
+    enabled: z.literal(true),
+  }),
+  runtimeProfileViewBaseSchema.extend({
+    kind: z.literal("pi-client"),
+    serverUrl: z.string().max(2_048),
+    hasAuthToken: z.boolean(),
+  }),
+])
+
+export const runtimeSettingsViewSchema = z
+  .object({
+    revision: z.number().int().nonnegative(),
+    defaultProfileId: runtimeProfileIdSchema,
+    profiles: z.array(runtimeProfileViewSchema).min(1),
+  })
+  .superRefine((view, context) => {
+    const profileIds = new Set(view.profiles.map((profile) => profile.id))
+    const builtInPi = view.profiles.find((profile) => profile.id === "pi")
+    if (builtInPi?.kind !== "pi") {
+      context.addIssue({
+        code: "custom",
+        path: ["profiles"],
+        message: "The built-in Pi runtime profile is required.",
+      })
+    }
+    if (profileIds.size !== view.profiles.length) {
+      context.addIssue({
+        code: "custom",
+        path: ["profiles"],
+        message: "Runtime profile IDs must be unique.",
+      })
+    }
+    const defaultProfile = view.profiles.find(
+      (profile) => profile.id === view.defaultProfileId
+    )
+    if (!defaultProfile) {
+      context.addIssue({
+        code: "custom",
+        path: ["defaultProfileId"],
+        message: "The default runtime profile must exist.",
+      })
+    } else if (!defaultProfile.enabled) {
+      context.addIssue({
+        code: "custom",
+        path: ["defaultProfileId"],
+        message: "The default runtime profile must be enabled.",
+      })
+    }
+    if (
+      view.profiles.some(
+        (profile) =>
+          profile.isDefault !== (profile.id === view.defaultProfileId)
+      )
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["profiles"],
+        message: "Runtime profile default flags must match defaultProfileId.",
+      })
+    }
+  })
+
 const runtimeSettingsSchema = z
   .object({
     default: runtimeProfileIdSchema,
@@ -205,6 +276,7 @@ export const configPatchSchema = z
 
 export type AppConfig = z.infer<typeof configSchema>
 export type ConfigPatch = z.infer<typeof configPatchSchema>
+export type RuntimeSettingsView = z.infer<typeof runtimeSettingsViewSchema>
 export type McpServerConfig = AppConfig["mcp"]["servers"][string]
 export type McpStoredValue = z.infer<typeof mcpStoredValueSchema>
 

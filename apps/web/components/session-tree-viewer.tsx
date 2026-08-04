@@ -1,13 +1,17 @@
 "use client"
 
-import { useEffect, useState, type RefObject } from "react"
+import { useEffect, useRef, useState, type RefObject } from "react"
 import { useRouter } from "next/navigation"
 
 import { Dialog, DialogContent } from "@workspace/ui/components/dialog"
-import type { SessionTree } from "@workspace/runtime-protocol"
+import {
+  sessionTreeSchema,
+  type SessionTree,
+} from "@workspace/runtime-protocol"
 
 import { SessionTreeDialog } from "@/components/session-tree-dialog"
-import { responseJson } from "@/lib/api-response"
+import { responseJson, validatedResponseJson } from "@/lib/api-response"
+import { useI18n } from "@/components/i18n-provider"
 import { sessionTreeCurrentEntryId } from "@/lib/session-tree"
 
 export function SessionTreeViewer({
@@ -23,11 +27,13 @@ export function SessionTreeViewer({
   onOpenChange: (open: boolean) => void
   returnFocusRef: RefObject<HTMLElement | null>
 }) {
+  const { t } = useI18n()
   const router = useRouter()
   const [tree, setTree] = useState<SessionTree | null>(null)
   const [selectedEntryId, setSelectedEntryId] = useState("")
   const [summarize, setSummarize] = useState(false)
   const [working, setWorking] = useState(true)
+  const navigationRef = useRef(false)
   const [error, setError] = useState<string | null>(null)
   const treePath = "/api/v1/sessions/" + sessionId + "/tree"
 
@@ -37,7 +43,13 @@ export function SessionTreeViewer({
     let active = true
 
     void fetch(treePath, { cache: "no-store" })
-      .then(responseJson<SessionTree>)
+      .then((response) =>
+        validatedResponseJson(
+          response,
+          sessionTreeSchema.parse,
+          t("session.operations.invalidResponse")
+        )
+      )
       .then((result) => {
         if (!active) return
         setTree(result)
@@ -54,7 +66,7 @@ export function SessionTreeViewer({
     return () => {
       active = false
     }
-  }, [open, treePath])
+  }, [open, t, treePath])
 
   function closeViewer() {
     setTree(null)
@@ -66,10 +78,12 @@ export function SessionTreeViewer({
   }
 
   async function navigateTree() {
-    if (!selectedEntryId) return
+    if (!selectedEntryId || navigationRef.current) return
 
+    navigationRef.current = true
     setWorking(true)
     setError(null)
+    let closed = false
     try {
       await responseJson(
         await fetch(treePath, {
@@ -84,12 +98,14 @@ export function SessionTreeViewer({
           }),
         })
       )
+      closed = true
       closeViewer()
       router.refresh()
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure))
     } finally {
-      setWorking(false)
+      navigationRef.current = false
+      if (!closed) setWorking(false)
     }
   }
 
@@ -98,7 +114,7 @@ export function SessionTreeViewer({
       open={open}
       onOpenChange={(nextOpen) => {
         if (nextOpen) onOpenChange(true)
-        else if (!working) closeViewer()
+        else if (!working && !navigationRef.current) closeViewer()
       }}
     >
       <DialogContent

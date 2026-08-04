@@ -2,7 +2,7 @@ import "server-only"
 
 import { mkdir } from "node:fs/promises"
 
-import type { AppConfig } from "@/lib/config-schema"
+import type { AppConfig, RuntimeSettingsView } from "@/lib/config-schema"
 import { getAppPaths } from "@/lib/app-paths"
 import { getProjectRuntimeTarget } from "@/lib/catalog"
 import { loadConfig } from "@/lib/config"
@@ -25,20 +25,24 @@ export function normalizeServerUrl(input: string) {
   return url.toString().replace(/\/$/, "")
 }
 
-export function runtimeProfileViews(config: AppConfig) {
+export function runtimeProfileViews(
+  config: AppConfig
+): RuntimeSettingsView["profiles"] {
   return Object.entries(config.developer.runtime.profiles).map(
-    ([id, profile]) => ({
-      id,
-      kind: profile.kind,
-      enabled: profile.enabled,
-      isDefault: config.developer.runtime.default === id,
-      ...(profile.kind === "pi-client"
-        ? {
-            serverUrl: profile.serverUrl,
-            hasAuthToken: profile.authTokenRef !== null,
-          }
-        : {}),
-    })
+    ([id, profile]) => {
+      const isDefault = config.developer.runtime.default === id
+      if (profile.kind === "pi") {
+        return { id, kind: "pi", enabled: true, isDefault }
+      }
+      return {
+        id,
+        kind: "pi-client",
+        enabled: profile.enabled,
+        isDefault,
+        serverUrl: profile.serverUrl,
+        hasAuthToken: profile.authTokenRef !== null,
+      }
+    }
   )
 }
 

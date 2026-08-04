@@ -176,3 +176,18 @@ export function sessionTreeCurrentEntryId(tree: SessionTree) {
   }
   return null
 }
+
+export function sessionTreeActiveUserEntryId(tree: SessionTree) {
+  const entriesById = new Map(tree.entries.map((entry) => [entry.id, entry]))
+  const visited = new Set<string>()
+  let entryId = tree.leafId
+  while (entryId !== null) {
+    if (visited.has(entryId)) return null
+    visited.add(entryId)
+    const entry = entriesById.get(entryId)
+    if (!entry) return null
+    if (entry.role === "user") return entry.id
+    entryId = entry.parentId
+  }
+  return null
+}

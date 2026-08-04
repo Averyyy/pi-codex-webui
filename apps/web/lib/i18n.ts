@@ -23,6 +23,29 @@ const messages = {
     "en-US": "Resize the sidebar; click to collapse or expand",
   },
 
+  "app.notFound.title": {
+    "zh-CN": "页面不存在",
+    "en-US": "Page not found",
+  },
+  "app.notFound.description": {
+    "zh-CN": "请求的页面不存在，或已被移除。",
+    "en-US": "The requested page does not exist or has been removed.",
+  },
+  "app.notFound.home": { "zh-CN": "返回首页", "en-US": "Return home" },
+  "app.error.title": {
+    "zh-CN": "页面加载失败",
+    "en-US": "This page could not be loaded",
+  },
+  "app.error.description": {
+    "zh-CN": "发生了意外错误。你可以重试，或返回首页。",
+    "en-US": "An unexpected error occurred. Try again or return home.",
+  },
+  "app.error.retry": { "zh-CN": "重试", "en-US": "Try again" },
+  "app.error.reference": {
+    "zh-CN": "错误参考：{digest}",
+    "en-US": "Error reference: {digest}",
+  },
+
   "composer.reasoningEffort": {
     "zh-CN": "推理强度",
     "en-US": "Reasoning effort",
@@ -248,6 +271,14 @@ const messages = {
   "session.runtime.emptyResponse": {
     "zh-CN": "Pi runtime 返回了空响应。",
     "en-US": "Pi runtime returned an empty response.",
+  },
+  "session.readFailed": {
+    "zh-CN": "标记会话为已读失败（HTTP {status}）。",
+    "en-US": "Failed to mark the conversation as read (HTTP {status}).",
+  },
+  "session.readInvalidResponse": {
+    "zh-CN": "服务器返回了其他会话的已读状态。",
+    "en-US": "The server returned read status for a different conversation.",
   },
   "session.runtime.imageOnlyMessage": {
     "zh-CN": "请查看附加图片。",
@@ -519,6 +550,11 @@ const messages = {
   },
   "session.queue.cancel": { "zh-CN": "取消", "en-US": "Cancel" },
   "session.queue.save": { "zh-CN": "保存", "en-US": "Save" },
+  "session.queue.conflict": {
+    "zh-CN": "待处理消息已变化，请根据最新队列重试。",
+    "en-US":
+      "The pending messages changed. Review the latest queue and try again.",
+  },
   "session.compaction.running": {
     "zh-CN": "正在压缩上下文",
     "en-US": "Compacting context",
@@ -836,6 +872,10 @@ const messages = {
     "zh-CN": "导出 session 失败。",
     "en-US": "Failed to export the conversation.",
   },
+  "session.operations.invalidResponse": {
+    "zh-CN": "服务器返回了无效的会话操作结果。",
+    "en-US": "The server returned an invalid conversation operation result.",
+  },
   "session.operations.renameTitle": {
     "zh-CN": "重命名 session",
     "en-US": "Rename conversation",
@@ -1094,6 +1134,11 @@ const messages = {
     "zh-CN": "协议事件连接已断开，正在自动重连。",
     "en-US":
       "The protocol event connection was interrupted and is reconnecting automatically.",
+  },
+  "session.diagnostics.invalidEvent": {
+    "zh-CN": "收到无效的协议事件；后续事件仍会继续监听。",
+    "en-US":
+      "An invalid protocol event was received. Listening for later events continues.",
   },
   "session.diagnostics.runtime": { "zh-CN": "Runtime", "en-US": "Runtime" },
   "session.diagnostics.profile": { "zh-CN": "Profile", "en-US": "Profile" },
@@ -2096,6 +2141,11 @@ const messages = {
   "settings.models.operationFailed": {
     "zh-CN": "模型设置操作失败。",
     "en-US": "Model settings operation failed.",
+  },
+  "settings.models.conflict": {
+    "zh-CN": "模型范围已在其他页面更新；已加载最新状态，请重试。",
+    "en-US":
+      "The model scope changed on another page. The latest state was loaded; try again.",
   },
   "settings.models.invalidProvider": {
     "zh-CN": "自定义 provider 配置无效。",

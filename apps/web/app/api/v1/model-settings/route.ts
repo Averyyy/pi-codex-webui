@@ -14,6 +14,7 @@ export const dynamic = "force-dynamic"
 
 const mutationSchema = z.object({
   enabledModelIds: z.array(z.string().min(1)).nullable(),
+  expectedEnabledModelIds: z.array(z.string().min(1)),
 })
 
 function response(settings: ModelSettings) {
@@ -57,7 +58,8 @@ export async function PATCH(request: Request) {
     return response(
       await getRuntimeSupervisor().setModelScope(
         cwd,
-        parsed.data.enabledModelIds
+        parsed.data.enabledModelIds,
+        parsed.data.expectedEnabledModelIds
       )
     )
   } catch (error) {

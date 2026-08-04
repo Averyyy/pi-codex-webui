@@ -347,3 +347,62 @@ test("resource protocol preserves scope, trust, and package operations", () => {
     "resources.set-enabled"
   )
 })
+
+test("model scope mutations carry the state they were based on", () => {
+  const message = {
+    type: "models.set-scope",
+    requestId: "request-model-scope",
+    payload: {
+      cwd: "/workspace",
+      agentDir: "/agent",
+      enabledModelIds: ["provider/model-a"],
+      expectedEnabledModelIds: ["provider/model-a", "provider/model-b"],
+    },
+  }
+
+  assert.equal(hostToWorkerMessageSchema.safeParse(message).success, true)
+  assert.equal(
+    hostToWorkerMessageSchema.safeParse({
+      ...message,
+      payload: {
+        cwd: "/workspace",
+        agentDir: "/agent",
+        enabledModelIds: ["provider/model-a"],
+      },
+    }).success,
+    false
+  )
+})
+
+test("custom model providers require an HTTP base URL", () => {
+  const message = {
+    type: "providers.save",
+    requestId: "request-provider",
+    payload: {
+      cwd: "/workspace",
+      agentDir: "/agent",
+      provider: "provider-a",
+      api: "openai-completions",
+      baseUrl: "ftp://example.test/v1",
+      models: [
+        {
+          id: "model-a",
+          name: "Model A",
+          reasoning: false,
+          input: ["text"],
+          contextWindow: 128_000,
+          maxTokens: 8_192,
+        },
+      ],
+    },
+  }
+
+  assert.equal(hostToWorkerMessageSchema.safeParse(message).success, false)
+  assert.equal(
+    hostToWorkerMessageSchema.safeParse({
+      ...message,
+      payload: { ...message.payload, baseUrl: "https://example.test/v1" },
+    }).success,
+    true
+  )
+})

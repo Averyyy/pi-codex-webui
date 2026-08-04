@@ -286,6 +286,7 @@ export class RuntimeSupervisor {
   static reuseAfterHotReload(supervisor: RuntimeSupervisor) {
     Object.setPrototypeOf(supervisor, RuntimeSupervisor.prototype)
     supervisor.sessionClosureMap()
+    supervisor.resourceQueue ??= Promise.resolve()
     for (const runtime of supervisor.runtimes.values()) {
       runtime.resourceReloadPromise ??= null
       runtime.modelReloadPromise ??= null
@@ -1000,7 +1001,11 @@ export class RuntimeSupervisor {
     )
   }
 
-  async setModelScope(cwd: string, enabledModelIds: string[] | null) {
+  async setModelScope(
+    cwd: string,
+    enabledModelIds: string[] | null,
+    expectedEnabledModelIds: string[]
+  ) {
     const settings = modelSettingsSchema.parse(
       await this.resourceRequest({
         type: "models.set-scope",
@@ -1009,6 +1014,7 @@ export class RuntimeSupervisor {
           cwd,
           agentDir: getPiAgentDir(),
           enabledModelIds,
+          expectedEnabledModelIds,
         },
       })
     )

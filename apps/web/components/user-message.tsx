@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, type ReactNode } from "react"
+import { useRef, useState, type ReactNode } from "react"
 import { useRouter } from "next/navigation"
 import {
   ChevronLeftIcon,
@@ -41,6 +41,7 @@ export function UserMessage({
   const [editing, setEditing] = useState(false)
   const [editValue, setEditValue] = useState("")
   const [working, setWorking] = useState(false)
+  const workingRef = useRef(false)
   const [error, setError] = useState<string | null>(null)
   const messageText = entry.parts
     .filter(
@@ -58,7 +59,8 @@ export function UserMessage({
     ["starting", "busy", "stopping", "crashed"].includes(runtimeStatus)
 
   async function navigateBranch(entryId: string | undefined) {
-    if (!entryId || working || interactionDisabled) return
+    if (!entryId || workingRef.current || interactionDisabled) return
+    workingRef.current = true
     setWorking(true)
     setError(null)
     try {
@@ -76,13 +78,15 @@ export function UserMessage({
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure))
     } finally {
+      workingRef.current = false
       setWorking(false)
     }
   }
 
   async function submitEdit() {
     const message = editValue.trim()
-    if (!message || working || interactionDisabled) return
+    if (!message || workingRef.current || interactionDisabled) return
+    workingRef.current = true
     setWorking(true)
     setError(null)
     try {
@@ -116,6 +120,7 @@ export function UserMessage({
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure))
     } finally {
+      workingRef.current = false
       setWorking(false)
     }
   }
@@ -144,6 +149,7 @@ export function UserMessage({
               <Button
                 variant="outline"
                 onClick={() => {
+                  if (workingRef.current) return
                   setEditing(false)
                   setError(null)
                 }}

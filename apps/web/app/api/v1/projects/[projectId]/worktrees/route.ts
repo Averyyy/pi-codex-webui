@@ -15,6 +15,7 @@ const createSchema = z
       .trim()
       .min(1)
       .max(4096)
+      .refine((value) => path.isAbsolute(value))
       .refine((value) => !value.includes("\0")),
     branch: z
       .string()

@@ -87,7 +87,11 @@ export default async function ProjectPage({
                       session.messageCount === 1
                         ? "project.sessions.messageCountOne"
                         : "project.sessions.messageCount",
-                      { count: session.messageCount }
+                      {
+                        count: session.messageCount.toLocaleString(
+                          config.appearance.language
+                        ),
+                      }
                     )}
                   >
                     <MessageSquareTextIcon />

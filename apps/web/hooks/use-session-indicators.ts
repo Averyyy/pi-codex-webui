@@ -10,13 +10,21 @@ import {
 } from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
+import { z } from "zod"
 
+import { useI18n } from "@/components/i18n-provider"
+import { ApiError, validatedResponseJson } from "@/lib/api-response"
 import type { SessionSummary } from "@/lib/session-types"
 
-interface SessionEvent {
-  type: string
-  sessionId?: string
-}
+const sessionEventSchema = z.object({
+  type: z.string().min(1),
+  sessionId: z.string().optional(),
+})
+
+const readResultSchema = z.object({
+  sessionId: z.string().min(1),
+  unread: z.literal(false),
+})
 
 const RUNNING_EVENT_TYPES = new Set(["runtime.busy", "compaction.start"])
 const STOPPED_EVENT_TYPES = new Set([
@@ -48,6 +56,7 @@ export function useSessionIndicators({
   initialRunningSessionIds: string[]
   mutationToken: string
 }) {
+  const { t } = useI18n()
   const router = useRouter()
   const sessionKey = useMemo(
     () => sessions.map((session) => session.id).join("\0"),
@@ -119,12 +128,16 @@ export function useSessionIndicators({
           headers: { "X-Pi-Web-Codex-Mutation-Token": mutationToken },
         }
       )
-      if (!response.ok) {
-        const body = (await response.json()) as { error?: string }
-        throw new Error(body.error ?? `操作失败（HTTP ${response.status}）。`)
+      const result = await validatedResponseJson(
+        response,
+        readResultSchema.parse,
+        t("session.readFailed", { status: response.status })
+      )
+      if (result.sessionId !== sessionId) {
+        throw new ApiError(t("session.readInvalidResponse"))
       }
     },
-    [mutationToken]
+    [mutationToken, t]
   )
 
   const readSession = useCallback(
@@ -150,9 +163,15 @@ export function useSessionIndicators({
   )
 
   const handleSessionEvent = useEffectEvent((source: Event) => {
-    const event = JSON.parse(
-      (source as MessageEvent<string>).data
-    ) as SessionEvent
+    let event: z.infer<typeof sessionEventSchema>
+    try {
+      event = sessionEventSchema.parse(
+        JSON.parse((source as MessageEvent<string>).data)
+      )
+    } catch (failure) {
+      console.error("Invalid session indicator event.", failure)
+      return
+    }
     if (event.type === "resync.required") {
       setRunningOverrides(new Map())
       setUnreadOverrides(new Map())

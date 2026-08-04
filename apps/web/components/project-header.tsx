@@ -23,21 +23,26 @@ export function ProjectHeader({
   const t = createTranslator(locale)
 
   return (
-    <header className="grid gap-5">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div className="flex min-w-0 flex-col gap-3">
+    <header className="grid min-w-0 gap-5">
+      <div className="grid min-w-0 gap-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+        <div className="flex max-w-full min-w-0 flex-col gap-3">
           <div className="grid size-10 place-items-center rounded-xl bg-muted">
             <FolderGit2Icon className="size-5" />
           </div>
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <h1 className="truncate text-2xl font-semibold tracking-tight">
+          <div className="max-w-full min-w-0">
+            <div className="flex max-w-full min-w-0 flex-wrap items-center gap-2">
+              <h1
+                className="max-w-full min-w-0 truncate text-2xl font-semibold tracking-tight"
+                title={project.name}
+              >
                 {project.name}
               </h1>
               {branch ? (
-                <Badge variant="outline">
-                  <GitBranchIcon />
-                  {branch}
+                <Badge variant="outline" className="max-w-full min-w-0">
+                  <GitBranchIcon className="shrink-0" />
+                  <span className="min-w-0 truncate" title={branch}>
+                    {branch}
+                  </span>
                 </Badge>
               ) : null}
             </div>

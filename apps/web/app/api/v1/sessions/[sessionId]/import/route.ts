@@ -14,8 +14,17 @@ export async function POST(
   if (securityError) {
     return Response.json({ error: securityError }, { status: 403 })
   }
-  const file = (await request.formData()).get("file")
-  if (!(file instanceof File) || !file.name.endsWith(".jsonl")) {
+  let formData: FormData
+  try {
+    formData = await request.formData()
+  } catch {
+    return Response.json(
+      { error: "Invalid multipart form data.", code: "InvalidFormData" },
+      { status: 400 }
+    )
+  }
+  const file = formData.get("file")
+  if (!(file instanceof File) || !file.name.toLowerCase().endsWith(".jsonl")) {
     return Response.json(
       { error: "A JSONL session file is required." },
       { status: 400 }

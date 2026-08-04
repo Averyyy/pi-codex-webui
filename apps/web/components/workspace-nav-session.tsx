@@ -1,6 +1,6 @@
 "use client"
 
-import { useRef, useState } from "react"
+import { useId, useRef, useState } from "react"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import {
@@ -58,6 +58,7 @@ export function WorkspaceNavSession({
   const router = useRouter()
   const { t } = useI18n()
   const workingRef = useRef(false)
+  const statusDescriptionId = useId()
   const [workingAction, setWorkingAction] = useState<"pin" | "archive" | null>(
     null
   )
@@ -201,13 +202,17 @@ export function WorkspaceNavSession({
       </Tooltip>
     </div>
   )
-  const shortcut = shortcutLabel ? (
-    <kbd className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 rounded-md bg-sidebar-accent px-1.5 py-1 font-sans text-[11px] leading-none text-muted-foreground shadow-xs group-focus-within/session:hidden group-hover/session:hidden [@media(hover:none)]:hidden">
-      {shortcutLabel}
-    </kbd>
-  ) : null
-  const indicator = shortcut ? null : running ? (
-    <span className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 text-muted-foreground">
+  const shortcut =
+    shortcutLabel && !running && !unread ? (
+      <kbd className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 rounded-md bg-sidebar-accent px-1.5 py-1 font-sans text-[11px] leading-none text-muted-foreground shadow-xs group-focus-within/session:hidden group-hover/session:hidden [@media(hover:none)]:hidden">
+        {shortcutLabel}
+      </kbd>
+    ) : null
+  const indicator = running ? (
+    <span
+      id={statusDescriptionId}
+      className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 text-muted-foreground"
+    >
       <LoaderCircleIcon
         aria-hidden="true"
         className="size-4 animate-spin motion-reduce:animate-none"
@@ -215,7 +220,10 @@ export function WorkspaceNavSession({
       <span className="sr-only">{t("workspace.nav.running")}</span>
     </span>
   ) : unread ? (
-    <span className="pointer-events-none absolute top-1/2 right-2 size-2 -translate-y-1/2 rounded-full bg-blue-500">
+    <span
+      id={statusDescriptionId}
+      className="pointer-events-none absolute top-1/2 right-2 size-2 -translate-y-1/2 rounded-full bg-blue-500"
+    >
       <span className="sr-only">{t("workspace.nav.newlyCompleted")}</span>
     </span>
   ) : null
@@ -234,6 +242,9 @@ export function WorkspaceNavSession({
             title={title}
             data-conversation-shortcut={href}
             aria-keyshortcuts={ariaShortcut}
+            aria-describedby={
+              running || unread ? statusDescriptionId : undefined
+            }
             aria-current={pathname === href ? "page" : undefined}
           >
             <span className="min-w-0 truncate">{title}</span>
@@ -259,6 +270,7 @@ export function WorkspaceNavSession({
           prefetch={false}
           data-conversation-shortcut={href}
           aria-keyshortcuts={ariaShortcut}
+          aria-describedby={running || unread ? statusDescriptionId : undefined}
           aria-current={pathname === href ? "page" : undefined}
         >
           <MessageSquareTextIcon />

@@ -108,6 +108,7 @@ export function useComposerImages(
   function removeImage(id: string) {
     const next = imagesRef.current.filter((image) => image.id !== id)
     updateImages(next)
+    setError(null)
   }
 
   function clearImages() {

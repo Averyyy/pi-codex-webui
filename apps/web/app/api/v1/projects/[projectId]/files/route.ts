@@ -5,6 +5,7 @@ import {
   readProjectEntry,
   readProjectFile,
 } from "@/lib/project-files"
+import { projectFileAttachmentHeader } from "@/lib/project-files-route"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -43,7 +44,7 @@ export async function GET(
       return new Response(file.contents, {
         headers: {
           "Cache-Control": "no-store",
-          "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(file.name)}`,
+          "Content-Disposition": projectFileAttachmentHeader(file.name),
           "Content-Type": "application/octet-stream",
         },
       })

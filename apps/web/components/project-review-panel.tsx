@@ -192,7 +192,7 @@ export function ProjectReviewPanel({
               git.files.length === 1
                 ? "project.review.changeCountOne"
                 : "project.review.changeCount",
-              { count: git.files.length }
+              { count: git.files.length.toLocaleString(locale) }
             )}
           >
             {git.files.length.toLocaleString(locale)}

@@ -1,7 +1,8 @@
 "use client"
 
-import { useRef, useState, type FormEvent } from "react"
+import { useLayoutEffect, useRef, useState, type FormEvent } from "react"
 import { useRouter } from "next/navigation"
+import { z } from "zod"
 import {
   ArchiveIcon,
   BarChart3Icon,
@@ -49,16 +50,19 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@workspace/ui/components/tooltip"
-import type {
-  RuntimeStatus,
-  SessionStats,
-  SessionTree,
+import {
+  sessionStatsSchema,
+  sessionTreeSchema,
+  type RuntimeStatus,
+  type SessionStats,
+  type SessionTree,
 } from "@workspace/runtime-protocol"
 
 import { SessionTreeViewer } from "@/components/session-tree-viewer"
 import { useI18n } from "@/components/i18n-provider"
 import { useStreamingRuntimeStatus } from "@/components/session-streaming-context"
-import { responseJson } from "@/lib/api-response"
+import { responseJson, validatedResponseJson } from "@/lib/api-response"
+import { sessionTreeActiveUserEntryId } from "@/lib/session-tree"
 
 type DialogKind = "rename" | "fork" | "stats" | "import" | "runtime"
 
@@ -66,6 +70,11 @@ interface ReplacementResult {
   projectId: string | null
   sessionId: string
 }
+
+const replacementResultSchema = z.object({
+  projectId: z.string().nullable(),
+  sessionId: z.string().min(1),
+})
 
 function treeLabel(entry: SessionTree["entries"][number], locale: string) {
   const label = entry.label ?? entry.text ?? entry.role ?? entry.type
@@ -110,7 +119,10 @@ export function SessionOperations({
     runtimeTargets[0]?.id ?? ""
   )
   const [working, setWorking] = useState(false)
+  const workingRef = useRef(false)
   const [error, setError] = useState<string | null>(null)
+  const errorRef = useRef<HTMLDivElement>(null)
+  const focusErrorRef = useRef(false)
   const runtimeStatus = useStreamingRuntimeStatus() ?? initialRuntimeStatus
   const runtimeOperationDisabled = [
     "starting",
@@ -123,17 +135,35 @@ export function SessionOperations({
     "X-Pi-Web-Codex-Mutation-Token": mutationToken,
   }
 
-  async function mutate<T>(path: string, body?: unknown) {
-    return responseJson<T>(
-      await fetch(path, {
-        method: "POST",
-        headers:
-          body === undefined
-            ? mutationHeaders
-            : { ...mutationHeaders, "Content-Type": "application/json" },
-        body: body === undefined ? undefined : JSON.stringify(body),
-      })
-    )
+  useLayoutEffect(() => {
+    if (working || !error || !focusErrorRef.current) return
+    focusErrorRef.current = false
+    errorRef.current?.focus()
+  }, [error, working])
+
+  async function mutate<T = unknown>(
+    path: string,
+    body?: unknown,
+    parse?: (value: unknown) => T
+  ) {
+    const response = await fetch(path, {
+      method: "POST",
+      headers:
+        body === undefined
+          ? mutationHeaders
+          : { ...mutationHeaders, "Content-Type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    })
+    return parse
+      ? validatedResponseJson(
+          response,
+          parse,
+          t("session.operations.invalidResponse")
+        )
+      : responseJson<T>(
+          response,
+          t("session.runtime.operationFailed", { status: response.status })
+        )
   }
 
   function navigateTo(result: ReplacementResult) {
@@ -148,83 +178,112 @@ export function SessionOperations({
   }
 
   function openDialog(next: DialogKind) {
+    if (workingRef.current) return
     setError(null)
     if (next === "rename") setName(title)
     if (next === "import") setFile(null)
     setDialog(next)
   }
 
-  async function run(operation: () => Promise<void>) {
+  function beginWorking() {
+    if (workingRef.current) return false
+    workingRef.current = true
     setWorking(true)
+    return true
+  }
+
+  function finishWorking() {
+    workingRef.current = false
+    setWorking(false)
+  }
+
+  async function run(
+    operation: () => Promise<void>,
+    options: { dialogError?: boolean } = {}
+  ) {
+    if (!beginWorking()) return
     setError(null)
     try {
       await operation()
     } catch (failure) {
       const message =
         failure instanceof Error ? failure.message : String(failure)
-      setError(message)
-      if (!dialog) toast.error(message)
+      if (options.dialogError) {
+        focusErrorRef.current = true
+        setError(message)
+      } else {
+        toast.error(message)
+      }
     } finally {
-      setWorking(false)
+      finishWorking()
     }
   }
 
   async function openFork() {
+    if (!beginWorking()) return
     setDialog("fork")
     setTree(null)
     setSelectedEntryId("")
-    setWorking(true)
     setError(null)
     try {
-      const result = await responseJson<SessionTree>(
+      const result = await validatedResponseJson(
         await fetch(`/api/v1/sessions/${sessionId}/tree`, {
           cache: "no-store",
-        })
+        }),
+        sessionTreeSchema.parse,
+        t("session.operations.invalidResponse")
       )
       setTree(result)
-      setSelectedEntryId(
-        result.entries.filter((entry) => entry.role === "user").at(-1)?.id ?? ""
-      )
+      setSelectedEntryId(sessionTreeActiveUserEntryId(result) ?? "")
     } catch (failure) {
+      focusErrorRef.current = true
       setError(failure instanceof Error ? failure.message : String(failure))
     } finally {
-      setWorking(false)
+      finishWorking()
     }
   }
 
   async function openStats() {
+    if (!beginWorking()) return
     setDialog("stats")
     setStats(null)
-    setWorking(true)
     setError(null)
     try {
       setStats(
-        await responseJson<SessionStats>(
+        await validatedResponseJson(
           await fetch(`/api/v1/sessions/${sessionId}/stats`, {
             cache: "no-store",
-          })
+          }),
+          sessionStatsSchema.parse,
+          t("session.operations.invalidResponse")
         )
       )
     } catch (failure) {
+      focusErrorRef.current = true
       setError(failure instanceof Error ? failure.message : String(failure))
     } finally {
-      setWorking(false)
+      finishWorking()
     }
   }
 
   async function rename(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    await run(async () => {
-      await responseJson(
-        await fetch(`/api/v1/sessions/${sessionId}`, {
+    await run(
+      async () => {
+        const response = await fetch(`/api/v1/sessions/${sessionId}`, {
           method: "PATCH",
           headers: { ...mutationHeaders, "Content-Type": "application/json" },
           body: JSON.stringify({ name }),
         })
-      )
-      setDialog(null)
-      router.refresh()
-    })
+        await responseJson(
+          response,
+          t("session.runtime.operationFailed", { status: response.status })
+        )
+        setDialog(null)
+        router.refresh()
+      },
+      { dialogError: true }
+    )
   }
 
   async function archive() {
@@ -246,33 +305,48 @@ export function SessionOperations({
   async function clone() {
     await run(async () => {
       navigateTo(
-        await mutate<ReplacementResult>(`/api/v1/sessions/${sessionId}/clone`)
+        await mutate(
+          `/api/v1/sessions/${sessionId}/clone`,
+          undefined,
+          replacementResultSchema.parse
+        )
       )
     })
   }
 
   async function duplicateIntoRuntime() {
     if (!selectedRuntimeProfileId) return
-    await run(async () => {
-      navigateTo(
-        await mutate<ReplacementResult>(
-          `/api/v1/sessions/${sessionId}/duplicate-runtime`,
-          { runtimeProfileId: selectedRuntimeProfileId }
+    await run(
+      async () => {
+        navigateTo(
+          await mutate(
+            `/api/v1/sessions/${sessionId}/duplicate-runtime`,
+            { runtimeProfileId: selectedRuntimeProfileId },
+            replacementResultSchema.parse
+          )
         )
-      )
-    })
+      },
+      { dialogError: true }
+    )
   }
 
   async function fork() {
     if (!selectedEntryId) return
-    await run(async () => {
-      navigateTo(
-        await mutate<ReplacementResult>(`/api/v1/sessions/${sessionId}/fork`, {
-          entryId: selectedEntryId,
-          position: "at",
-        })
-      )
-    })
+    await run(
+      async () => {
+        navigateTo(
+          await mutate(
+            `/api/v1/sessions/${sessionId}/fork`,
+            {
+              entryId: selectedEntryId,
+              position: "at",
+            },
+            replacementResultSchema.parse
+          )
+        )
+      },
+      { dialogError: true }
+    )
   }
 
   async function exportSession(format: "jsonl" | "html") {
@@ -282,13 +356,13 @@ export function SessionOperations({
         { cache: "no-store" }
       )
       if (!response.ok) {
-        const result = (await response.json()) as { error?: string }
-        throw new Error(result.error ?? t("session.operations.exportFailed"))
+        await responseJson(response, t("session.operations.exportFailed"))
+        return
       }
       const url = URL.createObjectURL(await response.blob())
       const link = document.createElement("a")
       link.href = url
-      link.download = `pi-session.${format}`
+      link.download = `pi-session-${sessionId}.${format}`
       document.body.append(link)
       link.click()
       link.remove()
@@ -299,19 +373,24 @@ export function SessionOperations({
   async function importSession(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!file) return
-    await run(async () => {
-      const body = new FormData()
-      body.set("file", file)
-      navigateTo(
-        await responseJson<ReplacementResult>(
-          await fetch(`/api/v1/sessions/${sessionId}/import`, {
-            method: "POST",
-            headers: mutationHeaders,
-            body,
-          })
+    await run(
+      async () => {
+        const body = new FormData()
+        body.set("file", file)
+        navigateTo(
+          await validatedResponseJson(
+            await fetch(`/api/v1/sessions/${sessionId}/import`, {
+              method: "POST",
+              headers: mutationHeaders,
+              body,
+            }),
+            replacementResultSchema.parse,
+            t("session.operations.invalidResponse")
+          )
         )
-      )
-    })
+      },
+      { dialogError: true }
+    )
   }
 
   const forkEntries = tree?.entries.filter((entry) => entry.role === "user")
@@ -426,7 +505,7 @@ export function SessionOperations({
       <Dialog
         open={dialog !== null}
         onOpenChange={(open) => {
-          if (!open && !working) setDialog(null)
+          if (!open && !workingRef.current) setDialog(null)
         }}
       >
         <DialogContent
@@ -451,6 +530,7 @@ export function SessionOperations({
                   id="session-rename-name"
                   value={name}
                   onChange={(event) => setName(event.target.value)}
+                  maxLength={200}
                   autoFocus
                   disabled={working || runtimeOperationDisabled}
                 />
@@ -533,7 +613,7 @@ export function SessionOperations({
                       {t("session.operations.userMessages")}
                     </dt>
                     <dd className="text-lg font-medium">
-                      {stats.userMessages}
+                      {stats.userMessages.toLocaleString(locale)}
                     </dd>
                   </div>
                   <div>
@@ -541,21 +621,23 @@ export function SessionOperations({
                       {t("session.operations.assistantMessages")}
                     </dt>
                     <dd className="text-lg font-medium">
-                      {stats.assistantMessages}
+                      {stats.assistantMessages.toLocaleString(locale)}
                     </dd>
                   </div>
                   <div>
                     <dt className="text-muted-foreground">
                       {t("session.operations.toolCalls")}
                     </dt>
-                    <dd className="text-lg font-medium">{stats.toolCalls}</dd>
+                    <dd className="text-lg font-medium">
+                      {stats.toolCalls.toLocaleString(locale)}
+                    </dd>
                   </div>
                   <div>
                     <dt className="text-muted-foreground">
                       {t("session.operations.tokens")}
                     </dt>
                     <dd className="text-lg font-medium">
-                      {stats.tokens.total.toLocaleString()}
+                      {stats.tokens.total.toLocaleString(locale)}
                     </dd>
                   </div>
                   <div>
@@ -563,7 +645,12 @@ export function SessionOperations({
                       {t("session.operations.cost")}
                     </dt>
                     <dd className="text-lg font-medium">
-                      ${stats.cost.toFixed(4)}
+                      {stats.cost.toLocaleString(locale, {
+                        style: "currency",
+                        currency: "USD",
+                        minimumFractionDigits: 4,
+                        maximumFractionDigits: 4,
+                      })}
                     </dd>
                   </div>
                   {stats.contextUsage ? (
@@ -572,7 +659,16 @@ export function SessionOperations({
                         {t("session.operations.context")}
                       </dt>
                       <dd className="text-lg font-medium">
-                        {stats.contextUsage.percent.toFixed(1)}%
+                        {stats.contextUsage.percent === null
+                          ? "—"
+                          : (stats.contextUsage.percent / 100).toLocaleString(
+                              locale,
+                              {
+                                style: "percent",
+                                minimumFractionDigits: 1,
+                                maximumFractionDigits: 1,
+                              }
+                            )}
                       </dd>
                     </div>
                   ) : null}
@@ -662,7 +758,11 @@ export function SessionOperations({
             </form>
           ) : null}
 
-          {error ? <FieldError>{error}</FieldError> : null}
+          {error ? (
+            <FieldError ref={errorRef} tabIndex={-1}>
+              {error}
+            </FieldError>
+          ) : null}
         </DialogContent>
       </Dialog>
     </>

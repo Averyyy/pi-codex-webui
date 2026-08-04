@@ -40,6 +40,16 @@ interface RuntimeSupervisorInternals {
   reloadRuntimeModelSettings(runtime: FakeRuntime): Promise<RuntimeSnapshot>
   reloadRuntimeResources(runtime: FakeRuntime): Promise<RuntimeSnapshot>
   reloadModelSettings(): Promise<void>
+  resourceQueue: Promise<void>
+  resourceRequest(message: {
+    type: "models.catalog"
+    requestId: string
+    payload: { cwd: string; agentDir: string }
+  }): Promise<unknown>
+  performResourceRequest(
+    message: { requestId: string },
+    timeoutMs: number
+  ): Promise<unknown>
   refreshSettledRuntimeSnapshot(runtime: FakeRuntime): Promise<void>
   waitForExit(runtime: FakeRuntime["child"], timeoutMs: number): Promise<void>
 }
@@ -283,7 +293,7 @@ test("activation waits until an archive or delete closure finishes", async () =>
   assert.equal(state.sessionClosures.size, 0)
 })
 
-test("resource reloads drain changes requested during an active reload", async () => {
+test("resource reloads drain changes and resource RPCs stay serialized", async () => {
   const events = new EventHub()
   const supervisor = new RuntimeSupervisor(events)
   const state = internals(supervisor)
@@ -317,6 +327,36 @@ test("resource reloads drain changes requested during an active reload", async (
     events.recent(managed.webSessionId).map((event) => event.type),
     ["runtime.starting", "runtime.ready", "runtime.starting", "runtime.ready"]
   )
+
+  const started: string[] = []
+  let releaseFirst!: () => void
+  state.performResourceRequest = async (message) => {
+    started.push(message.requestId)
+    if (message.requestId === "first") {
+      await new Promise<void>((resolve) => {
+        releaseFirst = resolve
+      })
+    }
+    return message.requestId
+  }
+  const request = (requestId: string) =>
+    state.resourceRequest({
+      type: "models.catalog",
+      requestId,
+      payload: { cwd: "/workspace", agentDir: "/agent" },
+    })
+
+  const firstRpc = request("first")
+  const secondRpc = request("second")
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.deepEqual(started, ["first"])
+
+  releaseFirst()
+  assert.deepEqual(await Promise.all([firstRpc, secondRpc]), [
+    "first",
+    "second",
+  ])
+  assert.deepEqual(started, ["first", "second"])
 })
 
 test("a failed model reload terminates the uncertain runtime", async () => {
@@ -401,6 +441,7 @@ test("hot reload reuse initializes state added to an existing supervisor", () =>
 
   assert.equal(Object.getPrototypeOf(reused), RuntimeSupervisor.prototype)
   assert.ok(internals(reused).sessionClosures instanceof Map)
+  assert.ok(internals(reused).resourceQueue instanceof Promise)
   assert.equal(managed.resourceReloadPromise, null)
   assert.equal(managed.modelReloadPromise, null)
 })
