@@ -86,6 +86,67 @@ function sessionJsonl(id: string, cwd: string, text: string, title?: string) {
   return `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`
 }
 
+function branchedSessionJsonl(id: string, cwd: string) {
+  const timestamp = "2026-07-14T00:00:00.000Z"
+  const entries = [
+    { type: "session", version: 3, id, timestamp, cwd },
+    {
+      type: "session_info",
+      id: `${id}-title`,
+      parentId: null,
+      timestamp,
+      name: "Branch search title",
+    },
+    {
+      type: "message",
+      id: `${id}-user`,
+      parentId: `${id}-title`,
+      timestamp: "2026-07-14T00:00:01.000Z",
+      message: { role: "user", content: "choose a branch" },
+    },
+    {
+      type: "message",
+      id: `${id}-abandoned`,
+      parentId: `${id}-user`,
+      timestamp: "2026-07-14T00:00:02.000Z",
+      message: {
+        role: "assistant",
+        content: "abandoned-only-needle",
+      },
+    },
+    {
+      type: "message",
+      id: `${id}-active`,
+      parentId: `${id}-user`,
+      timestamp: "2026-07-14T00:00:03.000Z",
+      message: {
+        role: "assistant",
+        content: [
+          {
+            type: "toolCall",
+            id: `${id}-call`,
+            name: "read",
+            arguments: { path: "active-branch.txt" },
+          },
+        ],
+      },
+    },
+    {
+      type: "message",
+      id: `${id}-result`,
+      parentId: `${id}-active`,
+      timestamp: "2026-07-14T00:00:04.000Z",
+      message: {
+        role: "toolResult",
+        toolCallId: `${id}-call`,
+        toolName: "read",
+        content: "active-result-needle",
+      },
+    },
+  ]
+  return `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`
+}
+
 test("standalone sessions survive reindexing and remain outside projects", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "pi-web-codex-index-"))
   const configRoot = path.join(root, "config")
@@ -111,6 +172,7 @@ test("standalone sessions survive reindexing and remain outside projects", async
     ])
     const projectFile = path.join(sessionRoot, "project.jsonl")
     const taskFile = path.join(sessionRoot, "task.jsonl")
+    const branchFile = path.join(sessionRoot, "branch.jsonl")
     await Promise.all([
       writeFile(
         projectFile,
@@ -125,6 +187,7 @@ test("standalone sessions survive reindexing and remain outside projects", async
         taskFile,
         sessionJsonl("native-task", taskCwd, "standalone needle")
       ),
+      writeFile(branchFile, branchedSessionJsonl("native-branch", taskCwd)),
     ])
 
     await syncPiSessionIndex()
@@ -152,6 +215,18 @@ test("standalone sessions survive reindexing and remain outside projects", async
     assert.equal(titleResult.sessionId, projectSession.id)
     assert.equal(titleResult.entryId, null)
     assert.equal(titleResult.entryType, "session_title")
+
+    const branchSession = await getSessionIdentityByNativeFile(branchFile)
+    assert.ok(branchSession)
+    assert.deepEqual(await searchSessions("abandoned-only-needle"), [])
+    const [activeResult] = await searchSessions("active-result-needle")
+    assert.equal(activeResult?.sessionId, branchSession.id)
+    assert.equal(activeResult?.entryId, "native-branch-result")
+    const [branchTitleResult] = await searchSessions("Branch search title")
+    assert.equal(branchTitleResult?.sessionId, branchSession.id)
+    assert.equal(branchTitleResult?.entryId, null)
+    await rm(branchFile)
+    await syncPiSessionIndex()
 
     await appendFile(
       projectFile,

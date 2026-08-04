@@ -298,6 +298,25 @@ function requiredString(value: unknown, context: string) {
   return value
 }
 
+function assistantProviderError(
+  entry: PiSessionEntry,
+  message: NonNullable<ReturnType<typeof messageValue>>
+) {
+  if (message.role !== "assistant" || message.stopReason !== "error") {
+    return undefined
+  }
+  const errorMessage = requiredString(
+    message.errorMessage,
+    `Session entry ${entry.id} assistant errorMessage`
+  ).trim()
+  if (!errorMessage) {
+    throw new Error(
+      `Session entry ${entry.id} assistant errorMessage must not be empty.`
+    )
+  }
+  return errorMessage
+}
+
 function messageEntry(
   entry: PiSessionEntry
 ): Extract<TranscriptEntry, { kind: "message" }> | null {
@@ -331,13 +350,18 @@ function messageEntry(
     }
   }
 
+  const providerError = assistantProviderError(entry, message)
+  const parts = normalizeTranscriptParts(message.content)
+
   return {
     kind: "message",
     id: entry.id,
     timestamp: entry.timestamp,
     role: message.role,
-    parts: normalizeTranscriptParts(message.content),
-    isError: message.isError === true,
+    parts: providerError
+      ? [...parts, { type: "error", text: providerError }]
+      : parts,
+    isError: message.isError === true || providerError !== undefined,
     toolCallId:
       typeof message.toolCallId === "string" ? message.toolCallId : undefined,
     toolName:

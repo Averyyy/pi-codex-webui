@@ -245,7 +245,7 @@ test("a built-in adapter worker is not imported when its target is absent", asyn
   }
 })
 
-test("client activation timeout closes the native view before TUI fallback", async () => {
+test("a blocking view waits for a client before reporting a mount failure", async (context) => {
   const files = await fixture(`
     export default (web) => web.registerCommandAdapter({
       id: "target.open",
@@ -274,14 +274,28 @@ test("client activation timeout closes the native view before TUI fallback", asy
     emitView: (event) => events.push(event),
     emitStatus: () => {},
     emitTargetEvent: () => {},
-    activationTimeoutMs: 10,
   })
   try {
     createExtensionInstrumentor(() => host)({
       extensions: [target],
     } as LoadExtensionsResult)
     await host.initialize([target])
-    await target.commands.get("target")?.handler("", commandContext())
+    context.mock.timers.enable({ apis: ["setTimeout"] })
+    const pending = target.commands.get("target")?.handler("", commandContext())
+    await Promise.resolve()
+    const view = host.snapshots()[0]
+    assert.ok(view)
+
+    context.mock.timers.tick(10_001)
+    await Promise.resolve()
+    assert.equal(originalCalls, 0)
+    assert.deepEqual(
+      events.map((event) => event.kind),
+      ["open"]
+    )
+
+    host.clientStatus("target", view.instanceId, "error", "client mount failed")
+    await pending
     assert.equal(originalCalls, 1)
     assert.deepEqual(
       events.map((event) => event.kind),
@@ -289,6 +303,7 @@ test("client activation timeout closes the native view before TUI fallback", asy
     )
     assert.deepEqual(host.snapshots(), [])
   } finally {
+    context.mock.timers.reset()
     host.dispose()
     await rm(files.root, { recursive: true, force: true })
   }
@@ -395,7 +410,6 @@ test("RPC custom messages open native cards without waiting for a client mount",
     emitView: (event) => events.push(event),
     emitStatus: (status) => statuses.push(status),
     emitTargetEvent: () => {},
-    activationTimeoutMs: 10,
   })
   const message = {
     role: "custom",

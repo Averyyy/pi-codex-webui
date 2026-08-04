@@ -1,8 +1,9 @@
-import { BrainIcon, LoaderCircleIcon } from "lucide-react"
+import { BrainIcon, CircleAlertIcon, LoaderCircleIcon } from "lucide-react"
 
 import { ConversationDisclosure } from "@/components/conversation-disclosure"
 import { Markdown } from "@/components/markdown"
 import { stripAnsi } from "@/lib/ansi"
+import { transcriptErrorPresentation } from "@/lib/message-content"
 import { formatInlinePreview } from "@/lib/session-display"
 import type { TranscriptPart } from "@/lib/session-types"
 
@@ -42,6 +43,18 @@ function ConversationTextPart({
       </pre>
     ) : (
       <Markdown>{part.text}</Markdown>
+    )
+  }
+  if (part.type === "error") {
+    const error = transcriptErrorPresentation(part.text)
+    return (
+      <div className="flex min-w-0 items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-sm text-destructive">
+        <CircleAlertIcon className="mt-0.5 size-4 shrink-0" />
+        <div className="min-w-0">
+          <p className="font-medium">{error.title}</p>
+          <p className="mt-0.5 break-words">{error.message}</p>
+        </div>
+      </div>
     )
   }
   if (part.type === "thinking") {

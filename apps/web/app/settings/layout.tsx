@@ -26,7 +26,7 @@ export default function SettingsLayout({
       <SidebarInset id="main-content" tabIndex={-1}>
         <header className="flex h-12 shrink-0 items-center gap-2 border-b px-3">
           <SettingsBackButton />
-          <SidebarTrigger className="md:hidden" />
+          <SidebarTrigger className="md:hidden" aria-label="切换侧边栏" />
           <SettingsHeaderTitle />
         </header>
         {children}

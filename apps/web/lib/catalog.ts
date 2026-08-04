@@ -638,7 +638,21 @@ export async function searchSessions(query: string) {
     .join(" AND ")
   const rows = database
     .prepare(
-      `SELECT sessions.project_id,
+      `WITH RECURSIVE active_entries(session_id, entry_id) AS (
+         SELECT id, last_entry_id
+         FROM sessions
+         WHERE last_entry_id IS NOT NULL
+
+         UNION ALL
+
+         SELECT active_entries.session_id, session_entries.parent_id
+         FROM active_entries
+         JOIN session_entries
+           ON session_entries.session_id = active_entries.session_id
+          AND session_entries.entry_id = active_entries.entry_id
+         WHERE session_entries.parent_id IS NOT NULL
+       )
+       SELECT sessions.project_id,
               projects.display_name AS project_name,
               sessions.id AS session_id,
               sessions.title AS session_title,
@@ -657,6 +671,16 @@ export async function searchSessions(query: string) {
        LEFT JOIN projects ON projects.id = sessions.project_id
        WHERE sessions.archived_at IS NULL
          AND session_search MATCH ?
+         AND (
+           (session_search.entry_id = ''
+             AND session_search.entry_type = 'session_title')
+           OR EXISTS (
+             SELECT 1
+             FROM active_entries
+             WHERE active_entries.session_id = session_search.session_id
+               AND active_entries.entry_id = session_search.entry_id
+           )
+         )
        ORDER BY rank, session_search.timestamp DESC
        LIMIT 100`
     )

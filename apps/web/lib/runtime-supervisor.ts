@@ -310,17 +310,21 @@ export class RuntimeSupervisor {
   }
 
   async activate(sessionId: string) {
-    const current = this.runtimes.get(sessionId)
-    if (current && !current.cleaned) {
-      if (["starting", "ready", "busy"].includes(current.status)) return current
-      throw new RuntimeRequestError(
-        "RuntimeUnavailable",
-        `The Pi runtime cannot accept work while it is ${current.status}.`
-      )
-    }
-
     const inFlight = this.activations.get(sessionId)
     if (inFlight) return inFlight
+
+    const current = this.runtimes.get(sessionId)
+    if (current && !current.cleaned) {
+      if (current.status === "ready" || current.status === "busy") {
+        return current
+      }
+      throw new RuntimeRequestError(
+        current.status === "starting" ? "RuntimeBusy" : "RuntimeUnavailable",
+        current.status === "starting"
+          ? "Wait for the Pi runtime to finish starting before sending work."
+          : `The Pi runtime cannot accept work while it is ${current.status}.`
+      )
+    }
 
     const activation = this.startRuntime(sessionId).finally(() => {
       if (this.activations.get(sessionId) === activation) {
@@ -1813,7 +1817,8 @@ export class RuntimeSupervisor {
       })
 
     if (message.eventType === "agent_settled") {
-      void markStoredSessionCompleted(runtime.webSessionId)
+      void this.refreshSettledRuntimeSnapshot(runtime)
+        .then(() => markStoredSessionCompleted(runtime.webSessionId))
         .then((updated) => {
           if (!updated) {
             throw new RuntimeRequestError(
@@ -1838,9 +1843,9 @@ export class RuntimeSupervisor {
           } else if (runtime.pendingModelReload) {
             this.scheduleModelSettingsReload(runtime)
           } else if (runtime.pendingResourceReload) {
-            void this.reloadRuntimeResources(runtime).catch((error: Error) =>
-              this.failRuntime(runtime, error)
-            )
+            void this.reloadRuntimeResources(runtime).catch((error: Error) => {
+              console.error("Could not reload Pi runtime resources:", error)
+            })
           }
         })
         .catch((error: unknown) =>
@@ -2209,9 +2214,9 @@ export class RuntimeSupervisor {
       payload: snapshot,
     })
     if (runtime.pendingResourceReload) {
-      void this.reloadRuntimeResources(runtime).catch((error: Error) =>
-        this.failRuntime(runtime, error)
-      )
+      void this.reloadRuntimeResources(runtime).catch((error: Error) => {
+        console.error("Could not reload Pi runtime resources:", error)
+      })
     }
     return snapshot
   }
@@ -2224,26 +2229,59 @@ export class RuntimeSupervisor {
       sessionId: runtime.webSessionId,
       payload: { reason: "resources-reload" },
     })
-    const snapshot = runtimeSnapshotSchema.parse(
-      await this.request(
-        runtime,
-        {
-          type: "runtime.reload-resources",
-          requestId: requestId(),
-          sessionId: runtime.webSessionId,
-        },
-        COMPACTION_TIMEOUT_MS
+    try {
+      const snapshot = runtimeSnapshotSchema.parse(
+        await this.request(
+          runtime,
+          {
+            type: "runtime.reload-resources",
+            requestId: requestId(),
+            sessionId: runtime.webSessionId,
+          },
+          COMPACTION_TIMEOUT_MS
+        )
       )
+      runtime.snapshot = snapshot
+      runtime.status = "ready"
+      this.eventHub.publish({
+        type: "runtime.ready",
+        sessionId: runtime.webSessionId,
+        payload: snapshot,
+      })
+      return snapshot
+    } catch (error) {
+      if (!runtime.cleaned) {
+        this.failRuntime(
+          runtime,
+          error instanceof Error ? error : new Error(String(error))
+        )
+      }
+      throw error
+    } finally {
+      runtime.pendingResourceReload = false
+    }
+  }
+
+  private async refreshSettledRuntimeSnapshot(runtime: ManagedRuntime) {
+    const snapshot = runtimeSnapshotSchema.parse(
+      await this.request(runtime, {
+        type: "session.snapshot",
+        requestId: requestId(),
+        sessionId: runtime.webSessionId,
+      })
     )
+    if (
+      runtime.cleaned ||
+      this.runtimes.get(runtime.webSessionId) !== runtime
+    ) {
+      throw new RuntimeRequestError(
+        "RuntimeNotActive",
+        "The settled Pi runtime is no longer active."
+      )
+    }
     runtime.snapshot = snapshot
-    runtime.status = "ready"
-    runtime.pendingResourceReload = false
-    this.eventHub.publish({
-      type: "runtime.ready",
-      sessionId: runtime.webSessionId,
-      payload: snapshot,
-    })
-    return snapshot
+    runtime.status =
+      snapshot.isStreaming || snapshot.isCompacting ? "busy" : "ready"
   }
 
   private annotateResourceReload(cwd: string, catalog: ResourceCatalog) {

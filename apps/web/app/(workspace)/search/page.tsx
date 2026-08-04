@@ -21,7 +21,7 @@ import { Field, FieldGroup, FieldLabel } from "@workspace/ui/components/field"
 import { Input } from "@workspace/ui/components/input"
 
 import { searchSessions } from "@/lib/catalog"
-import { formatTimestamp } from "@/lib/session-display"
+import { displaySessionTitle, formatTimestamp } from "@/lib/session-display"
 
 export default async function SearchPage({
   searchParams,
@@ -90,19 +90,21 @@ export default async function SearchPage({
               className="group min-w-0 rounded-xl focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
             >
               <Card className="gap-3 transition-colors group-hover:bg-muted/50">
-                <CardHeader className="flex-row items-start justify-between gap-4">
-                  <div className="min-w-0">
+                <CardHeader className="flex min-w-0 flex-row items-start justify-between gap-4">
+                  <div className="min-w-0 flex-1">
                     <CardTitle className="truncate">
-                      {result.sessionTitle ||
-                        result.sessionFirstMessage ||
-                        result.sessionId}
+                      {displaySessionTitle({
+                        title: result.sessionTitle,
+                        firstMessage: result.sessionFirstMessage,
+                        projectId: result.projectId,
+                      })}
                     </CardTitle>
                     <CardDescription className="mt-1">
                       {result.projectName ?? "独立任务"} ·{" "}
                       {formatTimestamp(result.timestamp)}
                     </CardDescription>
                   </div>
-                  <Badge variant="secondary">
+                  <Badge variant="secondary" className="shrink-0">
                     {result.entryId === null ? "标题" : result.entryType}
                   </Badge>
                 </CardHeader>

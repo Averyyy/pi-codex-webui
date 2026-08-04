@@ -60,7 +60,6 @@ interface ViewRecord {
   adapter: LoadedAdapter
   context: WorkerAdapterContext
   upsertKey?: string
-  activationTimeout?: NodeJS.Timeout
   resolve?: (value: unknown) => void
   reject?: (error: Error) => void
 }
@@ -71,10 +70,7 @@ interface WebUiAdapterHostOptions {
   emitView: (event: WebUiViewEvent) => void
   emitStatus: (status: WebUiExtensionStatus) => void
   emitTargetEvent: (name: string, payload: unknown) => void
-  activationTimeoutMs?: number
 }
-
-const VIEW_ACTIVATION_TIMEOUT_MS = 10_000
 
 function operationKey(resolvedPath: string, kind: string, name: string) {
   return `${resolvedPath}\0${kind}\0${name}`
@@ -999,21 +995,11 @@ export class WebUiAdapterHost {
           reject = fail
         })
       : Promise.resolve(instanceId)
-    const activationTimeout = snapshot.blocking
-      ? setTimeout(() => {
-          const error = new Error(
-            "Adapter client did not mount before the activation timeout."
-          )
-          this.failView(instanceId, error)
-          this.failAdapter(adapter, error)
-        }, this.options.activationTimeoutMs ?? VIEW_ACTIVATION_TIMEOUT_MS)
-      : undefined
     this.views.set(instanceId, {
       snapshot,
       adapter,
       context,
       upsertKey,
-      activationTimeout,
       resolve,
       reject,
     })
@@ -1057,7 +1043,6 @@ export class WebUiAdapterHost {
     this.views.delete(instanceId)
     this.removeStatusView(instanceId)
     this.removeUpsertView(view)
-    clearTimeout(view.activationTimeout)
     this.options.emitView({
       version: 1,
       kind: "close",
@@ -1073,7 +1058,6 @@ export class WebUiAdapterHost {
     this.views.delete(instanceId)
     this.removeStatusView(instanceId)
     this.removeUpsertView(view)
-    clearTimeout(view.activationTimeout)
     this.options.emitView({
       version: 1,
       kind: "close",
@@ -1168,10 +1152,7 @@ export class WebUiAdapterHost {
   ) {
     const view = this.views.get(instanceId)
     if (!view || view.snapshot.extensionId !== extensionId) return
-    if (status === "ready") {
-      clearTimeout(view.activationTimeout)
-      return
-    }
+    if (status === "ready") return
     if (status === "disposed") return
     const error = new Error(message ?? `Adapter client ${status}.`)
     this.failView(instanceId, error)

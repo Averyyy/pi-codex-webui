@@ -48,7 +48,7 @@ export default async function WorkspaceLayout({
         className="min-h-svh overflow-hidden"
       >
         <header className="flex h-12 shrink-0 items-center border-b px-3 md:hidden">
-          <SidebarTrigger />
+          <SidebarTrigger aria-label="切换侧边栏" />
           <span className="ml-2 font-medium">pi-web-codex</span>
         </header>
         {children}

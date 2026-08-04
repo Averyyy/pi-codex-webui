@@ -465,13 +465,13 @@ export function SessionRuntime({
     submittingRef.current = true
     setSubmitting(true)
     setError(null)
-    stream.requestFollow()
     try {
       await mutate(`/api/v1/sessions/${sessionId}/messages`, "POST", {
         message: text || "请查看附加图片。",
         images: promptImages(images),
         streamingBehavior,
       })
+      stream.requestFollow()
       if (options.clearDraft) {
         setDraft((current) => (current.trim() === text ? "" : current))
         composerImages.clearImages()
@@ -1032,34 +1032,6 @@ export function SessionRuntime({
     return () => events.close()
   }, [initialEventCursor, router, sessionId, stream, updateRuntimeStatus])
 
-  const cancelPendingExtensionRequests = useEffectEvent(() => {
-    for (const request of extensionRequests) {
-      if (respondingExtensionRequestIds.current.has(request.requestId)) continue
-      void fetch(`/api/v1/extension-ui/${request.requestId}/respond`, {
-        method: "POST",
-        keepalive: true,
-        headers: {
-          "Content-Type": "application/json",
-          "X-Pi-Web-Codex-Mutation-Token": mutationToken,
-        },
-        body: JSON.stringify({
-          sessionId,
-          response: { cancelled: true },
-        }),
-      }).then(
-        (response) => {
-          if (!response.ok) {
-            console.error(
-              `Extension UI cleanup failed (HTTP ${response.status}).`
-            )
-          }
-        },
-        (failure: unknown) =>
-          console.error("Extension UI cleanup failed.", failure)
-      )
-    }
-  })
-
   useEffect(() => {
     if (!extensionRequest?.expiresAt) return
     const requestId = extensionRequest.requestId
@@ -1075,7 +1047,6 @@ export function SessionRuntime({
 
   useEffect(
     () => () => {
-      cancelPendingExtensionRequests()
       document.title = "pi-web-codex"
     },
     []

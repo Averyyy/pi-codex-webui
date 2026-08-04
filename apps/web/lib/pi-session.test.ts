@@ -1,6 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 
+import { transcriptErrorPresentation } from "./message-content"
 import {
   parsePiSession,
   parsePiSessionEntries,
@@ -327,6 +328,55 @@ test("keeps display-false custom messages out of transcripts and search", () => 
   assert.equal(parsed.messageCount, 0)
   assert.deepEqual(toTranscriptEntries(parsed), [])
   assert.equal(searchableText(parsed.entries[0]!), "")
+})
+
+test("turns persisted assistant provider errors into visible transcript content", () => {
+  const providerError = {
+    type: "message",
+    id: "assistant-error-1",
+    parentId: null,
+    timestamp: "2026-07-13T00:00:01.000Z",
+    message: {
+      role: "assistant",
+      content: [],
+      stopReason: "error",
+      errorMessage: "Provider request failed",
+    },
+  }
+  const parsed = parsePiSession(file, jsonl(header, providerError))
+
+  assert.deepEqual(toTranscriptEntries(parsed), [
+    {
+      kind: "message",
+      id: providerError.id,
+      timestamp: providerError.timestamp,
+      role: "assistant",
+      parts: [{ type: "error", text: "Provider request failed" }],
+      isError: true,
+      toolCallId: undefined,
+      toolName: undefined,
+      details: undefined,
+      metadata: providerError.message,
+    },
+  ])
+  assert.deepEqual(
+    transcriptErrorPresentation("\u001b[31mProvider request failed\u001b[0m"),
+    { title: "回复失败", message: "Provider request failed" }
+  )
+
+  assert.throws(
+    () =>
+      toTranscriptEntries(
+        parsePiSession(
+          file,
+          jsonl(header, {
+            ...providerError,
+            message: { ...providerError.message, errorMessage: "" },
+          })
+        )
+      ),
+    /assistant errorMessage must not be empty/
+  )
 })
 
 test("rejects a session branch whose parent does not exist", () => {

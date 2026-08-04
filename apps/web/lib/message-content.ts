@@ -1,9 +1,15 @@
 import type { TranscriptPart } from "@/lib/session-types"
+import { stripAnsi } from "@/lib/ansi"
 
 export interface ToolResultView {
+  entryId?: string
   parts: TranscriptPart[]
   details?: unknown
   isError?: boolean
+}
+
+export function transcriptErrorPresentation(message: string) {
+  return { title: "回复失败", message: stripAnsi(message) }
 }
 
 export function normalizeTranscriptParts(content: unknown): TranscriptPart[] {

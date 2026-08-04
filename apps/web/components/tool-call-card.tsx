@@ -84,6 +84,22 @@ const WEB_ACCESS_ICONS: Record<WebAccessToolName, React.ReactNode> = {
   get_search_content: <FileSearchIcon />,
 }
 
+function ToolResultAnchor({
+  entryId,
+  children,
+}: {
+  entryId?: string
+  children: React.ReactNode
+}) {
+  return entryId ? (
+    <div id={`entry-${entryId}`} className="min-w-0">
+      {children}
+    </div>
+  ) : (
+    children
+  )
+}
+
 function WebAccessToolCard({
   name,
   part,
@@ -181,13 +197,15 @@ export function ToolCallCard({
 
   if (isWebAccessToolName(effectivePart.name)) {
     return (
-      <WebAccessToolCard
-        name={effectivePart.name}
-        part={effectivePart}
-        result={result}
-        running={running}
-        failed={failed}
-      />
+      <ToolResultAnchor entryId={persistedResult?.entryId}>
+        <WebAccessToolCard
+          name={effectivePart.name}
+          part={effectivePart}
+          result={result}
+          running={running}
+          failed={failed}
+        />
+      </ToolResultAnchor>
     )
   }
   const hashlineKind = hashlineEditToolKind(
@@ -196,48 +214,52 @@ export function ToolCallCard({
   )
   if (hashlineKind) {
     return (
-      <HashlineEditToolCard
-        kind={hashlineKind}
-        part={effectivePart}
-        result={result}
-        running={running}
-        failed={failed}
-      />
+      <ToolResultAnchor entryId={persistedResult?.entryId}>
+        <HashlineEditToolCard
+          kind={hashlineKind}
+          part={effectivePart}
+          result={result}
+          running={running}
+          failed={failed}
+        />
+      </ToolResultAnchor>
     )
   }
   const summary = toolSummary(effectivePart.name, effectivePart.arguments)
   const appearance = toolAppearance(effectivePart.name)
   return (
-    <ConversationDisclosure
-      defaultOpen={failed}
-      label={<code className="font-mono text-xs">{effectivePart.name}</code>}
-      preview={summary}
-      icon={appearance.icon}
-      tone={appearance.tone}
-      status={failed ? "失败" : running ? "运行中" : "完成"}
-      statusTone={failed ? "destructive" : running ? "running" : "success"}
-      ariaLabel={`展开 ${effectivePart.name} 详情`}
-    >
-      <div className="flex min-w-0 flex-col gap-3">
-        <section>
-          <p className="mb-1.5 text-xs font-medium text-muted-foreground">
-            参数
-          </p>
-          <pre className="max-h-72 max-w-full overflow-auto rounded-lg bg-muted/60 p-3 font-mono text-xs leading-5">
-            {json(effectivePart.arguments)}
-          </pre>
-        </section>
-        {result ? (
-          <div>
+    <ToolResultAnchor entryId={persistedResult?.entryId}>
+      <ConversationDisclosure
+        defaultOpen={failed}
+        label={<code className="font-mono text-xs">{effectivePart.name}</code>}
+        preview={summary}
+        icon={appearance.icon}
+        tone={appearance.tone}
+        status={failed ? "失败" : running ? "运行中" : "完成"}
+        statusTone={failed ? "destructive" : running ? "running" : "success"}
+        ariaLabel={`展开 ${effectivePart.name} 详情`}
+      >
+        <div className="flex min-w-0 flex-col gap-3">
+          <section>
             <p className="mb-1.5 text-xs font-medium text-muted-foreground">
-              {running ? "实时结果" : "结果"}
+              参数
             </p>
-            <div className="flex min-w-0 flex-col gap-2 text-sm">
-              <ConversationTextParts parts={result.parts} literal />
+            <pre className="max-h-72 max-w-full overflow-auto rounded-lg bg-muted/60 p-3 font-mono text-xs leading-5">
+              {json(effectivePart.arguments)}
+            </pre>
+          </section>
+          {result ? (
+            <div>
+              <p className="mb-1.5 text-xs font-medium text-muted-foreground">
+                {running ? "实时结果" : "结果"}
+              </p>
+              <div className="flex min-w-0 flex-col gap-2 text-sm">
+                <ConversationTextParts parts={result.parts} literal />
+              </div>
             </div>
-          </div>
-        ) : null}
-      </div>
-    </ConversationDisclosure>
+          ) : null}
+        </div>
+      </ConversationDisclosure>
+    </ToolResultAnchor>
   )
 }

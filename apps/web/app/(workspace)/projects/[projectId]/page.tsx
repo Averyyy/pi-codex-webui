@@ -45,8 +45,8 @@ export default async function ProjectPage({
           >
             <Card className="gap-3 transition-colors group-hover:bg-muted/50">
               <CardHeader>
-                <div className="flex items-start justify-between gap-4">
-                  <div className="min-w-0">
+                <div className="flex min-w-0 items-start justify-between gap-4">
+                  <div className="min-w-0 flex-1">
                     <CardTitle className="truncate">
                       {displaySessionTitle(session)}
                     </CardTitle>

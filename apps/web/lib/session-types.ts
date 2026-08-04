@@ -38,6 +38,7 @@ export interface WorkspaceProject extends ProjectSummary {
 
 export type TranscriptPart =
   | { type: "text"; text: string }
+  | { type: "error"; text: string }
   | { type: "thinking"; text: string; redacted: boolean }
   | { type: "image"; data: string; mimeType: string }
   | {

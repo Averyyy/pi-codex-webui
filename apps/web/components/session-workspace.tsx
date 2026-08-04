@@ -61,6 +61,7 @@ import {
 } from "@/components/session-inspector"
 import { SubagentsPanel } from "@/components/subagents"
 import type { ProjectGitStatus } from "@/lib/project-git"
+import { shouldScrollToSessionTail } from "@/lib/session-scroll"
 
 const ProjectReviewPanel = dynamic(
   () =>
@@ -250,6 +251,8 @@ export function SessionWorkspace({
   const sidePanelRef = usePanelRef()
   const bottomPanelRef = usePanelRef()
   const workspaceElementRef = useRef<HTMLDivElement>(null)
+  const conversationScrollRef = useRef<HTMLDivElement>(null)
+  const conversationContentRef = useRef<HTMLDivElement>(null)
   const desktopLayoutRef = useRef<boolean | null>(null)
   const [isDesktop, setIsDesktop] = useState(false)
   const [sideOpen, setSideOpen] = useState(false)
@@ -275,6 +278,52 @@ export function SessionWorkspace({
   )
   const [terminalPlacement, setTerminalPlacement] =
     useState<TerminalPlacement>(null)
+
+  useEffect(() => {
+    if (!shouldScrollToSessionTail(window.location.hash)) return
+
+    const scrollContainer = conversationScrollRef.current
+    const content = conversationContentRef.current
+    if (!scrollContainer || !content) return
+
+    let scrollFrame: number | undefined
+    let releaseFrame: number | undefined
+    let following = true
+    let adjusting = false
+
+    const scrollToLatest = () => {
+      if (!following || scrollFrame !== undefined) return
+      scrollFrame = requestAnimationFrame(() => {
+        scrollFrame = undefined
+        adjusting = true
+        scrollContainer.scrollTop = scrollContainer.scrollHeight
+        releaseFrame = requestAnimationFrame(() => {
+          releaseFrame = undefined
+          adjusting = false
+        })
+      })
+    }
+    const handleScroll = () => {
+      if (adjusting) return
+      following =
+        scrollContainer.scrollHeight -
+          scrollContainer.clientHeight -
+          scrollContainer.scrollTop <=
+        1
+    }
+
+    const resize = new ResizeObserver(scrollToLatest)
+    resize.observe(content)
+    scrollContainer.addEventListener("scroll", handleScroll, { passive: true })
+    scrollToLatest()
+
+    return () => {
+      resize.disconnect()
+      scrollContainer.removeEventListener("scroll", handleScroll)
+      if (scrollFrame !== undefined) cancelAnimationFrame(scrollFrame)
+      if (releaseFrame !== undefined) cancelAnimationFrame(releaseFrame)
+    }
+  }, [sessionId])
 
   useEffect(() => {
     const element = workspaceElementRef.current
@@ -565,8 +614,14 @@ export function SessionWorkspace({
                   </div>
                 </header>
 
-                <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
-                  <div className="mx-auto grid w-full max-w-[52rem] min-w-0 gap-6 px-4 py-6 sm:px-6 sm:py-8">
+                <div
+                  ref={conversationScrollRef}
+                  className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto"
+                >
+                  <div
+                    ref={conversationContentRef}
+                    className="mx-auto grid w-full max-w-[52rem] min-w-0 gap-6 px-4 py-6 sm:px-6 sm:py-8"
+                  >
                     {!workspaceAvailable ? (
                       <div className="rounded-xl border border-dashed bg-muted/30 p-4 text-sm">
                         <p className="font-medium">历史会话仅可阅读</p>

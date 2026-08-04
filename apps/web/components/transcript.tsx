@@ -237,6 +237,7 @@ export function SessionTranscript({
       entry.toolCallId
     ) {
       toolResults.set(entry.toolCallId, {
+        entryId: entry.id,
         parts: entry.parts,
         details: entry.details,
         isError: entry.isError,
