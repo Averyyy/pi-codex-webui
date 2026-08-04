@@ -1,12 +1,23 @@
 import { z } from "zod"
 
-import { addWorkspaceProject, listWorkspaceProjects } from "@/lib/catalog"
+import {
+  addWorkspaceProject,
+  listWorkspaceProjects,
+  ProjectPathError,
+} from "@/lib/catalog"
 import { validateLocalMutation } from "@/lib/request-security"
 import { readJsonBody, runtimeErrorResponse } from "@/lib/runtime-api"
 
 export const runtime = "nodejs"
 
-const createSchema = z.object({ path: z.string().trim().min(1).max(4096) })
+const createSchema = z.object({
+  path: z
+    .string()
+    .trim()
+    .min(1)
+    .max(4096)
+    .refine((value) => !value.includes("\0")),
+})
 
 export async function GET() {
   return Response.json(
@@ -31,6 +42,9 @@ export async function POST(request: Request) {
       headers: { "Cache-Control": "no-store" },
     })
   } catch (error) {
+    if (error instanceof ProjectPathError) {
+      return Response.json({ error: error.message }, { status: 400 })
+    }
     if (
       error instanceof Error &&
       "code" in error &&

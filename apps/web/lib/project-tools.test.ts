@@ -131,6 +131,47 @@ test("project Git integration reports the real branch and working tree", async (
   ])
 })
 
+test("project Git paths and diffs stay relative to a registered subdirectory", async () => {
+  const repository = await mkdtemp(path.join(tmpdir(), "pi-web-git-root-"))
+  const project = path.join(repository, "packages", "app")
+  await run("git", ["init", repository])
+  await run("git", ["-C", repository, "config", "user.name", "Fixture"])
+  await run("git", [
+    "-C",
+    repository,
+    "config",
+    "user.email",
+    "fixture@example.com",
+  ])
+  await mkdir(project, { recursive: true })
+  await writeFile(path.join(project, "tracked.txt"), "first\n")
+  await run("git", ["-C", repository, "add", "."])
+  await run("git", ["-C", repository, "commit", "-m", "fixture"])
+  await Promise.all([
+    writeFile(path.join(project, "tracked.txt"), "changed\n"),
+    writeFile(path.join(project, "untracked.txt"), "new\n"),
+    writeFile(path.join(repository, "outside.txt"), "outside\n"),
+  ])
+
+  const status = await readProjectGitStatus(project)
+  assert.equal(status.available, true)
+  if (status.available) {
+    assert.deepEqual(
+      status.files.map((file) => file.path),
+      ["tracked.txt", "untracked.txt"]
+    )
+  }
+  assert.match(
+    (await readProjectGitDiff(project, "tracked.txt")).hunks.join("\n"),
+    /-first\n\+changed/
+  )
+  assert.match(
+    (await readProjectGitDiff(project, "untracked.txt")).hunks.join("\n"),
+    /\+new/
+  )
+  await rm(repository, { recursive: true, force: true })
+})
+
 test("desktop integrations select native macOS and Windows commands", () => {
   assert.deepEqual(projectFileManager("darwin"), {
     command: "/usr/bin/open",

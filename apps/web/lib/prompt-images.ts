@@ -24,3 +24,13 @@ export type ComposerImage = PromptImage & {
   id: string
   name: string
 }
+
+export function imagesAfterAcceptedSend(
+  current: ComposerImage[],
+  submitted: ComposerImage[]
+) {
+  if (submitted.length === 0) return current
+  const submittedIds = new Set(submitted.map((image) => image.id))
+  const next = current.filter((image) => !submittedIds.has(image.id))
+  return next.length === current.length ? current : next
+}

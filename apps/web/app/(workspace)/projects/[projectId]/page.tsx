@@ -9,6 +9,13 @@ import {
   CardHeader,
   CardTitle,
 } from "@workspace/ui/components/card"
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@workspace/ui/components/empty"
 
 import { NewSessionButton } from "@/components/new-session-button"
 import { ProjectHeader } from "@/components/project-header"
@@ -37,7 +44,7 @@ export default async function ProjectPage({
         <NewSessionButton projectId={projectId} />
       </ProjectHeader>
 
-      <section className="grid gap-3">
+      <section className="grid gap-3" aria-label="项目会话">
         {sessions.map((session) => (
           <Link
             key={session.id}
@@ -64,6 +71,19 @@ export default async function ProjectPage({
             </Card>
           </Link>
         ))}
+        {sessions.length === 0 ? (
+          <Empty className="min-h-64 border">
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <MessageSquareTextIcon />
+              </EmptyMedia>
+              <EmptyTitle>还没有会话</EmptyTitle>
+              <EmptyDescription>
+                从上方新建会话，开始在这个项目中工作。
+              </EmptyDescription>
+            </EmptyHeader>
+          </Empty>
+        ) : null}
       </section>
     </div>
   )

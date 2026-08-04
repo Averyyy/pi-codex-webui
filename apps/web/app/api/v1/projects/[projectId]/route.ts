@@ -1,6 +1,7 @@
 import { z } from "zod"
 
 import {
+  getProject,
   removeWorkspaceProject,
   renameWorkspaceProject,
   setProjectPinned,
@@ -14,6 +15,20 @@ const updateSchema = z.union([
   z.object({ name: z.string().trim().min(1).max(200) }).strict(),
   z.object({ pinned: z.boolean() }).strict(),
 ])
+
+export async function GET(
+  _request: Request,
+  context: RouteContext<"/api/v1/projects/[projectId]">
+) {
+  const { projectId } = await context.params
+  const project = await getProject(projectId)
+  if (!project) {
+    return Response.json({ error: "Project not found." }, { status: 404 })
+  }
+  return Response.json(project, {
+    headers: { "Cache-Control": "no-store" },
+  })
+}
 
 export async function PATCH(
   request: Request,

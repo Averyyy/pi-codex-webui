@@ -45,6 +45,10 @@ const messages = {
   "settings.nav.skills": { "zh-CN": "Skills", "en-US": "Skills" },
   "settings.nav.mcp": { "zh-CN": "MCP", "en-US": "MCP" },
   "settings.nav.developer": { "zh-CN": "Developer", "en-US": "Developer" },
+  "settings.nav.ariaLabel": {
+    "zh-CN": "设置导航",
+    "en-US": "Settings navigation",
+  },
   "settings.label": { "zh-CN": "设置", "en-US": "Settings" },
   "settings.back": { "zh-CN": "返回上个界面", "en-US": "Go back" },
 
@@ -87,7 +91,7 @@ const messages = {
     "en-US": "WebUI Extensions",
   },
   "settings.page.webuiExtensions.description": {
-    "zh-CN": "管理原生 Web adapter 及其永久 Pi TUI fallback。",
+    "zh-CN": "管理原生 Web Adapter 与持续可用的 Pi TUI 回退方案。",
     "en-US": "Manage native Web adapters and their permanent Pi TUI fallback.",
   },
   "settings.page.skills.title": { "zh-CN": "Skills", "en-US": "Skills" },
@@ -554,6 +558,10 @@ const messages = {
     "en-US":
       "The project is not trusted; Pi will not load its settings, packages, skills, or extensions.",
   },
+  "settings.resources.readFailed": {
+    "zh-CN": "读取 Pi 资源状态失败。",
+    "en-US": "Failed to read Pi resource status.",
+  },
   "settings.resources.global": { "zh-CN": "Global", "en-US": "Global" },
   "settings.resources.project": {
     "zh-CN": "Current Project",
@@ -880,79 +888,160 @@ const messages = {
   },
 
   "settings.webui.context": {
-    "zh-CN": "Adapter context",
+    "zh-CN": "Adapter 上下文",
     "en-US": "Adapter context",
   },
   "settings.webui.contextDescription": {
-    "zh-CN": "Project adapters load only after Pi project trust is granted.",
+    "zh-CN": "授予 Pi 项目信任后才会加载项目 Adapter。",
     "en-US": "Project adapters load only after Pi project trust is granted.",
   },
   "settings.webui.projectTrusted": {
-    "zh-CN": "Project trusted",
+    "zh-CN": "项目已信任",
     "en-US": "Project trusted",
   },
   "settings.webui.globalOnly": {
-    "zh-CN": "Global only",
+    "zh-CN": "仅 Global",
     "en-US": "Global only",
   },
   "settings.webui.currentProject": {
-    "zh-CN": "Current project",
+    "zh-CN": "当前项目",
     "en-US": "Current project",
   },
   "settings.webui.enabled": {
-    "zh-CN": "{name} enabled",
+    "zh-CN": "启用 {name}",
     "en-US": "{name} enabled",
   },
   "settings.webui.nativeRendering": {
-    "zh-CN": "Native Web rendering",
+    "zh-CN": "原生 Web 渲染",
     "en-US": "Native Web rendering",
   },
   "settings.webui.nativeDescription": {
-    "zh-CN": "Turn off to run the original Pi UI through Virtual TUI.",
+    "zh-CN": "关闭后将通过 Virtual TUI 运行原始 Pi UI。",
     "en-US": "Turn off to run the original Pi UI through Virtual TUI.",
   },
   "settings.webui.conflict": {
-    "zh-CN": "Conflict selection",
+    "zh-CN": "冲突选择",
     "en-US": "Conflict selection",
   },
   "settings.webui.conflictDescription": {
-    "zh-CN":
-      "Automatic selection falls back to TUI when multiple adapters have equal priority.",
+    "zh-CN": "多个 Adapter 优先级相同时，自动选择会回退到 TUI。",
     "en-US":
       "Automatic selection falls back to TUI when multiple adapters have equal priority.",
   },
   "settings.webui.adapterSelection": {
-    "zh-CN": "Adapter selection",
+    "zh-CN": "Adapter 选择",
     "en-US": "Adapter selection",
   },
-  "settings.webui.automatic": { "zh-CN": "Automatic", "en-US": "Automatic" },
+  "settings.webui.automatic": { "zh-CN": "自动", "en-US": "Automatic" },
   "settings.webui.available": {
-    "zh-CN": "Available adapters",
+    "zh-CN": "可用 Adapter",
     "en-US": "Available adapters",
   },
   "settings.webui.adapter": { "zh-CN": "Adapter", "en-US": "Adapter" },
-  "settings.webui.target": { "zh-CN": "Target", "en-US": "Target" },
-  "settings.webui.supported": { "zh-CN": "Supported", "en-US": "Supported" },
-  "settings.webui.tested": { "zh-CN": "Tested", "en-US": "Tested" },
-  "settings.webui.probe": { "zh-CN": "Probe", "en-US": "Probe" },
+  "settings.webui.target": { "zh-CN": "目标", "en-US": "Target" },
+  "settings.webui.supported": {
+    "zh-CN": "支持范围",
+    "en-US": "Supported",
+  },
+  "settings.webui.tested": { "zh-CN": "已测试", "en-US": "Tested" },
+  "settings.webui.probe": { "zh-CN": "探测", "en-US": "Probe" },
   "settings.webui.userSelected": {
-    "zh-CN": "User-selected",
+    "zh-CN": "用户选择",
     "en-US": "User-selected",
   },
-  "settings.webui.active": { "zh-CN": "Active", "en-US": "Active" },
+  "settings.webui.active": { "zh-CN": "当前生效", "en-US": "Active" },
   "settings.webui.fallback": {
-    "zh-CN": "Fallback: Pi TUI available.",
+    "zh-CN": "回退方案：Pi TUI 可用。",
     "en-US": "Fallback: Pi TUI available.",
   },
   "settings.webui.noAdapters": {
-    "zh-CN": "No WebUI adapters found",
+    "zh-CN": "未找到 WebUI Adapter",
     "en-US": "No WebUI adapters found",
   },
   "settings.webui.noAdaptersDescription": {
-    "zh-CN":
-      "Built-in, external, development, and trusted project locations were checked.",
+    "zh-CN": "已检查内置、外部、开发和受信任的项目位置。",
     "en-US":
       "Built-in, external, development, and trusted project locations were checked.",
+  },
+  "settings.webui.status.tested": {
+    "zh-CN": "已测试",
+    "en-US": "Tested",
+  },
+  "settings.webui.status.compatibleByProbe": {
+    "zh-CN": "探测兼容",
+    "en-US": "Compatible by probe",
+  },
+  "settings.webui.status.unknown": {
+    "zh-CN": "未知",
+    "en-US": "Unknown",
+  },
+  "settings.webui.status.incompatible": {
+    "zh-CN": "不兼容",
+    "en-US": "Incompatible",
+  },
+  "settings.webui.status.disabled": {
+    "zh-CN": "已禁用",
+    "en-US": "Disabled",
+  },
+  "settings.webui.status.conflict": {
+    "zh-CN": "冲突",
+    "en-US": "Conflict",
+  },
+  "settings.webui.status.tui": {
+    "zh-CN": "优先 TUI",
+    "en-US": "Prefer TUI",
+  },
+  "settings.webui.status.error": {
+    "zh-CN": "错误",
+    "en-US": "Error",
+  },
+  "settings.webui.source.builtin": {
+    "zh-CN": "内置",
+    "en-US": "Built-in",
+  },
+  "settings.webui.source.project": {
+    "zh-CN": "项目",
+    "en-US": "Project",
+  },
+  "settings.webui.source.development": {
+    "zh-CN": "开发",
+    "en-US": "Development",
+  },
+  "settings.webui.source.external": {
+    "zh-CN": "外部",
+    "en-US": "External",
+  },
+  "settings.webui.notProbed": {
+    "zh-CN": "未探测",
+    "en-US": "Not probed",
+  },
+  "settings.webui.statusFallback": {
+    "zh-CN": "Pi TUI 仍可作为回退方案。",
+    "en-US": "Pi TUI remains available as fallback.",
+  },
+  "settings.webui.capabilityProbe": {
+    "zh-CN": "能力探测",
+    "en-US": "Capability probe",
+  },
+  "settings.webui.noPinnedVersions": {
+    "zh-CN": "未固定版本",
+    "en-US": "No pinned versions",
+  },
+  "settings.webui.probePassed": {
+    "zh-CN": "已通过",
+    "en-US": "Passed",
+  },
+  "settings.webui.probeNotPassed": {
+    "zh-CN": "本会话尚未通过",
+    "en-US": "Not passed in this session",
+  },
+  "settings.webui.updateFailed": {
+    "zh-CN": "更新 WebUI Extension 失败。",
+    "en-US": "WebUI extension update failed.",
+  },
+  "settings.webui.readFailed": {
+    "zh-CN": "读取 WebUI Extension 状态失败。",
+    "en-US": "Failed to read WebUI extension status.",
   },
 } as const
 

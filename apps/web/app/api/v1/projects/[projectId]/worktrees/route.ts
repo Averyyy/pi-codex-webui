@@ -10,8 +10,18 @@ export const runtime = "nodejs"
 
 const createSchema = z
   .object({
-    path: z.string().trim().min(1).max(4096),
-    branch: z.string().trim().min(1).max(255),
+    path: z
+      .string()
+      .trim()
+      .min(1)
+      .max(4096)
+      .refine((value) => !value.includes("\0")),
+    branch: z
+      .string()
+      .trim()
+      .min(1)
+      .max(255)
+      .refine((value) => !value.includes("\0")),
   })
   .strict()
 
@@ -27,7 +37,7 @@ export async function POST(
     const parsed = createSchema.safeParse(await readJsonBody(request))
     if (!parsed.success) {
       return Response.json(
-        { error: "Worktree path and branch are required." },
+        { error: "Invalid worktree path or branch." },
         { status: 400 }
       )
     }

@@ -14,6 +14,7 @@ export async function loadWebUiExtensionSettings(projectId?: string) {
     return {
       projects: [],
       selectedProjectId: null,
+      sessionIds: [],
       catalog,
       mutationToken: getMutationToken(),
     }
@@ -30,6 +31,7 @@ export async function loadWebUiExtensionSettings(projectId?: string) {
   return {
     projects: projects.map(({ id, name, path }) => ({ id, name, path })),
     selectedProjectId: selected.id,
+    sessionIds,
     catalog,
     mutationToken: getMutationToken(),
   }

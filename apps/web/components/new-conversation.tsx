@@ -3,6 +3,7 @@
 import Link from "next/link"
 import {
   useCallback,
+  useEffect,
   useRef,
   useState,
   useTransition,
@@ -197,6 +198,10 @@ export function NewConversation({
   const [loadingModels, startProjectTransition] = useTransition()
   const [error, setError] = useState<ApiError | null>(null)
   const messageInputRef = useRef<HTMLTextAreaElement>(null)
+  const projectSelectTriggerRef = useRef<HTMLButtonElement>(null)
+  const pendingProjectChangeRef = useRef<{ projectId: string | null } | null>(
+    null
+  )
   const updateStoredComposerImages = useCallback(
     (images: ComposerImage[]) =>
       composerDraftStore.setImages(NEW_CONVERSATION_DRAFT_ID, images),
@@ -208,6 +213,24 @@ export function NewConversation({
   )
   const selectedProject = projects.find((project) => project.id === projectId)
   const models = enabledModels(initialModelSettings)
+
+  useEffect(() => {
+    if (window.matchMedia("(hover: hover) and (pointer: fine)").matches) {
+      messageInputRef.current?.focus()
+    }
+  }, [])
+
+  useEffect(() => {
+    if (loadingModels) return
+    const pending = pendingProjectChangeRef.current
+    if (!pending) return
+    pendingProjectChangeRef.current = null
+    if (pending.projectId === projectId) {
+      projectSelectTriggerRef.current?.focus()
+      return
+    }
+    setError(new ApiError("工作项目切换未完成，请重试。"))
+  }, [loadingModels, projectId])
 
   function chooseStarter(message: string) {
     setMessage(message)
@@ -221,6 +244,7 @@ export function NewConversation({
     try {
       const project = await pickWorkspaceProject(mutationToken)
       if (project) {
+        pendingProjectChangeRef.current = { projectId: project.id }
         startProjectTransition(() =>
           router.replace(`/new?projectId=${encodeURIComponent(project.id)}`)
         )
@@ -242,6 +266,7 @@ export function NewConversation({
     const nextProjectId = value === NO_PROJECT ? null : value
     if (nextProjectId === projectId) return
     setError(null)
+    pendingProjectChangeRef.current = { projectId: nextProjectId }
     startProjectTransition(() =>
       router.replace(
         nextProjectId
@@ -254,9 +279,12 @@ export function NewConversation({
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const text = message.trim()
+    const submittedMessage = message
+    const submittedImages = composerImages.images
     if (
-      (!text && composerImages.images.length === 0) ||
+      (!text && submittedImages.length === 0) ||
       submittingRef.current ||
+      pendingProjectChangeRef.current !== null ||
       loadingModels
     ) {
       return
@@ -279,7 +307,7 @@ export function NewConversation({
             },
             body: JSON.stringify({
               message: text || "请查看附加图片。",
-              images: promptImages(composerImages.images),
+              images: promptImages(submittedImages),
               ...(model
                 ? { model: { provider: model.provider, modelId: model.id } }
                 : {}),
@@ -289,8 +317,8 @@ export function NewConversation({
         )
       )
 
-      setMessage(draftAfterAcceptedSend(messageRef.current, message))
-      composerImages.clearImages()
+      setMessage(draftAfterAcceptedSend(messageRef.current, submittedMessage))
+      composerImages.clearAcceptedImages(submittedImages)
       router.push(
         created.projectId === null
           ? `/tasks/${created.sessionId}`
@@ -305,7 +333,6 @@ export function NewConversation({
               failure instanceof Error ? failure.message : String(failure)
             )
       )
-    } finally {
       submittingRef.current = false
       setSubmitting(false)
     }
@@ -379,12 +406,12 @@ export function NewConversation({
           onSubmit={submit}
           placeholder="描述你想构建或解决的问题"
           ariaLabel="第一条消息"
-          autoFocus
           submitting={submitting}
           sendDisabled={loadingModels || composerImages.loading}
           images={composerImages.images}
           imageError={composerImages.error}
           imagesSupported={model?.input.includes("image") ?? false}
+          allowImageChangesWhileSubmitting
           onImagesAdd={composerImages.addImages}
           onImageRemove={composerImages.removeImage}
           onCycleThinkingLevel={
@@ -473,6 +500,7 @@ export function NewConversation({
                 disabled={submitting || addingProject || loadingModels}
               >
                 <SelectTrigger
+                  ref={projectSelectTriggerRef}
                   size="sm"
                   className="max-w-64"
                   aria-label="工作项目"
@@ -514,6 +542,7 @@ export function NewConversation({
                 model={model}
                 models={models}
                 onModelChange={(nextModel) => {
+                  setError(null)
                   setModelSelection((current) => ({
                     ...current,
                     model: nextModel,

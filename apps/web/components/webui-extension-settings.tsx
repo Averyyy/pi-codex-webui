@@ -1,7 +1,7 @@
 "use client"
 
 import { usePathname, useRouter } from "next/navigation"
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 
 import { Badge } from "@workspace/ui/components/badge"
 import {
@@ -35,35 +35,40 @@ import type {
   WebUiExtensionGroupView,
 } from "@/lib/webui-extensions/types"
 import { useI18n } from "@/components/i18n-provider"
+import type { Translator } from "@/lib/i18n"
+import { newestSettingsRevision } from "@/lib/settings-revision"
 
-const STATUS_LABELS = {
-  tested: "Tested",
-  "compatible-by-probe": "Compatible by probe",
-  unknown: "Unknown",
-  incompatible: "Incompatible",
-  disabled: "Disabled",
-  conflict: "Conflict",
-  tui: "Prefer TUI",
-  error: "Error",
+const STATUS_LABEL_KEYS = {
+  tested: "settings.webui.status.tested",
+  "compatible-by-probe": "settings.webui.status.compatibleByProbe",
+  unknown: "settings.webui.status.unknown",
+  incompatible: "settings.webui.status.incompatible",
+  disabled: "settings.webui.status.disabled",
+  conflict: "settings.webui.status.conflict",
+  tui: "settings.webui.status.tui",
+  error: "settings.webui.status.error",
 } as const
 
 function sourceLabel(
-  source: WebUiExtensionGroupView["candidates"][number]["source"]
+  source: WebUiExtensionGroupView["candidates"][number]["source"],
+  t: Translator
 ) {
-  if (source === "builtin") return "Built-in"
-  if (source === "project") return "Project"
-  if (source === "development") return "Development"
-  return "External"
+  if (source === "builtin") return t("settings.webui.source.builtin")
+  if (source === "project") return t("settings.webui.source.project")
+  if (source === "development") return t("settings.webui.source.development")
+  return t("settings.webui.source.external")
 }
 
 export function WebUiExtensionSettings({
   projects,
   projectId,
+  sessionIds,
   initialCatalog,
   mutationToken,
 }: {
   projects: ResourceProject[]
   projectId: string | null
+  sessionIds: string[]
   initialCatalog: WebUiExtensionCatalogView
   mutationToken: string
 }) {
@@ -73,6 +78,54 @@ export function WebUiExtensionSettings({
   const [catalog, setCatalog] = useState(initialCatalog)
   const [workingId, setWorkingId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const catalogUpdateSequence = useRef(0)
+  const sessionKey = sessionIds.join("\0")
+
+  useEffect(() => {
+    if (!sessionKey) return
+    let active = true
+    const search = new URLSearchParams()
+    for (const sessionId of sessionKey.split("\0")) {
+      search.append("sessionId", sessionId)
+    }
+    const events = new EventSource(`/api/v1/events?${search}`)
+    const refresh = async () => {
+      const sequence = ++catalogUpdateSequence.current
+      try {
+        const query = projectId
+          ? `?projectId=${encodeURIComponent(projectId)}`
+          : ""
+        const response = await fetch(`/api/v1/webui-extensions${query}`)
+        const next = (await response.json()) as WebUiExtensionCatalogView & {
+          error?: string
+        }
+        if (!response.ok) {
+          throw new Error(next.error ?? t("settings.webui.readFailed"))
+        }
+        if (!active || sequence !== catalogUpdateSequence.current) return
+        setCatalog((current) => newestSettingsRevision(current, next))
+        setError(null)
+      } catch (failure) {
+        if (!active || sequence !== catalogUpdateSequence.current) return
+        setError(failure instanceof Error ? failure.message : String(failure))
+      }
+    }
+    const handle = () => void refresh()
+    events.addEventListener("runtime.ready", handle)
+    events.addEventListener("runtime.stopped", handle)
+    events.addEventListener("runtime.crashed", handle)
+    events.addEventListener("resync.required", handle)
+    return () => {
+      active = false
+      catalogUpdateSequence.current += 1
+      events.close()
+    }
+  }, [projectId, sessionKey, t])
+
+  function acceptCatalog(next: WebUiExtensionCatalogView) {
+    catalogUpdateSequence.current += 1
+    setCatalog((current) => newestSettingsRevision(current, next))
+  }
 
   async function update(
     group: WebUiExtensionGroupView,
@@ -98,9 +151,9 @@ export function WebUiExtensionSettings({
         error?: string
       }
       if (!response.ok) {
-        throw new Error(result.error ?? "WebUI extension update failed.")
+        throw new Error(result.error ?? t("settings.webui.updateFailed"))
       }
-      setCatalog(result)
+      acceptCatalog(result)
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure))
       router.refresh()
@@ -172,11 +225,13 @@ export function WebUiExtensionSettings({
               <CardTitle className="flex flex-wrap items-center gap-2">
                 {group.name}
                 <Badge variant="outline">
-                  {status ? STATUS_LABELS[status.state] : "Not probed"}
+                  {status
+                    ? t(STATUS_LABEL_KEYS[status.state])
+                    : t("settings.webui.notProbed")}
                 </Badge>
               </CardTitle>
               <CardDescription>
-                {status?.reason ?? "Pi TUI remains available as fallback."}
+                {status?.reason ?? t("settings.webui.statusFallback")}
               </CardDescription>
               <CardAction>
                 <Switch
@@ -241,7 +296,7 @@ export function WebUiExtensionSettings({
                               key={candidate.key}
                               value={candidate.key}
                             >
-                              {sourceLabel(candidate.source)} ·{" "}
+                              {sourceLabel(candidate.source, t)} ·{" "}
                               {candidate.packageName} {candidate.packageVersion}
                             </SelectItem>
                           ))}
@@ -264,7 +319,7 @@ export function WebUiExtensionSettings({
                           <div className="flex flex-wrap items-center gap-2 font-medium">
                             <span>{candidate.packageName}</span>
                             <Badge variant="outline">
-                              {sourceLabel(candidate.source)}
+                              {sourceLabel(candidate.source, t)}
                             </Badge>
                             {active ? (
                               <Badge variant="secondary">
@@ -287,18 +342,19 @@ export function WebUiExtensionSettings({
                             </dd>
                             <dt>{t("settings.webui.supported")}</dt>
                             <dd>
-                              {candidate.target.version ?? "Capability probe"}
+                              {candidate.target.version ??
+                                t("settings.webui.capabilityProbe")}
                             </dd>
                             <dt>{t("settings.webui.tested")}</dt>
                             <dd>
                               {candidate.target.testedVersions?.join(", ") ??
-                                "No pinned versions"}
+                                t("settings.webui.noPinnedVersions")}
                             </dd>
                             <dt>{t("settings.webui.probe")}</dt>
                             <dd>
                               {active && status?.probePassed
-                                ? "Passed"
-                                : "Not passed in this session"}
+                                ? t("settings.webui.probePassed")
+                                : t("settings.webui.probeNotPassed")}
                             </dd>
                           </dl>
                         </div>

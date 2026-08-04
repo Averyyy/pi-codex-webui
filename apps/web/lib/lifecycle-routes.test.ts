@@ -1,4 +1,7 @@
 import assert from "node:assert/strict"
+import { mkdtemp, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import path from "node:path"
 import test from "node:test"
 
 import { POST as createProject } from "../app/api/v1/projects/route"
@@ -23,6 +26,19 @@ function invalidJsonRequest(path: string, method: string) {
   })
 }
 
+function jsonRequest(requestPath: string, body: unknown) {
+  return new Request(`http://${host}${requestPath}`, {
+    method: "POST",
+    headers: {
+      host,
+      origin: `http://${host}`,
+      "content-type": "application/json",
+      "x-pi-web-codex-mutation-token": token,
+    },
+    body: JSON.stringify(body),
+  })
+}
+
 test("project and pin lifecycle routes return structured invalid JSON errors", async () => {
   const responses = await Promise.all([
     createProject(invalidJsonRequest("/api/v1/projects", "POST")),
@@ -44,5 +60,42 @@ test("project and pin lifecycle routes return structured invalid JSON errors", a
       error: "Invalid JSON body.",
       code: "InvalidJson",
     })
+  }
+})
+
+test("project lifecycle routes reject invalid filesystem and Git paths", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "pi-web-project-route-"))
+  const file = path.join(directory, "not-a-directory")
+  await writeFile(file, "fixture")
+  try {
+    const fileResponse = await createProject(
+      jsonRequest("/api/v1/projects", { path: file })
+    )
+    assert.equal(fileResponse.status, 400)
+    assert.deepEqual(await fileResponse.json(), {
+      error: "Project path must be a directory.",
+    })
+
+    const nulProjectResponse = await createProject(
+      jsonRequest("/api/v1/projects", { path: "invalid\0path" })
+    )
+    assert.equal(nulProjectResponse.status, 400)
+    assert.deepEqual(await nulProjectResponse.json(), {
+      error: "Invalid project path.",
+    })
+
+    const nulWorktreeResponse = await createWorktree(
+      jsonRequest("/api/v1/projects/project-a/worktrees", {
+        path: "/tmp/worktree",
+        branch: "invalid\0branch",
+      }),
+      { params: Promise.resolve({ projectId: "project-a" }) }
+    )
+    assert.equal(nulWorktreeResponse.status, 400)
+    assert.deepEqual(await nulWorktreeResponse.json(), {
+      error: "Invalid worktree path or branch.",
+    })
+  } finally {
+    await rm(directory, { recursive: true, force: true })
   }
 })

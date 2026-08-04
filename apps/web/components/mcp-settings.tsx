@@ -33,6 +33,7 @@ import {
   type McpServerFormValue,
 } from "@/components/mcp-server-form"
 import { useI18n } from "@/components/i18n-provider"
+import { newestSettingsRevision } from "@/lib/settings-revision"
 
 interface McpProject {
   id: string
@@ -86,9 +87,7 @@ export function McpSettings({
         }
         if (active && sequence === catalogUpdateSequence.current) {
           const next = mcpCatalogSchema.parse(body)
-          setCatalog((current) =>
-            next.revision >= current.revision ? next : current
-          )
+          setCatalog((current) => newestSettingsRevision(current, next))
           setError(null)
         }
       } catch (failure) {
@@ -108,9 +107,7 @@ export function McpSettings({
 
   function acceptCatalog(next: McpCatalog) {
     catalogUpdateSequence.current += 1
-    setCatalog((current) =>
-      next.revision >= current.revision ? next : current
-    )
+    setCatalog((current) => newestSettingsRevision(current, next))
   }
 
   function handleFailure(failure: unknown) {
@@ -407,8 +404,16 @@ export function McpSettings({
         )
       })}
 
-      {notice ? <p className="text-sm text-success">{notice}</p> : null}
-      {error ? <p className="text-sm text-destructive">{error}</p> : null}
+      {notice ? (
+        <p role="status" className="text-sm text-success">
+          {notice}
+        </p>
+      ) : null}
+      {error ? (
+        <p role="alert" className="text-sm text-destructive">
+          {error}
+        </p>
+      ) : null}
 
       {formOpen ? (
         <McpServerForm

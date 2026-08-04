@@ -51,6 +51,7 @@ function breadcrumbs(projectId: string, requestedPath: string) {
       <Link
         href={entryHref(projectId, item.path)}
         className="truncate hover:text-foreground"
+        aria-current={index === items.length - 1 ? "page" : undefined}
       >
         {item.label}
       </Link>
@@ -102,9 +103,12 @@ export default async function ProjectFilesPage({
 
       <Card className="min-w-0 gap-0 overflow-hidden">
         <CardHeader className="border-b">
-          <div className="flex flex-wrap items-center gap-1 font-mono text-xs text-muted-foreground">
+          <nav
+            aria-label="文件路径"
+            className="flex flex-wrap items-center gap-1 font-mono text-xs text-muted-foreground"
+          >
             {breadcrumbs(projectId, entry.path)}
-          </div>
+          </nav>
           <CardDescription>只读浏览真实项目目录。</CardDescription>
         </CardHeader>
         {entry.kind === "directory" ? (

@@ -15,6 +15,7 @@ import {
 import { ScrollArea } from "@workspace/ui/components/scroll-area"
 import { Skeleton } from "@workspace/ui/components/skeleton"
 
+import { responseJson } from "@/lib/api-response"
 import type { ProjectGitDiff, ProjectGitStatus } from "@/lib/project-git"
 
 const GitDiffSurface = dynamic(
@@ -53,17 +54,11 @@ export function ProjectReviewPanel({
     statusRequest.current?.abort()
     const controller = new AbortController()
     statusRequest.current = controller
-    const response = await fetch(`/api/v1/projects/${projectId}/git`, {
-      signal: controller.signal,
-    })
-    const body = (await response.json()) as ProjectGitStatus & {
-      error?: string
-    }
-    if (!response.ok) {
-      throw new Error(
-        body.error ?? `Git 状态读取失败（HTTP ${response.status}）。`
-      )
-    }
+    const body = await responseJson<ProjectGitStatus>(
+      await fetch(`/api/v1/projects/${projectId}/git`, {
+        signal: controller.signal,
+      })
+    )
     setError(null)
     const nextPath = body.available
       ? body.files.some((file) => file.path === selectedPath)
@@ -112,17 +107,8 @@ export function ProjectReviewPanel({
     void fetch(`/api/v1/projects/${projectId}/git?${query}`, {
       signal: controller.signal,
     })
-      .then(async (response) => {
-        const body = (await response.json()) as ProjectGitDiff & {
-          error?: string
-        }
-        if (!response.ok) {
-          throw new Error(
-            body.error ?? `代码差异读取失败（HTTP ${response.status}）。`
-          )
-        }
-        setDiff(body)
-      })
+      .then((response) => responseJson<ProjectGitDiff>(response))
+      .then(setDiff)
       .catch((failure: unknown) => {
         if (!(
           failure instanceof DOMException && failure.name === "AbortError"
@@ -191,6 +177,7 @@ export function ProjectReviewPanel({
                 type="button"
                 className="flex w-full min-w-0 items-start gap-2 rounded-md px-2 py-2 text-left text-xs transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none data-[active=true]:bg-muted"
                 data-active={file.path === selectedPath}
+                aria-pressed={file.path === selectedPath}
                 onClick={() => selectPath(file.path)}
               >
                 <FileDiffIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />

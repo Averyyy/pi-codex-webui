@@ -86,13 +86,18 @@ export function SettingsNav() {
   }, [isMobile, pathname, setOpenMobile])
 
   return (
-    <Sidebar collapsible="offcanvas" role="navigation" aria-label="设置导航">
+    <Sidebar collapsible="offcanvas">
       <SidebarHeader inert={navigationHidden} aria-hidden={navigationHidden}>
         <div className="flex h-10 items-center px-2 text-base font-semibold">
           pi-web-codex
         </div>
       </SidebarHeader>
-      <SidebarContent inert={navigationHidden} aria-hidden={navigationHidden}>
+      <SidebarContent
+        role="navigation"
+        aria-label={t("settings.nav.ariaLabel")}
+        inert={navigationHidden}
+        aria-hidden={navigationHidden}
+      >
         <SidebarGroup>
           <SidebarGroupLabel>{t("settings.label")}</SidebarGroupLabel>
           <SidebarGroupContent>

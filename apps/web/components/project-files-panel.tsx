@@ -26,6 +26,7 @@ import type {
   ProjectFile,
   ProjectFileEntry,
 } from "@/lib/project-files"
+import { responseJson } from "@/lib/api-response"
 
 type ProjectEntry = ProjectDirectory | ProjectFile
 
@@ -60,17 +61,8 @@ export function ProjectFilesPanel({ projectId }: { projectId: string }) {
     void fetch(`/api/v1/projects/${projectId}/files?${query}`, {
       signal: controller.signal,
     })
-      .then(async (response) => {
-        const body = (await response.json()) as ProjectEntry & {
-          error?: string
-        }
-        if (!response.ok) {
-          throw new Error(
-            body.error ?? `文件读取失败（HTTP ${response.status}）。`
-          )
-        }
-        setEntry(body)
-      })
+      .then((response) => responseJson<ProjectEntry>(response))
+      .then(setEntry)
       .catch((failure: unknown) => {
         if (!(
           failure instanceof DOMException && failure.name === "AbortError"
@@ -114,7 +106,10 @@ export function ProjectFilesPanel({ projectId }: { projectId: string }) {
   return (
     <div className="flex size-full min-h-0 flex-col bg-background">
       <div className="flex min-h-10 shrink-0 items-center gap-1 border-b px-3">
-        <div className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden font-mono text-xs text-muted-foreground">
+        <nav
+          aria-label="文件路径"
+          className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden font-mono text-xs text-muted-foreground"
+        >
           {breadcrumbs.map((item, index) => (
             <span
               key={item.path || "root"}
@@ -124,13 +119,16 @@ export function ProjectFilesPanel({ projectId }: { projectId: string }) {
                 type="button"
                 className="truncate rounded-sm px-1 py-0.5 hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
                 onClick={() => openPath(item.path)}
+                aria-current={
+                  index === breadcrumbs.length - 1 ? "page" : undefined
+                }
               >
                 {item.label}
               </button>
               {index < breadcrumbs.length - 1 ? <span>/</span> : null}
             </span>
           ))}
-        </div>
+        </nav>
         {downloadUrl ? (
           <Button asChild variant="ghost" size="icon-sm">
             <a href={downloadUrl} aria-label="下载原文件">

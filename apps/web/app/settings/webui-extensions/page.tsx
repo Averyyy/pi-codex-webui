@@ -20,6 +20,7 @@ export default async function WebUiExtensionsSettingsPage({
         key={`${data.selectedProjectId ?? "global"}:${data.catalog.revision}`}
         projects={data.projects}
         projectId={data.selectedProjectId}
+        sessionIds={data.sessionIds}
         initialCatalog={data.catalog}
         mutationToken={data.mutationToken}
       />

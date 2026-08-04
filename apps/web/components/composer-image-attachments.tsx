@@ -8,6 +8,7 @@ import { Button } from "@workspace/ui/components/button"
 import {
   MAX_PROMPT_IMAGES,
   MAX_PROMPT_IMAGE_BASE64_LENGTH,
+  imagesAfterAcceptedSend,
   promptImageBase64Length,
   type ComposerImage,
   type PromptImage,
@@ -108,7 +109,22 @@ export function useComposerImages(
     setError(null)
   }
 
-  return { images, error, loading, addImages, removeImage, clearImages }
+  function clearAcceptedImages(submitted: ComposerImage[]) {
+    const next = imagesAfterAcceptedSend(imagesRef.current, submitted)
+    if (next === imagesRef.current) return
+    updateImages(next)
+    setError(null)
+  }
+
+  return {
+    images,
+    error,
+    loading,
+    addImages,
+    removeImage,
+    clearImages,
+    clearAcceptedImages,
+  }
 }
 
 export function promptImages(images: ComposerImage[]): PromptImage[] {

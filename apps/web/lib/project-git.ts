@@ -1,7 +1,7 @@
 import "server-only"
 
 import { spawn } from "node:child_process"
-import { mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 
@@ -105,7 +105,31 @@ export async function createProjectWorktree(
   }
 }
 
-function parseStatus(output: string) {
+function projectRelativePath(
+  repositoryRoot: string,
+  projectPath: string,
+  filePath: string
+) {
+  const prefix = path
+    .relative(repositoryRoot, path.resolve(projectPath))
+    .split(path.sep)
+    .filter(Boolean)
+    .join("/")
+  if (!prefix) return filePath
+  const prefixWithSeparator = `${prefix}/`
+  if (!filePath.startsWith(prefixWithSeparator)) {
+    throw new ProjectGitError(
+      "Git returned a path outside the registered project."
+    )
+  }
+  return filePath.slice(prefixWithSeparator.length)
+}
+
+function parseStatus(
+  output: string,
+  repositoryRoot: string,
+  projectPath: string
+) {
   const records = output.split("\0")
   const files: GitFileStatus[] = []
   for (let index = 0; index < records.length; index += 1) {
@@ -116,8 +140,14 @@ function parseStatus(output: string) {
     files.push({
       index: status[0] ?? " ",
       workingTree: status[1] ?? " ",
-      path: record.slice(3),
-      originalPath: renamed ? (records[++index] ?? null) : null,
+      path: projectRelativePath(repositoryRoot, projectPath, record.slice(3)),
+      originalPath: renamed
+        ? projectRelativePath(
+            repositoryRoot,
+            projectPath,
+            records[++index] ?? ""
+          )
+        : null,
     })
   }
   return files
@@ -140,6 +170,19 @@ export async function readProjectGitStatus(
       available: false,
       error: root.stderr.trim() || "The project is not inside a Git worktree.",
     }
+  }
+  let canonicalProjectPath: string
+  try {
+    canonicalProjectPath = await realpath(projectPath)
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code
+    if (code === "ENOENT" || code === "ENOTDIR") {
+      return {
+        available: false,
+        error: "The project directory no longer exists.",
+      }
+    }
+    throw error
   }
 
   const [branch, commit, upstream, status] = await Promise.all([
@@ -196,7 +239,7 @@ export async function readProjectGitStatus(
     upstream: upstreamName,
     ahead,
     behind,
-    files: parseStatus(status.stdout),
+    files: parseStatus(status.stdout, root.stdout.trim(), canonicalProjectPath),
   }
 }
 
@@ -219,7 +262,7 @@ export async function readProjectGitDiff(
   if (file.index === "?" || !hasHead) {
     patch = await diffAgainstEmpty(
       projectPath,
-      path.join(status.root, file.path)
+      path.join(path.resolve(projectPath), file.path)
     )
   } else {
     const result = await runGit(projectPath, [

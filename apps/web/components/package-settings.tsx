@@ -62,7 +62,8 @@ export function PackageSettings({
     projectId,
     sessionIds,
     initialCatalog,
-    setError
+    setError,
+    t("settings.resources.readFailed")
   )
   const busy = working !== null || trustWorking
 
@@ -278,7 +279,11 @@ export function PackageSettings({
           </p>
         )}
       </section>
-      {error ? <p className="text-sm text-destructive">{error}</p> : null}
+      {error ? (
+        <p role="alert" className="text-sm text-destructive">
+          {error}
+        </p>
+      ) : null}
       {pendingRemove ? (
         <ConfirmDialog
           open

@@ -44,7 +44,8 @@ export function ResourceListSettings({
     projectId,
     sessionIds,
     initialCatalog,
-    setError
+    setError,
+    t("settings.resources.readFailed")
   )
   const resources = catalog.resources.filter(
     (resource) => resource.type === kind
@@ -162,7 +163,11 @@ export function ResourceListSettings({
           </section>
         )
       })}
-      {error ? <p className="text-sm text-destructive">{error}</p> : null}
+      {error ? (
+        <p role="alert" className="text-sm text-destructive">
+          {error}
+        </p>
+      ) : null}
     </div>
   )
 }

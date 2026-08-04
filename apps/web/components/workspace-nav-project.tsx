@@ -70,13 +70,15 @@ import {
 } from "@/components/workspace-nav-session"
 
 const VISIBLE_PROJECT_SESSIONS = 5
+const pendingProjectMutations = new Set<string>()
 
-type DialogKind = "rename" | "worktree" | "remove"
+type DialogKind = "archive" | "rename" | "worktree" | "remove"
 
 interface MenuAction {
+  kind: "pin" | "reveal" | DialogKind
   label: string
   icon: LucideIcon
-  onSelect: () => void
+  disabled?: boolean
   destructive?: boolean
   separatorBefore?: boolean
 }
@@ -115,6 +117,8 @@ export function WorkspaceNavProject({
     url: string,
     options: { method?: "POST" | "PATCH" | "DELETE"; body?: unknown } = {}
   ) {
+    if (pendingProjectMutations.has(project.id)) return false
+    pendingProjectMutations.add(project.id)
     setWorking(true)
     setError(null)
     try {
@@ -143,6 +147,7 @@ export function WorkspaceNavProject({
       if (!dialog) toast.error(message)
       return false
     } finally {
+      pendingProjectMutations.delete(project.id)
       setWorking(false)
     }
   }
@@ -179,62 +184,73 @@ export function WorkspaceNavProject({
     }
   }
 
+  async function archiveProject() {
+    if (await mutate(`/api/v1/projects/${project.id}/archive`)) {
+      setDialog(null)
+      if (active) router.push("/")
+    }
+  }
+
   const actions: MenuAction[] = [
     {
+      kind: "pin",
       label: project.isPinned ? "取消置顶项目" : "置顶项目",
       icon: PinIcon,
-      onSelect: () =>
-        void mutate(`/api/v1/projects/${project.id}`, {
-          method: "PATCH",
-          body: { pinned: !project.isPinned },
-        }),
     },
     {
-      label: "在 Finder 中显示",
+      kind: "reveal",
+      label: "在文件管理器中显示",
       icon: FolderOpenIcon,
-      onSelect: () => void mutate(`/api/v1/projects/${project.id}/reveal`),
     },
     {
+      kind: "worktree",
       label: "创建永久工作树",
       icon: GitBranchPlusIcon,
-      onSelect: () => setDialog("worktree"),
     },
     {
+      kind: "rename",
       label: "重命名项目",
       icon: PencilIcon,
-      onSelect: () => {
-        setName(project.name)
-        setDialog("rename")
-      },
       separatorBefore: true,
     },
     {
+      kind: "archive",
       label: "归档任务",
       icon: ArchiveIcon,
-      onSelect: () => {
-        void (async () => {
-          if (await mutate(`/api/v1/projects/${project.id}/archive`)) {
-            if (active) router.push("/")
-          }
-        })()
-      },
+      disabled: project.sessionCount === 0,
     },
     {
+      kind: "remove",
       label: "移除",
       icon: Trash2Icon,
-      onSelect: () => setDialog("remove"),
       destructive: true,
       separatorBefore: true,
     },
   ]
+
+  function selectAction(kind: MenuAction["kind"]) {
+    if (kind === "pin") {
+      void mutate(`/api/v1/projects/${project.id}`, {
+        method: "PATCH",
+        body: { pinned: !project.isPinned },
+      })
+      return
+    }
+    if (kind === "reveal") {
+      void mutate(`/api/v1/projects/${project.id}/reveal`)
+      return
+    }
+    if (kind === "rename") setName(project.name)
+    setDialog(kind)
+  }
 
   const dropdownItems = actions.map((action) => (
     <Fragment key={action.label}>
       {action.separatorBefore ? <DropdownMenuSeparator /> : null}
       <DropdownMenuItem
         variant={action.destructive ? "destructive" : "default"}
-        disabled={working}
-        onSelect={action.onSelect}
+        disabled={working || action.disabled}
+        onSelect={() => selectAction(action.kind)}
       >
         <action.icon />
         {action.label}
@@ -246,8 +262,8 @@ export function WorkspaceNavProject({
       {action.separatorBefore ? <ContextMenuSeparator /> : null}
       <ContextMenuItem
         variant={action.destructive ? "destructive" : "default"}
-        disabled={working}
-        onSelect={action.onSelect}
+        disabled={working || action.disabled}
+        onSelect={() => selectAction(action.kind)}
       >
         <action.icon />
         {action.label}
@@ -415,10 +431,14 @@ export function WorkspaceNavProject({
                   disabled={working}
                 />
               </div>
-              {error ? <p className="text-destructive">{error}</p> : null}
+              {error ? (
+                <p role="alert" className="text-destructive">
+                  {error}
+                </p>
+              ) : null}
               <DialogFooter>
                 <DialogClose asChild>
-                  <Button type="button" variant="outline">
+                  <Button type="button" variant="outline" disabled={working}>
                     取消
                   </Button>
                 </DialogClose>
@@ -466,10 +486,14 @@ export function WorkspaceNavProject({
                   />
                 </div>
               </div>
-              {error ? <p className="text-destructive">{error}</p> : null}
+              {error ? (
+                <p role="alert" className="text-destructive">
+                  {error}
+                </p>
+              ) : null}
               <DialogFooter>
                 <DialogClose asChild>
-                  <Button type="button" variant="outline">
+                  <Button type="button" variant="outline" disabled={working}>
                     取消
                   </Button>
                 </DialogClose>
@@ -483,6 +507,38 @@ export function WorkspaceNavProject({
             </form>
           ) : null}
 
+          {dialog === "archive" ? (
+            <>
+              <DialogHeader>
+                <DialogTitle>归档 {project.name} 中的任务？</DialogTitle>
+                <DialogDescription>
+                  {`将从导航中移除 ${project.sessionCount} 个任务；正在运行的任务会先停止。项目目录和 Pi session 文件不会删除。`}
+                </DialogDescription>
+              </DialogHeader>
+              {error ? (
+                <p role="alert" className="text-destructive">
+                  {error}
+                </p>
+              ) : null}
+              <DialogFooter>
+                <DialogClose asChild>
+                  <Button type="button" variant="outline" disabled={working}>
+                    取消
+                  </Button>
+                </DialogClose>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  disabled={working}
+                  aria-busy={working}
+                  onClick={() => void archiveProject()}
+                >
+                  归档 {project.sessionCount} 个任务
+                </Button>
+              </DialogFooter>
+            </>
+          ) : null}
+
           {dialog === "remove" ? (
             <>
               <DialogHeader>
@@ -492,10 +548,14 @@ export function WorkspaceNavProject({
                   文件都不会改变。
                 </DialogDescription>
               </DialogHeader>
-              {error ? <p className="text-destructive">{error}</p> : null}
+              {error ? (
+                <p role="alert" className="text-destructive">
+                  {error}
+                </p>
+              ) : null}
               <DialogFooter>
                 <DialogClose asChild>
-                  <Button type="button" variant="outline">
+                  <Button type="button" variant="outline" disabled={working}>
                     取消
                   </Button>
                 </DialogClose>
@@ -503,6 +563,7 @@ export function WorkspaceNavProject({
                   type="button"
                   variant="destructive"
                   disabled={working}
+                  aria-busy={working}
                   onClick={() => void removeProject()}
                 >
                   移除

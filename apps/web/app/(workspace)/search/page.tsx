@@ -18,8 +18,8 @@ import {
   EmptyTitle,
 } from "@workspace/ui/components/empty"
 import { Field, FieldGroup, FieldLabel } from "@workspace/ui/components/field"
-import { Input } from "@workspace/ui/components/input"
 
+import { ConversationSearchInput } from "@/components/conversation-search-input"
 import { searchSessions } from "@/lib/catalog"
 import {
   searchEntryTypeLabel,
@@ -56,15 +56,7 @@ export default async function SearchPage({
             <FieldLabel htmlFor="conversation-search" className="sr-only">
               搜索对话
             </FieldLabel>
-            <Input
-              id="conversation-search"
-              name="q"
-              type="search"
-              defaultValue={query}
-              placeholder="输入关键词"
-              enterKeyHint="search"
-              autoFocus
-            />
+            <ConversationSearchInput defaultValue={query} />
             <Button type="submit">
               <SearchIcon data-icon="inline-start" />
               搜索

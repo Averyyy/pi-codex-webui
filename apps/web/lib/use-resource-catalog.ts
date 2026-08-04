@@ -11,7 +11,8 @@ export function useResourceCatalog(
   projectId: string,
   sessionIds: string[],
   initialCatalog: ResourceCatalog,
-  onError: (error: string | null) => void
+  onError: (error: string | null) => void,
+  fallbackError: string
 ) {
   const [catalog, setCatalogState] = useState(initialCatalog)
   const updateSequence = useRef(0)
@@ -43,7 +44,7 @@ export function useResourceCatalog(
               "error" in body &&
               typeof body.error === "string"
               ? body.error
-              : "读取 Pi 资源状态失败。"
+              : fallbackError
           )
           return
         }
@@ -53,9 +54,7 @@ export function useResourceCatalog(
         onError(null)
       } catch (error) {
         if (sequence !== updateSequence.current) return
-        onError(
-          error instanceof Error ? error.message : "读取 Pi 资源状态失败。"
-        )
+        onError(error instanceof Error ? error.message : fallbackError)
       }
     }
     const handle = () => void refresh()
@@ -65,7 +64,7 @@ export function useResourceCatalog(
       updateSequence.current += 1
       events.close()
     }
-  }, [onError, projectId, sessionKey])
+  }, [fallbackError, onError, projectId, sessionKey])
 
   return [catalog, setCatalog] as const
 }

@@ -34,6 +34,13 @@ interface ProjectRow {
   pinned_at: string | null
 }
 
+export class ProjectPathError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = "ProjectPathError"
+  }
+}
+
 interface SessionRow {
   id: string
   project_id: string | null
@@ -159,7 +166,8 @@ export async function isProjectDirectoryAvailable(canonicalPath: string) {
   try {
     return (await stat(canonicalPath)).isDirectory()
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false
+    const code = (error as NodeJS.ErrnoException).code
+    if (code === "ENOENT" || code === "ENOTDIR") return false
     throw error
   }
 }
@@ -212,7 +220,7 @@ async function registerWorkspaceProject(canonicalPath: string) {
 export async function addWorkspaceProject(inputPath: string) {
   const canonicalPath = await realpath(path.resolve(inputPath))
   if (!(await stat(canonicalPath)).isDirectory()) {
-    throw new Error("Project path must be a directory.")
+    throw new ProjectPathError("Project path must be a directory.")
   }
 
   const registrations = (globalThis.piWebCodexProjectRegistrations ??=

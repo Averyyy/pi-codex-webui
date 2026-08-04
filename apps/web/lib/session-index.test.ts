@@ -12,6 +12,7 @@ import { tmpdir } from "node:os"
 import path from "node:path"
 import test from "node:test"
 
+import { GET as getProjectRoute } from "../app/api/v1/projects/[projectId]/route"
 import {
   addWorkspaceProject,
   archiveProjectSessions,
@@ -37,7 +38,7 @@ import {
 import { getDatabase } from "./database"
 import { syncPiSessionIndex } from "./session-index"
 
-test("project availability accepts directories and suppresses only ENOENT", async () => {
+test("project availability treats missing and invalidated paths as unavailable", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "pi-web-codex-availability-"))
   try {
     const directory = path.join(root, "directory")
@@ -49,9 +50,9 @@ test("project availability accepts directories and suppresses only ENOENT", asyn
       false
     )
     assert.equal(await isProjectDirectoryAvailable(file), false)
-    await assert.rejects(
-      isProjectDirectoryAvailable(path.join(file, "child")),
-      (error: NodeJS.ErrnoException) => error.code === "ENOTDIR"
+    assert.equal(
+      await isProjectDirectoryAvailable(path.join(file, "child")),
+      false
     )
   } finally {
     await rm(root, { recursive: true, force: true })
@@ -242,6 +243,13 @@ test("standalone sessions survive reindexing and remain outside projects", async
     const registered = await addWorkspaceProject(projectCwd)
     const canonicalProjectCwd = await realpath(projectCwd)
     assert.equal(registered.path, canonicalProjectCwd)
+    const projectResponse = await getProjectRoute(
+      new Request(`http://127.0.0.1:1816/api/v1/projects/${registered.id}`),
+      { params: Promise.resolve({ projectId: registered.id }) }
+    )
+    assert.equal(projectResponse.status, 200)
+    assert.equal(projectResponse.headers.get("cache-control"), "no-store")
+    assert.deepEqual(await projectResponse.json(), registered)
     const emptyProject = await addWorkspaceProject(emptyCwd)
     assert.equal(emptyProject.sessionCount, 0)
     assert.equal(await removeWorkspaceProject(emptyProject.id), true)

@@ -68,6 +68,7 @@ export function ConversationComposer({
   images = [],
   imageError,
   imagesSupported = false,
+  allowImageChangesWhileSubmitting = false,
   onImagesAdd,
   onImageRemove,
   onCycleThinkingLevel,
@@ -90,6 +91,7 @@ export function ConversationComposer({
   images?: ComposerImage[]
   imageError?: string | null
   imagesSupported?: boolean | null
+  allowImageChangesWhileSubmitting?: boolean
   onImagesAdd?: (files: File[]) => void | Promise<void>
   onImageRemove?: (id: string) => void
   onCycleThinkingLevel?: () => void
@@ -103,6 +105,7 @@ export function ConversationComposer({
   const [commandQuery, setCommandQuery] = useState("")
   const [openedWithSlash, setOpenedWithSlash] = useState(false)
   const [activeCommandId, setActiveCommandId] = useState<string | null>(null)
+  const imageChangesDisabled = submitting && !allowImageChangesWhileSubmitting
   const availableCommands: ComposerCommand[] = [
     ...commands,
     {
@@ -115,7 +118,8 @@ export function ConversationComposer({
             ? "添加到当前消息；发送时验证模型"
             : "添加到当前消息",
       icon: ImagePlusIcon,
-      disabled: imagesSupported === false || submitting || !onImagesAdd,
+      disabled:
+        imagesSupported === false || imageChangesDisabled || !onImagesAdd,
       onSelect: noop,
     },
   ]
@@ -248,7 +252,7 @@ export function ConversationComposer({
     if (files.length === 0 || !onImagesAdd) return
 
     event.preventDefault()
-    if (submitting) {
+    if (imageChangesDisabled) {
       toast.error("消息正在发送，请稍后添加图片。")
       return
     }
@@ -301,7 +305,7 @@ export function ConversationComposer({
                   const files = Array.from(event.currentTarget.files ?? [])
                   event.currentTarget.value = ""
                   if (!files.length) return
-                  if (submitting) {
+                  if (imageChangesDisabled) {
                     toast.error("消息正在发送，请稍后添加图片。")
                     return
                   }
@@ -326,7 +330,7 @@ export function ConversationComposer({
             : null)
         }
         onRemove={onImageRemove}
-        disabled={submitting}
+        disabled={imageChangesDisabled}
       />
       {editor ?? (
         <Textarea

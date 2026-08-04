@@ -71,6 +71,7 @@ export function WorkspaceNav({
   const { isMobile, setOpenMobile, state } = useSidebar()
   const navigationHidden = !isMobile && state === "collapsed"
   const sidebarContentRef = useRef<HTMLDivElement>(null)
+  const addingProjectRef = useRef(false)
   const [projectsExpanded, setProjectsExpanded] = useState(false)
   const [tasksOpen, setTasksOpen] = useState(pathname.startsWith("/tasks/"))
   const [addingProject, setAddingProject] = useState(false)
@@ -192,12 +193,15 @@ export function WorkspaceNav({
   }, [router])
 
   async function addProject() {
+    if (addingProjectRef.current) return
+    addingProjectRef.current = true
     setAddingProject(true)
     try {
       if (await pickWorkspaceProject(mutationToken)) router.refresh()
     } catch (failure) {
       toast.error(failure instanceof Error ? failure.message : String(failure))
     } finally {
+      addingProjectRef.current = false
       setAddingProject(false)
     }
   }
