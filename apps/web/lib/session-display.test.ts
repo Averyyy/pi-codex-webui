@@ -51,3 +51,22 @@ test("empty sessions keep context-specific fallback titles", () => {
     "未命名会话"
   )
 })
+
+test("empty sessions accept localized fallback titles", () => {
+  const fallback = { task: "New task", conversation: "Untitled conversation" }
+
+  assert.equal(
+    displaySessionTitle(
+      { title: null, firstMessage: "", projectId: null },
+      fallback
+    ),
+    "New task"
+  )
+  assert.equal(
+    displaySessionTitle(
+      { title: null, firstMessage: "", projectId: "project-1" },
+      fallback
+    ),
+    "Untitled conversation"
+  )
+})

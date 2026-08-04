@@ -53,6 +53,7 @@ import {
 } from "@/components/conversation-composer"
 import { useSessionComposerDraftStore } from "@/components/session-composer-draft-context"
 import { ApiError, responseJson } from "@/lib/api-response"
+import { useI18n } from "@/components/i18n-provider"
 import { pickWorkspaceProject } from "@/lib/project-picker-client"
 import type { ComposerImage } from "@/lib/prompt-images"
 import {
@@ -106,22 +107,22 @@ function initialModel(settings: ModelSettings) {
 const STARTERS = [
   {
     icon: SearchCodeIcon,
-    label: "探索并理解代码",
+    labelKey: "home.starter.explore",
     iconClassName: "bg-tool-read/10 text-tool-read",
   },
   {
     icon: HammerIcon,
-    label: "构建新功能、应用或工具",
+    labelKey: "home.starter.build",
     iconClassName: "bg-tool-execute/10 text-tool-execute",
   },
   {
     icon: GitPullRequestIcon,
-    label: "审查代码并提出修改建议",
+    labelKey: "home.starter.review",
     iconClassName: "bg-tool-web/10 text-tool-web",
   },
   {
     icon: BugIcon,
-    label: "修复问题和失败",
+    labelKey: "home.starter.fix",
     iconClassName: "bg-tool-write/10 text-tool-write",
   },
 ] as const
@@ -138,6 +139,7 @@ export function NewConversation({
   mutationToken: string
 }) {
   const router = useRouter()
+  const { t } = useI18n()
   const composerDraftStore = useSessionComposerDraftStore()
   const projectId = initialProjectId
   const [modelSelection, setModelSelection] = useState<ModelSelection>(() => {
@@ -215,7 +217,11 @@ export function NewConversation({
   const models = enabledModels(initialModelSettings)
 
   useEffect(() => {
-    if (window.matchMedia("(hover: hover) and (pointer: fine)").matches) {
+    if (
+      window.matchMedia(
+        "(min-width: 768px) and (hover: hover) and (pointer: fine)"
+      ).matches
+    ) {
       messageInputRef.current?.focus()
     }
   }, [])
@@ -229,8 +235,8 @@ export function NewConversation({
       projectSelectTriggerRef.current?.focus()
       return
     }
-    setError(new ApiError("工作项目切换未完成，请重试。"))
-  }, [loadingModels, projectId])
+    setError(new ApiError(t("home.projectSwitchFailed")))
+  }, [loadingModels, projectId, t])
 
   function chooseStarter(message: string) {
     setMessage(message)
@@ -306,7 +312,7 @@ export function NewConversation({
               "X-Pi-Web-Codex-Mutation-Token": mutationToken,
             },
             body: JSON.stringify({
-              message: text || "请查看附加图片。",
+              message: text || t("home.imageOnlyPrompt"),
               images: promptImages(submittedImages),
               ...(model
                 ? { model: { provider: model.provider, modelId: model.id } }
@@ -348,35 +354,38 @@ export function NewConversation({
           <h1 className="max-w-3xl text-3xl leading-tight font-medium tracking-tight sm:text-4xl">
             {selectedProject ? (
               <>
-                我们应该在{" "}
+                {t("home.heading.projectBefore")}
                 <span className="underline decoration-border underline-offset-8">
                   {selectedProject.name}
-                </span>{" "}
-                中构建什么？
+                </span>
+                {t("home.heading.projectAfter")}
               </>
             ) : (
-              "你想让 Pi 做什么？"
+              t("home.heading.default")
             )}
           </h1>
         </div>
 
         <div className="grid w-full max-w-4xl grid-cols-2 gap-3 lg:grid-cols-4">
-          {STARTERS.map(({ icon: Icon, label, iconClassName }) => (
-            <Button
-              key={label}
-              type="button"
-              variant="secondary"
-              className="h-24 items-start justify-between rounded-2xl border bg-card p-4 text-left whitespace-normal shadow-sm shadow-foreground/5 hover:bg-accent sm:h-28 sm:flex-col"
-              onClick={() => chooseStarter(label)}
-            >
-              <span
-                className={`flex size-9 items-center justify-center rounded-xl ${iconClassName}`}
+          {STARTERS.map(({ icon: Icon, labelKey, iconClassName }) => {
+            const label = t(labelKey)
+            return (
+              <Button
+                key={labelKey}
+                type="button"
+                variant="secondary"
+                className="h-24 items-start justify-between rounded-2xl border bg-card p-4 text-left whitespace-normal shadow-sm shadow-foreground/5 hover:bg-accent sm:h-28 sm:flex-col"
+                onClick={() => chooseStarter(label)}
               >
-                <Icon />
-              </span>
-              <span>{label}</span>
-            </Button>
-          ))}
+                <span
+                  className={`flex size-9 items-center justify-center rounded-xl ${iconClassName}`}
+                >
+                  <Icon />
+                </span>
+                <span>{label}</span>
+              </Button>
+            )
+          })}
         </div>
       </section>
 
@@ -388,13 +397,11 @@ export function NewConversation({
           >
             <CircleAlertIcon className="mt-0.5 size-4 shrink-0" />
             <p className="min-w-0 flex-1 break-words">
-              {modelUnavailable
-                ? "当前模型不可用。请先配置 Provider 凭据或选择可用模型。"
-                : error.message}
+              {modelUnavailable ? t("home.modelUnavailable") : error.message}
             </p>
             {modelUnavailable ? (
               <Button asChild variant="outline" size="sm">
-                <Link href="/settings/models">去设置</Link>
+                <Link href="/settings/models">{t("home.openSettings")}</Link>
               </Button>
             ) : null}
           </div>
@@ -404,8 +411,8 @@ export function NewConversation({
           value={message}
           onValueChange={setMessage}
           onSubmit={submit}
-          placeholder="描述你想构建或解决的问题"
-          ariaLabel="第一条消息"
+          placeholder={t("home.composer.placeholder")}
+          ariaLabel={t("home.composer.ariaLabel")}
           submitting={submitting}
           sendDisabled={loadingModels || composerImages.loading}
           images={composerImages.images}
@@ -435,24 +442,24 @@ export function NewConversation({
           commands={[
             {
               id: "goal",
-              label: "目标",
-              description: "进入任务后可用",
+              label: t("home.command.goal"),
+              description: t("home.command.insideTask"),
               icon: TargetIcon,
               disabled: true,
               onSelect: noop,
             },
             {
               id: "compact",
-              label: "压缩",
-              description: "进入任务后可用",
+              label: t("home.command.compact"),
+              description: t("home.command.insideTask"),
               icon: Minimize2Icon,
               disabled: true,
               onSelect: noop,
             },
             {
               id: "reload",
-              label: "重新加载",
-              description: "进入任务后可用",
+              label: t("home.command.reload"),
+              description: t("home.command.insideTask"),
               icon: RefreshCwIcon,
               disabled: true,
               onSelect: noop,
@@ -467,7 +474,7 @@ export function NewConversation({
                   className="flex items-center gap-1.5 text-xs text-muted-foreground"
                 >
                   <LoaderCircleIcon className="size-3 animate-spin" />
-                  正在创建任务…
+                  {t("home.status.creatingTask")}
                 </span>
               ) : loadingModels ? (
                 <span
@@ -476,7 +483,7 @@ export function NewConversation({
                   className="flex items-center gap-1.5 text-xs text-muted-foreground"
                 >
                   <LoaderCircleIcon className="size-3 animate-spin" />
-                  正在加载模型
+                  {t("home.status.loadingModels")}
                 </span>
               ) : composerImages.loading ? (
                 <span
@@ -485,7 +492,7 @@ export function NewConversation({
                   className="flex items-center gap-1.5 text-xs text-muted-foreground"
                 >
                   <LoaderCircleIcon className="size-3 animate-spin" />
-                  正在读取图片…
+                  {t("home.status.readingImages")}
                 </span>
               ) : null}
             </>
@@ -503,11 +510,11 @@ export function NewConversation({
                   ref={projectSelectTriggerRef}
                   size="sm"
                   className="max-w-64"
-                  aria-label="工作项目"
+                  aria-label={t("home.project.ariaLabel")}
                 >
                   <FolderIcon />
                   <SelectValue>
-                    {selectedProject?.name ?? "独立任务"}
+                    {selectedProject?.name ?? t("home.project.standalone")}
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent
@@ -524,12 +531,16 @@ export function NewConversation({
                       onClick={() => void addProject()}
                     >
                       <PlusIcon />
-                      {addingProject ? "正在选择…" : "添加项目"}
+                      {addingProject
+                        ? t("home.project.choosing")
+                        : t("home.project.add")}
                     </Button>
                   }
                 >
                   <SelectGroup>
-                    <SelectItem value={NO_PROJECT}>独立任务</SelectItem>
+                    <SelectItem value={NO_PROJECT}>
+                      {t("home.project.standalone")}
+                    </SelectItem>
                     {projects.map((project) => (
                       <SelectItem key={project.id} value={project.id}>
                         {project.name} · {project.path}

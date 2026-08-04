@@ -19,6 +19,7 @@ import {
   FieldGroup,
   FieldTitle,
 } from "@workspace/ui/components/field"
+import { Input } from "@workspace/ui/components/input"
 import {
   Select,
   SelectContent,
@@ -35,6 +36,7 @@ import type {
   WebUiExtensionGroupView,
 } from "@/lib/webui-extensions/types"
 import { useI18n } from "@/components/i18n-provider"
+import { responseJson } from "@/lib/api-response"
 import type { Translator } from "@/lib/i18n"
 import { newestSettingsRevision } from "@/lib/settings-revision"
 
@@ -76,10 +78,25 @@ export function WebUiExtensionSettings({
   const router = useRouter()
   const pathname = usePathname()
   const [catalog, setCatalog] = useState(initialCatalog)
+  const [query, setQuery] = useState("")
   const [workingId, setWorkingId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const catalogUpdateSequence = useRef(0)
   const sessionKey = sessionIds.join("\0")
+  const normalizedQuery = query.trim().toLocaleLowerCase()
+  const visibleGroups = normalizedQuery
+    ? catalog.groups.filter((group) =>
+        [
+          group.id,
+          group.name,
+          ...group.candidates.flatMap((candidate) => [
+            candidate.packageName,
+            candidate.target.packageName,
+            candidate.target.extensionPath,
+          ]),
+        ].some((value) => value?.toLocaleLowerCase().includes(normalizedQuery))
+      )
+    : catalog.groups
 
   useEffect(() => {
     if (!sessionKey) return
@@ -96,12 +113,10 @@ export function WebUiExtensionSettings({
           ? `?projectId=${encodeURIComponent(projectId)}`
           : ""
         const response = await fetch(`/api/v1/webui-extensions${query}`)
-        const next = (await response.json()) as WebUiExtensionCatalogView & {
-          error?: string
-        }
-        if (!response.ok) {
-          throw new Error(next.error ?? t("settings.webui.readFailed"))
-        }
+        const next = await responseJson<WebUiExtensionCatalogView>(
+          response,
+          t("settings.webui.readFailed")
+        )
         if (!active || sequence !== catalogUpdateSequence.current) return
         setCatalog((current) => newestSettingsRevision(current, next))
         setError(null)
@@ -147,12 +162,10 @@ export function WebUiExtensionSettings({
           ...patch,
         }),
       })
-      const result = (await response.json()) as WebUiExtensionCatalogView & {
-        error?: string
-      }
-      if (!response.ok) {
-        throw new Error(result.error ?? t("settings.webui.updateFailed"))
-      }
+      const result = await responseJson<WebUiExtensionCatalogView>(
+        response,
+        t("settings.webui.updateFailed")
+      )
       acceptCatalog(result)
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure))
@@ -214,7 +227,30 @@ export function WebUiExtensionSettings({
         </Card>
       ) : null}
 
-      {catalog.groups.map((group) => {
+      <div className="grid gap-1.5">
+        <Input
+          type="search"
+          value={query}
+          autoComplete="off"
+          aria-label={t("settings.resources.searchLabel", {
+            kind: "Adapter",
+          })}
+          placeholder={t("settings.resources.searchPlaceholder", {
+            kind: "Adapter",
+          })}
+          onChange={(event) => setQuery(event.target.value)}
+        />
+        {normalizedQuery ? (
+          <p aria-live="polite" className="text-xs text-muted-foreground">
+            {t("settings.resources.filteredSummary", {
+              visible: visibleGroups.length,
+              total: catalog.groups.length,
+            })}
+          </p>
+        ) : null}
+      </div>
+
+      {visibleGroups.map((group) => {
         const status = catalog.statuses.find(
           (entry) => entry.extensionId === group.id
         )
@@ -380,6 +416,12 @@ export function WebUiExtensionSettings({
             </CardDescription>
           </CardHeader>
         </Card>
+      ) : null}
+
+      {catalog.groups.length && !visibleGroups.length ? (
+        <p className="rounded-xl border border-dashed p-5 text-sm text-muted-foreground">
+          {t("settings.resources.noMatches")}
+        </p>
       ) : null}
 
       {catalog.diagnostics.map((diagnostic) => (

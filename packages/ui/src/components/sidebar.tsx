@@ -224,6 +224,7 @@ function Sidebar({
     restoreMobileTriggerFocus,
   } = useSidebar()
   const { sidebarTitle, sidebarDescription } = useUiLabels()
+  const mobileSidebarRef = React.useRef<HTMLDivElement>(null)
 
   if (collapsible === "none") {
     return (
@@ -244,11 +245,21 @@ function Sidebar({
     return (
       <Sheet open={openMobile} onOpenChange={setOpenMobile} {...props}>
         <SheetContent
+          ref={mobileSidebarRef}
           dir={dir}
           data-sidebar="sidebar"
           data-slot="sidebar"
           data-mobile="true"
           className="w-(--sidebar-width) bg-sidebar p-0 text-sidebar-foreground [&_[data-slot=sidebar-header]]:pr-12"
+          onOpenAutoFocus={(event) => {
+            const currentPage =
+              mobileSidebarRef.current?.querySelector<HTMLElement>(
+                '[aria-current="page"]'
+              )
+            if (!currentPage) return
+            event.preventDefault()
+            currentPage.focus()
+          }}
           onCloseAutoFocus={(event) => {
             if (restoreMobileTriggerFocus()) event.preventDefault()
           }}

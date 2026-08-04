@@ -21,6 +21,7 @@ import { Field, FieldGroup, FieldLabel } from "@workspace/ui/components/field"
 
 import { ConversationSearchInput } from "@/components/conversation-search-input"
 import { searchSessions } from "@/lib/catalog"
+import { getLocalizedConfig } from "@/lib/i18n-server"
 import {
   searchEntryTypeLabel,
   searchResultHref,
@@ -32,7 +33,11 @@ export default async function SearchPage({
 }: PageProps<"/search">) {
   const value = (await searchParams).q
   const query = (Array.isArray(value) ? value[0] : value)?.trim() ?? ""
-  const results = query ? await searchSessions(query) : []
+  const [{ config, t }, results] = await Promise.all([
+    getLocalizedConfig(),
+    query ? searchSessions(query) : Promise.resolve([]),
+  ])
+  const locale = config.appearance.language
 
   return (
     <div className="mx-auto flex w-full max-w-4xl min-w-0 flex-col gap-8 px-6 py-10 md:px-10 md:py-14">
@@ -41,11 +46,16 @@ export default async function SearchPage({
           <SearchIcon className="size-5" />
         </div>
         <div className="min-w-0">
-          <h1 className="text-2xl font-semibold tracking-tight">搜索</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">
+            {t("search.title")}
+          </h1>
           <p className="mt-1 break-words text-muted-foreground">
             {query
-              ? `“${query}” 找到 ${results.length} 个匹配结果`
-              : "搜索对话标题、消息与工具记录"}
+              ? t("search.summary", {
+                  query,
+                  count: results.length,
+                })
+              : t("search.description")}
           </p>
         </div>
       </header>
@@ -54,18 +64,21 @@ export default async function SearchPage({
         <FieldGroup>
           <Field orientation="horizontal">
             <FieldLabel htmlFor="conversation-search" className="sr-only">
-              搜索对话
+              {t("search.label")}
             </FieldLabel>
             <ConversationSearchInput defaultValue={query} />
             <Button type="submit">
               <SearchIcon data-icon="inline-start" />
-              搜索
+              {t("search.submit")}
             </Button>
           </Field>
         </FieldGroup>
       </form>
 
-      <section className="grid gap-3" aria-label="搜索结果">
+      <section
+        className="grid gap-3"
+        aria-label={t("search.results.ariaLabel")}
+      >
         {results.map((result) => {
           const sessionHref =
             result.projectId === null
@@ -86,19 +99,25 @@ export default async function SearchPage({
                 <CardHeader className="flex min-w-0 flex-row items-start justify-between gap-4">
                   <div className="min-w-0 flex-1">
                     <CardTitle className="truncate">
-                      {displaySessionTitle({
-                        title: result.sessionTitle,
-                        firstMessage: result.sessionFirstMessage,
-                        projectId: result.projectId,
-                      })}
+                      {displaySessionTitle(
+                        {
+                          title: result.sessionTitle,
+                          firstMessage: result.sessionFirstMessage,
+                          projectId: result.projectId,
+                        },
+                        {
+                          task: t("workspace.nav.newTask"),
+                          conversation: t("workspace.nav.unnamedConversation"),
+                        }
+                      )}
                     </CardTitle>
                     <CardDescription className="mt-1">
-                      {result.projectName ?? "独立任务"} ·{" "}
-                      {formatTimestamp(result.timestamp)}
+                      {result.projectName ?? t("search.standaloneTask")} ·{" "}
+                      {formatTimestamp(result.timestamp, locale)}
                     </CardDescription>
                   </div>
                   <Badge variant="secondary" className="shrink-0">
-                    {searchEntryTypeLabel(result.entryType)}
+                    {searchEntryTypeLabel(result.entryType, t)}
                   </Badge>
                 </CardHeader>
                 <CardContent className="text-sm leading-6 break-words whitespace-pre-wrap">
@@ -114,9 +133,9 @@ export default async function SearchPage({
               <EmptyMedia variant="icon">
                 <SearchIcon />
               </EmptyMedia>
-              <EmptyTitle>查找过去的对话</EmptyTitle>
+              <EmptyTitle>{t("search.empty.initialTitle")}</EmptyTitle>
               <EmptyDescription>
-                输入关键词后，会搜索已索引的标题、消息和工具记录。
+                {t("search.empty.initialDescription")}
               </EmptyDescription>
             </EmptyHeader>
           </Empty>
@@ -126,9 +145,9 @@ export default async function SearchPage({
               <EmptyMedia variant="icon">
                 <SearchIcon />
               </EmptyMedia>
-              <EmptyTitle>没有匹配结果</EmptyTitle>
+              <EmptyTitle>{t("search.empty.noResultsTitle")}</EmptyTitle>
               <EmptyDescription>
-                尝试更短的关键词，或检查对话是否已归档。
+                {t("search.empty.noResultsDescription")}
               </EmptyDescription>
             </EmptyHeader>
           </Empty>

@@ -33,6 +33,7 @@ import {
   type McpServerFormValue,
 } from "@/components/mcp-server-form"
 import { useI18n } from "@/components/i18n-provider"
+import { responseJson } from "@/lib/api-response"
 import { newestSettingsRevision } from "@/lib/settings-revision"
 
 interface McpProject {
@@ -69,6 +70,7 @@ export function McpSettings({
   const [notice, setNotice] = useState<string | null>(null)
   const [pendingDelete, setPendingDelete] = useState<McpServerView | null>(null)
   const catalogUpdateSequence = useRef(0)
+  const formTriggerRef = useRef<HTMLButtonElement | null>(null)
   const selectedProject =
     projects.find((project) => project.id === catalog.projectId) ?? null
 
@@ -81,10 +83,10 @@ export function McpSettings({
         const response = await fetch(
           endpoint("/api/v1/mcp/servers", catalog.projectId)
         )
-        const body = (await response.json()) as { error?: string }
-        if (!response.ok) {
-          throw new Error(body.error ?? t("settings.mcp.readFailed"))
-        }
+        const body = await responseJson<unknown>(
+          response,
+          t("settings.mcp.readFailed")
+        )
         if (active && sequence === catalogUpdateSequence.current) {
           const next = mcpCatalogSchema.parse(body)
           setCatalog((current) => newestSettingsRevision(current, next))
@@ -126,9 +128,10 @@ export function McpSettings({
   }
 
   async function readCatalog(response: Response) {
-    const body = (await response.json()) as { error?: string }
-    if (!response.ok)
-      throw new Error(body.error ?? t("settings.mcp.requestFailed"))
+    const body = await responseJson<unknown>(
+      response,
+      t("settings.mcp.requestFailed")
+    )
     const next = mcpCatalogSchema.parse(body)
     acceptCatalog(next)
     return next
@@ -200,15 +203,11 @@ export function McpSettings({
         endpoint(`/api/v1/mcp/servers/${server.id}/test`, catalog.projectId),
         { method: "POST", headers: mutationHeaders(false) }
       )
-      const result = (await response.json()) as {
-        error?: string
+      const result = await responseJson<{
         latencyMs?: number
         toolCount?: number
         catalog?: unknown
-      }
-      if (!response.ok) {
-        throw new Error(result.error ?? t("settings.mcp.testFailed"))
-      }
+      }>(response, t("settings.mcp.testFailed"))
       const next = mcpCatalogSchema.parse(result.catalog)
       acceptCatalog(next)
       setNotice(
@@ -281,7 +280,8 @@ export function McpSettings({
             <Button
               type="button"
               disabled={working !== null}
-              onClick={() => {
+              onClick={(event) => {
+                formTriggerRef.current = event.currentTarget
                 setEditing(null)
                 setFormOpen(true)
               }}
@@ -360,7 +360,8 @@ export function McpSettings({
                   projectBlocked={
                     server.scope === "project" && !catalog.projectTrusted
                   }
-                  onEdit={() => {
+                  onEdit={(trigger) => {
+                    formTriggerRef.current = trigger
                     setEditing(server)
                     setFormOpen(true)
                   }}
@@ -423,6 +424,7 @@ export function McpSettings({
           selectedProjectId={catalog.projectId}
           selectedProjectName={selectedProject?.name ?? null}
           working={working !== null}
+          onReturnFocus={() => formTriggerRef.current?.focus()}
           onOpenChange={(open) => {
             setFormOpen(open)
             if (!open) setEditing(null)

@@ -19,6 +19,8 @@ import {
 
 import { ProjectHeader } from "@/components/project-header"
 import { getProject } from "@/lib/catalog"
+import { getLocalizedConfig } from "@/lib/i18n-server"
+import { projectFileErrorCopy } from "@/lib/project-file-display"
 import {
   ProjectFileError,
   readProjectEntry,
@@ -47,10 +49,14 @@ function breadcrumbs(projectId: string, requestedPath: string) {
       path: segments.slice(0, index + 1).join("/"),
     })),
   ].map((item, index, items) => (
-    <span key={item.path || "root"} className="flex min-w-0 items-center gap-1">
+    <span
+      key={item.path || "root"}
+      className="flex max-w-full min-w-0 items-center gap-1"
+    >
       <Link
         href={entryHref(projectId, item.path)}
-        className="truncate hover:text-foreground"
+        className="min-w-0 truncate hover:text-foreground"
+        title={item.label}
         aria-current={index === items.length - 1 ? "page" : undefined}
       >
         {item.label}
@@ -67,7 +73,10 @@ export default async function ProjectFilesPage({
   const { projectId } = await params
   const query = await searchParams
   const requestedPath = typeof query.path === "string" ? query.path : ""
-  const project = await getProject(projectId)
+  const [{ config }, project] = await Promise.all([
+    getLocalizedConfig(),
+    getProject(projectId),
+  ])
   if (!project) notFound()
   const git = await readProjectGitStatus(project.path)
 
@@ -76,6 +85,7 @@ export default async function ProjectFilesPage({
     entry = await readProjectEntry(project.path, requestedPath)
   } catch (error) {
     if (!(error instanceof ProjectFileError)) throw error
+    const copy = projectFileErrorCopy(error.code, config.appearance.language)
     return (
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-8 px-4 py-8 sm:px-6 md:px-10 md:py-14">
         <ProjectHeader
@@ -85,8 +95,8 @@ export default async function ProjectFilesPage({
         />
         <Card>
           <CardHeader>
-            <CardTitle>无法打开路径</CardTitle>
-            <CardDescription>{error.message}</CardDescription>
+            <CardTitle>{copy.title}</CardTitle>
+            <CardDescription>{copy.description}</CardDescription>
           </CardHeader>
         </Card>
       </div>

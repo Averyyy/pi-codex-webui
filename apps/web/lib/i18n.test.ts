@@ -22,8 +22,37 @@ test("shared UI labels follow the Chinese locale", () => {
     "读取 WebUI Extension 状态失败。"
   )
   assert.equal(t("settings.resources.readFailed"), "读取 Pi 资源状态失败。")
+  assert.equal(
+    t("settings.resources.toggleEnabled", {
+      scope: "Global",
+      name: "npm:pi-notify",
+    }),
+    "Global npm:pi-notify 启用状态"
+  )
+  assert.equal(
+    t("settings.resources.filteredSummary", { visible: 2, total: 19 }),
+    "显示 2 / 19 项"
+  )
+  assert.equal(t("settings.mcp.status.connected"), "已连接")
+  assert.equal(
+    t("settings.mcp.lastConnected", { value: "2026-08-04 10:00:00Z" }),
+    "最近连接：2026-08-04 10:00:00Z"
+  )
   assert.equal(t("composer.reasoningEffort"), "推理强度")
   assert.equal(t("composer.reasoningLevel", { level: "max" }), "推理：max")
+  assert.equal(t("composer.commands"), "命令")
+  assert.equal(t("composer.send"), "发送")
+  assert.equal(
+    t("composer.image.remove", { name: "screen.png" }),
+    "移除 screen.png"
+  )
+  assert.equal(t("composer.model.select"), "选择模型")
+  assert.equal(t("workspace.nav.newConversation"), "新对话")
+  assert.equal(t("home.heading.default"), "你想让 Pi 做什么？")
+  assert.equal(
+    t("search.summary", { query: "STREAM-3", count: 1 }),
+    "“STREAM-3” 找到 1 个匹配结果"
+  )
 })
 
 test("shared UI labels retain their English defaults", () => {
@@ -48,9 +77,38 @@ test("shared UI labels retain their English defaults", () => {
     "Failed to read Pi resource status."
   )
   assert.equal(
+    t("settings.resources.toggleEnabled", {
+      scope: "Global",
+      name: "npm:pi-notify",
+    }),
+    "Global npm:pi-notify enabled state"
+  )
+  assert.equal(
+    t("settings.resources.filteredSummary", { visible: 2, total: 19 }),
+    "Showing 2 of 19 items"
+  )
+  assert.equal(t("settings.mcp.status.connected"), "Connected")
+  assert.equal(
+    t("settings.mcp.lastConnected", { value: "2026-08-04 10:00:00Z" }),
+    "Last connected: 2026-08-04 10:00:00Z"
+  )
+  assert.equal(
     t("ui.resizeSidebar"),
     "Resize the sidebar; click to collapse or expand"
   )
   assert.equal(t("composer.reasoningEffort"), "Reasoning effort")
   assert.equal(t("composer.reasoningLevel", { level: "max" }), "Reasoning: max")
+  assert.equal(t("composer.commands"), "Commands")
+  assert.equal(t("composer.send"), "Send")
+  assert.equal(
+    t("composer.image.remove", { name: "screen.png" }),
+    "Remove screen.png"
+  )
+  assert.equal(t("composer.model.select"), "Select model")
+  assert.equal(t("workspace.nav.newConversation"), "New conversation")
+  assert.equal(t("home.heading.default"), "What would you like Pi to do?")
+  assert.equal(
+    t("search.summary", { query: "STREAM-3", count: 1 }),
+    "Matches for “STREAM-3”: 1"
+  )
 })

@@ -31,13 +31,13 @@ import type {
 
 import { useI18n } from "@/components/i18n-provider"
 
-const statusLabel: Record<McpConnectionStatus, string> = {
-  disabled: "Disabled",
-  disconnected: "Disconnected",
-  connecting: "Connecting",
-  connected: "Connected",
-  error: "Error",
-}
+const statusLabelKey = {
+  disabled: "settings.mcp.status.disabled",
+  disconnected: "settings.mcp.status.disconnected",
+  connecting: "settings.mcp.status.connecting",
+  connected: "settings.mcp.status.connected",
+  error: "settings.mcp.status.error",
+} as const satisfies Record<McpConnectionStatus, string>
 
 function statusVariant(status: McpConnectionStatus) {
   if (status === "connected") return "secondary" as const
@@ -64,7 +64,7 @@ export function McpServerCard({
   server: McpServerView
   working: boolean
   projectBlocked: boolean
-  onEdit: () => void
+  onEdit: (trigger: HTMLButtonElement) => void
   onTest: () => void
   onReconnect: () => void
   onRemove: () => void
@@ -88,7 +88,7 @@ export function McpServerCard({
               : t("settings.resources.project")}
           </Badge>
           <Badge variant={statusVariant(server.status)}>
-            {statusLabel[server.status]}
+            {t(statusLabelKey[server.status])}
           </Badge>
         </CardTitle>
         <CardDescription className="font-mono text-xs break-all">
@@ -110,7 +110,7 @@ export function McpServerCard({
             variant="outline"
             size="sm"
             disabled={working}
-            onClick={onEdit}
+            onClick={(event) => onEdit(event.currentTarget)}
           >
             <PencilIcon />
             {t("settings.mcp.edit")}
@@ -149,7 +149,9 @@ export function McpServerCard({
 
         {server.lastConnectedAt ? (
           <p className="text-xs text-muted-foreground">
-            Last connected: {server.lastConnectedAt.replace("T", " ")}
+            {t("settings.mcp.lastConnected", {
+              value: server.lastConnectedAt.replace("T", " "),
+            })}
           </p>
         ) : null}
         {server.lastError ? (

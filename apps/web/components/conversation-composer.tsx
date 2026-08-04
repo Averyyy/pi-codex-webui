@@ -56,8 +56,8 @@ export function ConversationComposer({
   value,
   onValueChange,
   onSubmit,
-  placeholder = "向 Pi 发送消息",
-  ariaLabel = "向 Pi 发送消息",
+  placeholder,
+  ariaLabel,
   autoFocus = false,
   submitting = false,
   sendDisabled = false,
@@ -99,6 +99,9 @@ export function ConversationComposer({
   className?: string
   commands?: ComposerCommand[]
 }) {
+  const { t } = useI18n()
+  const resolvedPlaceholder = placeholder ?? t("composer.placeholder")
+  const resolvedAriaLabel = ariaLabel ?? t("composer.ariaLabel")
   const imageInputRef = useRef<HTMLInputElement>(null)
   const commandMenuId = useId()
   const [commandMenuOpen, setCommandMenuOpen] = useState(false)
@@ -110,13 +113,13 @@ export function ConversationComposer({
     ...commands,
     {
       id: imageCommandId,
-      label: "图片",
+      label: t("composer.image.label"),
       description:
         imagesSupported === false
-          ? "当前模型不支持图片"
+          ? t("composer.image.unsupported")
           : imagesSupported === null
-            ? "添加到当前消息；发送时验证模型"
-            : "添加到当前消息",
+            ? t("composer.image.addPendingValidation")
+            : t("composer.image.add"),
       icon: ImagePlusIcon,
       disabled:
         imagesSupported === false || imageChangesDisabled || !onImagesAdd,
@@ -253,11 +256,11 @@ export function ConversationComposer({
 
     event.preventDefault()
     if (imageChangesDisabled) {
-      toast.error("消息正在发送，请稍后添加图片。")
+      toast.error(t("composer.image.sending"))
       return
     }
     if (imagesSupported === false) {
-      toast.error("当前模型不支持图片。")
+      toast.error(t("composer.image.unsupportedSentence"))
       return
     }
     void onImagesAdd(files)
@@ -306,11 +309,11 @@ export function ConversationComposer({
                   event.currentTarget.value = ""
                   if (!files.length) return
                   if (imageChangesDisabled) {
-                    toast.error("消息正在发送，请稍后添加图片。")
+                    toast.error(t("composer.image.sending"))
                     return
                   }
                   if (imagesSupported === false) {
-                    toast.error("当前模型不支持图片。")
+                    toast.error(t("composer.image.unsupportedSentence"))
                     return
                   }
                   void onImagesAdd?.(files)
@@ -326,7 +329,7 @@ export function ConversationComposer({
         error={
           imageError ??
           (hasUnsupportedImages
-            ? "当前模型不支持已添加的图片。请移除图片或切换模型。"
+            ? t("composer.image.unsupportedAttached")
             : null)
         }
         onRemove={onImageRemove}
@@ -339,8 +342,8 @@ export function ConversationComposer({
           onChange={(event) => handleValueChange(event.target.value)}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
-          placeholder={placeholder}
-          aria-label={ariaLabel}
+          placeholder={resolvedPlaceholder}
+          aria-label={resolvedAriaLabel}
           aria-controls={
             openedWithSlash && commandMenuOpen ? commandMenuId : undefined
           }
@@ -367,7 +370,7 @@ export function ConversationComposer({
               size="icon"
               className="rounded-full"
               disabled={submissionDisabled}
-              aria-label="发送"
+              aria-label={t("composer.send")}
             >
               {submitting ? (
                 <LoaderCircleIcon className="animate-spin" />
@@ -395,6 +398,7 @@ export function ComposerModelSelect<T extends RuntimeModel>({
   disabled?: boolean
   settingsHref: string
 }) {
+  const { t } = useI18n()
   const selected = model
     ? models.find((available) => modelValue(available) === modelValue(model))
     : null
@@ -404,7 +408,7 @@ export function ComposerModelSelect<T extends RuntimeModel>({
       return (
         <Button size="sm" variant="outline" disabled>
           <Settings2Icon />
-          选择模型
+          {t("composer.model.select")}
         </Button>
       )
     }
@@ -412,7 +416,7 @@ export function ComposerModelSelect<T extends RuntimeModel>({
       <Button asChild size="sm" variant="outline">
         <Link href={settingsHref}>
           <Settings2Icon />
-          选择模型
+          {t("composer.model.select")}
         </Link>
       </Button>
     )
@@ -423,12 +427,16 @@ export function ComposerModelSelect<T extends RuntimeModel>({
       value={modelValue(selected)}
       onValueChange={(value) => {
         const next = models.find((available) => modelValue(available) === value)
-        if (!next) throw new Error("选择的模型不再可用。")
+        if (!next) throw new Error(t("composer.model.unavailable"))
         onModelChange(next)
       }}
       disabled={disabled}
     >
-      <SelectTrigger size="sm" className="max-w-56" aria-label="模型">
+      <SelectTrigger
+        size="sm"
+        className="max-w-56"
+        aria-label={t("composer.model.ariaLabel")}
+      >
         <SelectValue>
           {selected.provider} / {selected.name}
         </SelectValue>
@@ -445,7 +453,7 @@ export function ComposerModelSelect<T extends RuntimeModel>({
           >
             <Link href={settingsHref}>
               <Settings2Icon />
-              管理 Provider / Model scope
+              {t("composer.model.manage")}
             </Link>
           </Button>
         }

@@ -68,6 +68,7 @@ import {
   WorkspaceNavSession,
   type ConversationShortcutModifier,
 } from "@/components/workspace-nav-session"
+import { useI18n } from "@/components/i18n-provider"
 
 const VISIBLE_PROJECT_SESSIONS = 5
 const pendingProjectMutations = new Set<string>()
@@ -102,6 +103,7 @@ export function WorkspaceNavProject({
 }) {
   const pathname = usePathname()
   const router = useRouter()
+  const { t } = useI18n()
   const projectPath = `/projects/${project.id}`
   const active = pathname.startsWith(projectPath)
   const sessions = project.sessions.filter((session) => !session.isPinned)
@@ -194,34 +196,36 @@ export function WorkspaceNavProject({
   const actions: MenuAction[] = [
     {
       kind: "pin",
-      label: project.isPinned ? "取消置顶项目" : "置顶项目",
+      label: project.isPinned
+        ? t("workspace.project.unpin")
+        : t("workspace.project.pin"),
       icon: PinIcon,
     },
     {
       kind: "reveal",
-      label: "在文件管理器中显示",
+      label: t("workspace.project.reveal"),
       icon: FolderOpenIcon,
     },
     {
       kind: "worktree",
-      label: "创建永久工作树",
+      label: t("workspace.project.createWorktree"),
       icon: GitBranchPlusIcon,
     },
     {
       kind: "rename",
-      label: "重命名项目",
+      label: t("workspace.project.rename"),
       icon: PencilIcon,
       separatorBefore: true,
     },
     {
       kind: "archive",
-      label: "归档任务",
+      label: t("workspace.project.archiveTasks"),
       icon: ArchiveIcon,
       disabled: project.sessionCount === 0,
     },
     {
       kind: "remove",
-      label: "移除",
+      label: t("workspace.project.remove"),
       icon: Trash2Icon,
       destructive: true,
       separatorBefore: true,
@@ -309,7 +313,9 @@ export function WorkspaceNavProject({
                           ) : null}
                         </div>
                         <p className="mt-2 text-muted-foreground">
-                          {project.sessionCount} 个对话串
+                          {t("workspace.project.conversationCount", {
+                            count: project.sessionCount,
+                          })}
                         </p>
                         <p className="mt-3 truncate border-t pt-3 text-muted-foreground">
                           {project.path}
@@ -325,7 +331,9 @@ export function WorkspaceNavProject({
                       variant="ghost"
                       size="icon-sm"
                       className="absolute top-0.5 right-[4.5rem]"
-                      aria-label={`展开或折叠 ${project.name} 对话列表`}
+                      aria-label={t("workspace.project.toggleConversations", {
+                        name: project.name,
+                      })}
                     >
                       <ChevronRightIcon className="transition-transform group-data-open/collapsible:rotate-90" />
                     </Button>
@@ -338,7 +346,9 @@ export function WorkspaceNavProject({
                       <Button
                         variant="ghost"
                         size="icon-sm"
-                        aria-label={`${project.name} 更多操作`}
+                        aria-label={t("workspace.project.moreActions", {
+                          name: project.name,
+                        })}
                         disabled={working}
                       >
                         <MoreHorizontalIcon />
@@ -355,7 +365,9 @@ export function WorkspaceNavProject({
                   <Button asChild variant="ghost" size="icon-sm">
                     <Link
                       href={`/new?projectId=${encodeURIComponent(project.id)}`}
-                      aria-label={`在 ${project.name} 中新建对话`}
+                      aria-label={t("workspace.project.newConversation", {
+                        name: project.name,
+                      })}
                     >
                       <SquarePenIcon />
                     </Link>
@@ -392,7 +404,9 @@ export function WorkspaceNavProject({
                 <SidebarMenuSubItem>
                   <SidebarMenuSubButton asChild>
                     <Link href={projectPath}>
-                      查看全部 {sessions.length} 条
+                      {t("workspace.project.viewAll", {
+                        count: sessions.length,
+                      })}
                     </Link>
                   </SidebarMenuSubButton>
                 </SidebarMenuSubItem>
@@ -415,13 +429,15 @@ export function WorkspaceNavProject({
           {dialog === "rename" ? (
             <form onSubmit={submitRename} className="contents">
               <DialogHeader>
-                <DialogTitle>重命名项目</DialogTitle>
+                <DialogTitle>{t("workspace.project.rename")}</DialogTitle>
                 <DialogDescription>
-                  只修改侧栏显示名称，不会重命名磁盘目录。
+                  {t("workspace.project.renameDescription")}
                 </DialogDescription>
               </DialogHeader>
               <div className="grid gap-2">
-                <Label htmlFor={`project-name-${project.id}`}>项目名称</Label>
+                <Label htmlFor={`project-name-${project.id}`}>
+                  {t("workspace.project.name")}
+                </Label>
                 <Input
                   id={`project-name-${project.id}`}
                   value={name}
@@ -439,11 +455,11 @@ export function WorkspaceNavProject({
               <DialogFooter>
                 <DialogClose asChild>
                   <Button type="button" variant="outline" disabled={working}>
-                    取消
+                    {t("workspace.project.cancel")}
                   </Button>
                 </DialogClose>
                 <Button type="submit" disabled={working || !name.trim()}>
-                  保存
+                  {t("workspace.project.save")}
                 </Button>
               </DialogFooter>
             </form>
@@ -452,15 +468,17 @@ export function WorkspaceNavProject({
           {dialog === "worktree" ? (
             <form onSubmit={submitWorktree} className="contents">
               <DialogHeader>
-                <DialogTitle>创建永久工作树</DialogTitle>
+                <DialogTitle>
+                  {t("workspace.project.createWorktree")}
+                </DialogTitle>
                 <DialogDescription>
-                  Git 会创建新分支和工作树，完成后自动添加为项目。
+                  {t("workspace.project.worktreeDescription")}
                 </DialogDescription>
               </DialogHeader>
               <div className="grid gap-3">
                 <div className="grid gap-2">
                   <Label htmlFor={`worktree-path-${project.id}`}>
-                    工作树路径
+                    {t("workspace.project.worktreePath")}
                   </Label>
                   <Input
                     id={`worktree-path-${project.id}`}
@@ -474,7 +492,7 @@ export function WorkspaceNavProject({
                 </div>
                 <div className="grid gap-2">
                   <Label htmlFor={`worktree-branch-${project.id}`}>
-                    新分支
+                    {t("workspace.project.newBranch")}
                   </Label>
                   <Input
                     id={`worktree-branch-${project.id}`}
@@ -494,14 +512,14 @@ export function WorkspaceNavProject({
               <DialogFooter>
                 <DialogClose asChild>
                   <Button type="button" variant="outline" disabled={working}>
-                    取消
+                    {t("workspace.project.cancel")}
                   </Button>
                 </DialogClose>
                 <Button
                   type="submit"
                   disabled={working || !worktreePath.trim() || !branch.trim()}
                 >
-                  创建
+                  {t("workspace.project.create")}
                 </Button>
               </DialogFooter>
             </form>
@@ -510,9 +528,15 @@ export function WorkspaceNavProject({
           {dialog === "archive" ? (
             <>
               <DialogHeader>
-                <DialogTitle>归档 {project.name} 中的任务？</DialogTitle>
+                <DialogTitle>
+                  {t("workspace.project.archiveTitle", {
+                    name: project.name,
+                  })}
+                </DialogTitle>
                 <DialogDescription>
-                  {`将从导航中移除 ${project.sessionCount} 个任务；正在运行的任务会先停止。项目目录和 Pi session 文件不会删除。`}
+                  {t("workspace.project.archiveDescription", {
+                    count: project.sessionCount,
+                  })}
                 </DialogDescription>
               </DialogHeader>
               {error ? (
@@ -523,7 +547,7 @@ export function WorkspaceNavProject({
               <DialogFooter>
                 <DialogClose asChild>
                   <Button type="button" variant="outline" disabled={working}>
-                    取消
+                    {t("workspace.project.cancel")}
                   </Button>
                 </DialogClose>
                 <Button
@@ -533,7 +557,9 @@ export function WorkspaceNavProject({
                   aria-busy={working}
                   onClick={() => void archiveProject()}
                 >
-                  归档 {project.sessionCount} 个任务
+                  {t("workspace.project.archiveConfirm", {
+                    count: project.sessionCount,
+                  })}
                 </Button>
               </DialogFooter>
             </>
@@ -542,10 +568,11 @@ export function WorkspaceNavProject({
           {dialog === "remove" ? (
             <>
               <DialogHeader>
-                <DialogTitle>移除 {project.name}？</DialogTitle>
+                <DialogTitle>
+                  {t("workspace.project.removeTitle", { name: project.name })}
+                </DialogTitle>
                 <DialogDescription>
-                  只会从项目列表中移除。已有对话、磁盘目录和 Pi session
-                  文件都不会改变。
+                  {t("workspace.project.removeDescription")}
                 </DialogDescription>
               </DialogHeader>
               {error ? (
@@ -556,7 +583,7 @@ export function WorkspaceNavProject({
               <DialogFooter>
                 <DialogClose asChild>
                   <Button type="button" variant="outline" disabled={working}>
-                    取消
+                    {t("workspace.project.cancel")}
                   </Button>
                 </DialogClose>
                 <Button
@@ -566,7 +593,7 @@ export function WorkspaceNavProject({
                   aria-busy={working}
                   onClick={() => void removeProject()}
                 >
-                  移除
+                  {t("workspace.project.remove")}
                 </Button>
               </DialogFooter>
             </>

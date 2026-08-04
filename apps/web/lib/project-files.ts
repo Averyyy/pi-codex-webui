@@ -29,11 +29,13 @@ export type ProjectFile = {
   previewUnavailable: "binary" | "too-large" | null
 }
 
+export type ProjectFileErrorCode =
+  "InvalidPath" | "OutsideProject" | "Unavailable" | "UnsupportedEntry"
+
 export class ProjectFileError extends Error {
   constructor(
     message: string,
-    readonly code:
-      "InvalidPath" | "OutsideProject" | "Unavailable" | "UnsupportedEntry"
+    readonly code: ProjectFileErrorCode
   ) {
     super(message)
     this.name = "ProjectFileError"

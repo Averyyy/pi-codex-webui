@@ -5,6 +5,8 @@ import { XIcon } from "lucide-react"
 
 import { Button } from "@workspace/ui/components/button"
 
+import { useI18n } from "@/components/i18n-provider"
+import type { Translator } from "@/lib/i18n"
 import {
   MAX_PROMPT_IMAGES,
   MAX_PROMPT_IMAGE_BASE64_LENGTH,
@@ -16,20 +18,20 @@ import {
 
 export type { ComposerImage } from "@/lib/prompt-images"
 
-function readImage(file: File) {
+function readImage(file: File, t: Translator) {
   return new Promise<ComposerImage>((resolve, reject) => {
     const reader = new FileReader()
     reader.onerror = () =>
-      reject(reader.error ?? new Error(`无法读取图片 ${file.name}。`))
+      reject(new Error(t("composer.image.readFailed", { name: file.name })))
     reader.onload = () => {
       if (typeof reader.result !== "string") {
-        reject(new Error(`无法读取图片 ${file.name}。`))
+        reject(new Error(t("composer.image.readFailed", { name: file.name })))
         return
       }
       const prefix = /^data:(image\/[a-z0-9.+-]+);base64,/i.exec(reader.result)
       const mimeType = prefix?.[1]
       if (!prefix || !mimeType) {
-        reject(new Error(`${file.name} 不是浏览器可读取的图片。`))
+        reject(new Error(t("composer.image.invalid", { name: file.name })))
         return
       }
       resolve({
@@ -48,6 +50,7 @@ export function useComposerImages(
   initialImages: ComposerImage[] = [],
   onImagesChange?: (images: ComposerImage[]) => void
 ) {
+  const { t } = useI18n()
   const [images, setImages] = useState<ComposerImage[]>(initialImages)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -67,7 +70,11 @@ export function useComposerImages(
       imagesRef.current.length + pendingCountRef.current + files.length >
       MAX_PROMPT_IMAGES
     ) {
-      setError(`每条消息最多添加 ${MAX_PROMPT_IMAGES} 张图片。`)
+      setError(
+        t("composer.image.maximum", {
+          count: MAX_PROMPT_IMAGES,
+        })
+      )
       return
     }
     const oversized = files.find(
@@ -75,7 +82,7 @@ export function useComposerImages(
         promptImageBase64Length(file.size) > MAX_PROMPT_IMAGE_BASE64_LENGTH
     )
     if (oversized) {
-      setError(`图片 ${oversized.name} 太大，无法添加。`)
+      setError(t("composer.image.tooLarge", { name: oversized.name }))
       return
     }
 
@@ -84,7 +91,7 @@ export function useComposerImages(
     const revision = revisionRef.current
     try {
       const added: ComposerImage[] = []
-      for (const file of files) added.push(await readImage(file))
+      for (const file of files) added.push(await readImage(file, t))
       if (revision !== revisionRef.current) return
       const next = [...imagesRef.current, ...added]
       updateImages(next)
@@ -146,11 +153,14 @@ export function ComposerImagePreviews({
   onRemove?: (id: string) => void
   disabled?: boolean
 }) {
+  const { t } = useI18n()
+  const removeButtonRefs = useRef(new Map<string, HTMLButtonElement>())
+
   return (
     <>
       {images.length ? (
         <div className="flex flex-wrap gap-2 px-1 pt-1">
-          {images.map((image) => (
+          {images.map((image, index) => (
             <div
               key={image.id}
               className="group relative size-16 overflow-hidden rounded-xl border bg-muted"
@@ -164,12 +174,31 @@ export function ComposerImagePreviews({
                 className="size-full object-cover"
               />
               <Button
+                ref={(button) => {
+                  if (button) removeButtonRefs.current.set(image.id, button)
+                  else removeButtonRefs.current.delete(image.id)
+                }}
                 type="button"
                 variant="secondary"
                 size="icon-xs"
                 className="absolute top-1 right-1 rounded-full"
-                onClick={() => onRemove?.(image.id)}
-                aria-label={`移除 ${image.name}`}
+                onClick={(event) => {
+                  if (!onRemove) return
+                  const nextFocusId =
+                    images[index + 1]?.id ?? images[index - 1]?.id
+                  const textarea = event.currentTarget
+                    .closest("form")
+                    ?.querySelector<HTMLTextAreaElement>("textarea")
+                  onRemove(image.id)
+                  requestAnimationFrame(() => {
+                    if (nextFocusId) {
+                      removeButtonRefs.current.get(nextFocusId)?.focus()
+                    } else {
+                      textarea?.focus()
+                    }
+                  })
+                }}
+                aria-label={t("composer.image.remove", { name: image.name })}
                 disabled={disabled}
               >
                 <XIcon />

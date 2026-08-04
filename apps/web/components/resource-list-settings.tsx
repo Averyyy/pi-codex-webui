@@ -11,6 +11,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@workspace/ui/components/card"
+import { Input } from "@workspace/ui/components/input"
 import { Switch } from "@workspace/ui/components/switch"
 import type { ResourceCatalog, ResourceView } from "@workspace/runtime-protocol"
 
@@ -19,7 +20,29 @@ import {
   type ResourceProject,
 } from "@/components/resource-project-controls"
 import { useI18n } from "@/components/i18n-provider"
+import { responseJson } from "@/lib/api-response"
 import { useResourceCatalog } from "@/lib/use-resource-catalog"
+
+function resourceDisplayName(resource: ResourceView) {
+  return resource.type === "extension" && resource.packageSource
+    ? resource.packageSource
+    : resource.name
+}
+
+function resourceDescription(resource: ResourceView) {
+  return resource.type === "extension" && resource.packageSource
+    ? resource.name
+    : (resource.packageSource ?? resource.sourcePath)
+}
+
+function matchesQuery(resource: ResourceView, query: string) {
+  return [
+    resource.name,
+    resource.packageSource,
+    resource.sourcePath,
+    resource.source,
+  ].some((value) => value?.toLocaleLowerCase().includes(query))
+}
 
 export function ResourceListSettings({
   kind,
@@ -37,6 +60,7 @@ export function ResourceListSettings({
   mutationToken: string
 }) {
   const { t } = useI18n()
+  const [query, setQuery] = useState("")
   const [workingId, setWorkingId] = useState<string | null>(null)
   const [trustWorking, setTrustWorking] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -50,6 +74,10 @@ export function ResourceListSettings({
   const resources = catalog.resources.filter(
     (resource) => resource.type === kind
   )
+  const normalizedQuery = query.trim().toLocaleLowerCase()
+  const visibleResources = normalizedQuery
+    ? resources.filter((resource) => matchesQuery(resource, normalizedQuery))
+    : resources
   const busy = workingId !== null || trustWorking
 
   async function toggle(resource: ResourceView, enabled: boolean) {
@@ -68,11 +96,10 @@ export function ResourceListSettings({
           enabled,
         }),
       })
-      const result = (await response.json()) as ResourceCatalog & {
-        error?: string
-      }
-      if (!response.ok)
-        throw new Error(result.error ?? t("settings.common.saveFailed"))
+      const result = await responseJson<ResourceCatalog>(
+        response,
+        t("settings.common.saveFailed")
+      )
       setCatalog(result)
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure))
@@ -93,18 +120,45 @@ export function ResourceListSettings({
         onCatalogChange={setCatalog}
         onError={setError}
       />
+      <div className="grid gap-1.5">
+        <Input
+          type="search"
+          value={query}
+          autoComplete="off"
+          aria-label={t("settings.resources.searchLabel", {
+            kind: kind === "skill" ? "skill" : "extension",
+          })}
+          placeholder={t("settings.resources.searchPlaceholder", {
+            kind: kind === "skill" ? "skill" : "extension",
+          })}
+          onChange={(event) => setQuery(event.target.value)}
+        />
+        {normalizedQuery ? (
+          <p aria-live="polite" className="text-xs text-muted-foreground">
+            {t("settings.resources.filteredSummary", {
+              visible: visibleResources.length,
+              total: resources.length,
+            })}
+          </p>
+        ) : null}
+      </div>
       {(["global", "project"] as const).map((scope) => {
-        const scoped = resources.filter((resource) => resource.scope === scope)
+        const allScoped = resources.filter(
+          (resource) => resource.scope === scope
+        )
+        const scoped = visibleResources.filter(
+          (resource) => resource.scope === scope
+        )
+        const scopeLabel =
+          scope === "global"
+            ? t("settings.resources.global")
+            : t("settings.resources.project")
         return (
           <section key={scope} className="grid gap-3">
             <div className="flex items-baseline justify-between gap-4">
-              <h2 className="text-lg font-semibold">
-                {scope === "global"
-                  ? t("settings.resources.global")
-                  : t("settings.resources.project")}
-              </h2>
+              <h2 className="text-lg font-semibold">{scopeLabel}</h2>
               <span className="text-xs text-muted-foreground">
-                {t("settings.resources.count", { count: scoped.length })}
+                {t("settings.resources.count", { count: allScoped.length })}
               </span>
             </div>
             {scoped.length ? (
@@ -112,7 +166,7 @@ export function ResourceListSettings({
                 <Card key={resource.id} size="sm">
                   <CardHeader>
                     <CardTitle className="flex flex-wrap items-center gap-2">
-                      {resource.name}
+                      {resourceDisplayName(resource)}
                       {resource.inherited ? (
                         <Badge variant="outline">
                           {t("settings.resources.inherited")}
@@ -130,11 +184,14 @@ export function ResourceListSettings({
                       ) : null}
                     </CardTitle>
                     <CardDescription className="break-all">
-                      {resource.packageSource ?? resource.sourcePath}
+                      {resourceDescription(resource)}
                     </CardDescription>
                     <CardAction>
                       <Switch
-                        aria-label={`${resource.name} ${t("settings.resources.enabled")}`}
+                        aria-label={t("settings.resources.toggleEnabled", {
+                          scope: scopeLabel,
+                          name: resourceDisplayName(resource),
+                        })}
                         checked={resource.enabled}
                         disabled={
                           busy ||
@@ -155,9 +212,11 @@ export function ResourceListSettings({
               ))
             ) : (
               <p className="rounded-xl border border-dashed p-5 text-sm text-muted-foreground">
-                {t("settings.resources.empty", {
-                  kind: kind === "skill" ? "skill" : "extension",
-                })}
+                {allScoped.length
+                  ? t("settings.resources.noMatches")
+                  : t("settings.resources.empty", {
+                      kind: kind === "skill" ? "skill" : "extension",
+                    })}
               </p>
             )}
           </section>

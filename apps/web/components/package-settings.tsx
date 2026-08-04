@@ -34,6 +34,7 @@ import {
 } from "@/components/resource-project-controls"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { useI18n } from "@/components/i18n-provider"
+import { responseJson } from "@/lib/api-response"
 import { useResourceCatalog } from "@/lib/use-resource-catalog"
 
 export function PackageSettings({
@@ -52,6 +53,7 @@ export function PackageSettings({
   const { t } = useI18n()
   const [source, setSource] = useState("")
   const [scope, setScope] = useState<"global" | "project">("global")
+  const [query, setQuery] = useState("")
   const [working, setWorking] = useState<string | null>(null)
   const [pendingRemove, setPendingRemove] = useState<
     ResourceCatalog["packages"][number] | null
@@ -65,20 +67,28 @@ export function PackageSettings({
     setError,
     t("settings.resources.readFailed")
   )
+  const normalizedQuery = query.trim().toLocaleLowerCase()
+  const visiblePackages = normalizedQuery
+    ? catalog.packages.filter((pkg) =>
+        [pkg.source, pkg.installedPath, pkg.scope].some((value) =>
+          value?.toLocaleLowerCase().includes(normalizedQuery)
+        )
+      )
+    : catalog.packages
   const busy = working !== null || trustWorking
 
   async function readCatalog(response: Response) {
-    const result = (await response.json()) as ResourceCatalog & {
-      error?: string
-    }
-    if (!response.ok)
-      throw new Error(result.error ?? t("settings.common.saveFailed"))
+    const result = await responseJson<ResourceCatalog>(
+      response,
+      t("settings.common.saveFailed")
+    )
     setCatalog(result)
   }
 
   async function install(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!source.trim()) return
+    const packageSource = source.trim()
+    if (!packageSource) return
     setWorking("install")
     setError(null)
     try {
@@ -89,7 +99,7 @@ export function PackageSettings({
             "Content-Type": "application/json",
             "X-Pi-Web-Codex-Mutation-Token": mutationToken,
           },
-          body: JSON.stringify({ projectId, source, scope }),
+          body: JSON.stringify({ projectId, source: packageSource, scope }),
         })
       )
       setSource("")
@@ -213,8 +223,30 @@ export function PackageSettings({
             {t("settings.packages.items", { count: catalog.packages.length })}
           </span>
         </div>
-        {catalog.packages.length ? (
-          catalog.packages.map((pkg) => (
+        <div className="grid gap-1.5">
+          <Input
+            type="search"
+            value={query}
+            autoComplete="off"
+            aria-label={t("settings.resources.searchLabel", {
+              kind: "package",
+            })}
+            placeholder={t("settings.resources.searchPlaceholder", {
+              kind: "package",
+            })}
+            onChange={(event) => setQuery(event.target.value)}
+          />
+          {normalizedQuery ? (
+            <p aria-live="polite" className="text-xs text-muted-foreground">
+              {t("settings.resources.filteredSummary", {
+                visible: visiblePackages.length,
+                total: catalog.packages.length,
+              })}
+            </p>
+          ) : null}
+        </div>
+        {visiblePackages.length ? (
+          visiblePackages.map((pkg) => (
             <Card key={pkg.id} size="sm">
               <CardHeader>
                 <CardTitle className="flex flex-wrap items-center gap-2">
@@ -273,6 +305,10 @@ export function PackageSettings({
               ) : null}
             </Card>
           ))
+        ) : catalog.packages.length ? (
+          <p className="rounded-xl border border-dashed p-5 text-sm text-muted-foreground">
+            {t("settings.resources.noMatches")}
+          </p>
         ) : (
           <p className="rounded-xl border border-dashed p-5 text-sm text-muted-foreground">
             {t("settings.packages.empty")}

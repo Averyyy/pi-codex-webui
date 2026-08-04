@@ -23,6 +23,7 @@ import {
 import type { ResourceCatalog } from "@workspace/runtime-protocol"
 
 import { useI18n } from "@/components/i18n-provider"
+import { responseJson } from "@/lib/api-response"
 
 export interface ResourceProject {
   id: string
@@ -65,12 +66,10 @@ export function ResourceProjectControls({
         },
         body: JSON.stringify({ trusted }),
       })
-      const result = (await response.json()) as ResourceCatalog & {
-        error?: string
-      }
-      if (!response.ok) {
-        throw new Error(result.error ?? t("settings.common.saveFailed"))
-      }
+      const result = await responseJson<ResourceCatalog>(
+        response,
+        t("settings.common.saveFailed")
+      )
       onCatalogChange(result)
       router.refresh()
     } catch (failure) {

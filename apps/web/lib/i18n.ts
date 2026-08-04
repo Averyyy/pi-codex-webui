@@ -31,6 +31,379 @@ const messages = {
     "zh-CN": "Alt+Shift+R 切换推理强度",
     "en-US": "Alt+Shift+R cycles reasoning effort",
   },
+  "composer.commands": { "zh-CN": "命令", "en-US": "Commands" },
+  "composer.commands.noMatches": {
+    "zh-CN": "没有匹配的命令",
+    "en-US": "No matching commands",
+  },
+  "composer.send": { "zh-CN": "发送", "en-US": "Send" },
+  "composer.placeholder": {
+    "zh-CN": "向 Pi 发送消息",
+    "en-US": "Send a message to Pi",
+  },
+  "composer.ariaLabel": {
+    "zh-CN": "向 Pi 发送消息",
+    "en-US": "Message Pi",
+  },
+  "composer.image.label": { "zh-CN": "图片", "en-US": "Image" },
+  "composer.image.add": {
+    "zh-CN": "添加到当前消息",
+    "en-US": "Add to the current message",
+  },
+  "composer.image.addPendingValidation": {
+    "zh-CN": "添加到当前消息；发送时验证模型",
+    "en-US": "Add now; model support is checked when sending",
+  },
+  "composer.image.unsupported": {
+    "zh-CN": "当前模型不支持图片",
+    "en-US": "The current model does not support images",
+  },
+  "composer.image.unsupportedSentence": {
+    "zh-CN": "当前模型不支持图片。",
+    "en-US": "The current model does not support images.",
+  },
+  "composer.image.sending": {
+    "zh-CN": "消息正在发送，请稍后添加图片。",
+    "en-US": "The message is being sent. Add images after it finishes.",
+  },
+  "composer.image.unsupportedAttached": {
+    "zh-CN": "当前模型不支持已添加的图片。请移除图片或切换模型。",
+    "en-US":
+      "The current model does not support the attached images. Remove them or switch models.",
+  },
+  "composer.image.readFailed": {
+    "zh-CN": "无法读取图片 {name}。",
+    "en-US": "Could not read image {name}.",
+  },
+  "composer.image.invalid": {
+    "zh-CN": "{name} 不是浏览器可读取的图片。",
+    "en-US": "{name} is not an image the browser can read.",
+  },
+  "composer.image.maximum": {
+    "zh-CN": "每条消息最多添加 {count} 张图片。",
+    "en-US": "Each message can include up to {count} images.",
+  },
+  "composer.image.tooLarge": {
+    "zh-CN": "图片 {name} 太大，无法添加。",
+    "en-US": "Image {name} is too large to add.",
+  },
+  "composer.image.remove": {
+    "zh-CN": "移除 {name}",
+    "en-US": "Remove {name}",
+  },
+  "composer.model.select": {
+    "zh-CN": "选择模型",
+    "en-US": "Select model",
+  },
+  "composer.model.unavailable": {
+    "zh-CN": "选择的模型不再可用。",
+    "en-US": "The selected model is no longer available.",
+  },
+  "composer.model.ariaLabel": { "zh-CN": "模型", "en-US": "Model" },
+  "composer.model.manage": {
+    "zh-CN": "管理 Provider / Model scope",
+    "en-US": "Manage providers and model scope",
+  },
+
+  "workspace.nav.ariaLabel": {
+    "zh-CN": "主导航",
+    "en-US": "Main navigation",
+  },
+  "workspace.nav.search": {
+    "zh-CN": "搜索对话",
+    "en-US": "Search conversations",
+  },
+  "workspace.nav.newConversation": {
+    "zh-CN": "新对话",
+    "en-US": "New conversation",
+  },
+  "workspace.nav.pinned": { "zh-CN": "置顶", "en-US": "Pinned" },
+  "workspace.nav.projects": { "zh-CN": "项目", "en-US": "Projects" },
+  "workspace.nav.choosingProject": {
+    "zh-CN": "正在选择项目",
+    "en-US": "Choosing a project",
+  },
+  "workspace.nav.addProject": {
+    "zh-CN": "添加项目",
+    "en-US": "Add project",
+  },
+  "workspace.nav.collapseProjects": {
+    "zh-CN": "收起",
+    "en-US": "Show fewer",
+  },
+  "workspace.nav.expandProjects": {
+    "zh-CN": "展开显示",
+    "en-US": "Show more",
+  },
+  "workspace.nav.tasks": { "zh-CN": "任务", "en-US": "Tasks" },
+  "workspace.nav.settings": { "zh-CN": "设置", "en-US": "Settings" },
+  "workspace.nav.pinConversation": {
+    "zh-CN": "置顶对话",
+    "en-US": "Pin conversation",
+  },
+  "workspace.nav.unpinConversation": {
+    "zh-CN": "取消置顶对话",
+    "en-US": "Unpin conversation",
+  },
+  "workspace.nav.unpin": { "zh-CN": "取消置顶", "en-US": "Unpin" },
+  "workspace.nav.archiveConversation": {
+    "zh-CN": "归档对话",
+    "en-US": "Archive conversation",
+  },
+  "workspace.nav.running": {
+    "zh-CN": "正在运行",
+    "en-US": "Running",
+  },
+  "workspace.nav.newlyCompleted": {
+    "zh-CN": "新完成",
+    "en-US": "Newly completed",
+  },
+  "workspace.nav.newTask": { "zh-CN": "新任务", "en-US": "New task" },
+  "workspace.nav.unnamedConversation": {
+    "zh-CN": "未命名会话",
+    "en-US": "Untitled conversation",
+  },
+
+  "workspace.project.pin": {
+    "zh-CN": "置顶项目",
+    "en-US": "Pin project",
+  },
+  "workspace.project.unpin": {
+    "zh-CN": "取消置顶项目",
+    "en-US": "Unpin project",
+  },
+  "workspace.project.reveal": {
+    "zh-CN": "在文件管理器中显示",
+    "en-US": "Show in file manager",
+  },
+  "workspace.project.createWorktree": {
+    "zh-CN": "创建永久工作树",
+    "en-US": "Create permanent worktree",
+  },
+  "workspace.project.rename": {
+    "zh-CN": "重命名项目",
+    "en-US": "Rename project",
+  },
+  "workspace.project.archiveTasks": {
+    "zh-CN": "归档任务",
+    "en-US": "Archive tasks",
+  },
+  "workspace.project.remove": { "zh-CN": "移除", "en-US": "Remove" },
+  "workspace.project.conversationCount": {
+    "zh-CN": "{count} 个对话串",
+    "en-US": "Conversations: {count}",
+  },
+  "workspace.project.toggleConversations": {
+    "zh-CN": "展开或折叠 {name} 对话列表",
+    "en-US": "Expand or collapse conversations in {name}",
+  },
+  "workspace.project.moreActions": {
+    "zh-CN": "{name} 更多操作",
+    "en-US": "More actions for {name}",
+  },
+  "workspace.project.newConversation": {
+    "zh-CN": "在 {name} 中新建对话",
+    "en-US": "New conversation in {name}",
+  },
+  "workspace.project.viewAll": {
+    "zh-CN": "查看全部 {count} 条",
+    "en-US": "View all {count}",
+  },
+  "workspace.project.renameDescription": {
+    "zh-CN": "只修改侧栏显示名称，不会重命名磁盘目录。",
+    "en-US": "This only changes the sidebar label, not the folder on disk.",
+  },
+  "workspace.project.name": {
+    "zh-CN": "项目名称",
+    "en-US": "Project name",
+  },
+  "workspace.project.cancel": { "zh-CN": "取消", "en-US": "Cancel" },
+  "workspace.project.save": { "zh-CN": "保存", "en-US": "Save" },
+  "workspace.project.worktreeDescription": {
+    "zh-CN": "Git 会创建新分支和工作树，完成后自动添加为项目。",
+    "en-US":
+      "Git creates a new branch and worktree, then adds it as a project.",
+  },
+  "workspace.project.worktreePath": {
+    "zh-CN": "工作树路径",
+    "en-US": "Worktree path",
+  },
+  "workspace.project.newBranch": {
+    "zh-CN": "新分支",
+    "en-US": "New branch",
+  },
+  "workspace.project.create": { "zh-CN": "创建", "en-US": "Create" },
+  "workspace.project.archiveTitle": {
+    "zh-CN": "归档 {name} 中的任务？",
+    "en-US": "Archive tasks in {name}?",
+  },
+  "workspace.project.archiveDescription": {
+    "zh-CN":
+      "将从导航中移除 {count} 个任务；正在运行的任务会先停止。项目目录和 Pi session 文件不会删除。",
+    "en-US":
+      "This removes {count} tasks from navigation and stops any that are running. The project folder and Pi session files are kept.",
+  },
+  "workspace.project.archiveConfirm": {
+    "zh-CN": "归档 {count} 个任务",
+    "en-US": "Archive {count} tasks",
+  },
+  "workspace.project.removeTitle": {
+    "zh-CN": "移除 {name}？",
+    "en-US": "Remove {name}?",
+  },
+  "workspace.project.removeDescription": {
+    "zh-CN":
+      "只会从项目列表中移除。已有对话、磁盘目录和 Pi session 文件都不会改变。",
+    "en-US":
+      "This only removes the project from the list. Existing conversations, the folder on disk, and Pi session files are unchanged.",
+  },
+
+  "home.projectSwitchFailed": {
+    "zh-CN": "工作项目切换未完成，请重试。",
+    "en-US": "The project switch did not complete. Try again.",
+  },
+  "home.imageOnlyPrompt": {
+    "zh-CN": "请查看附加图片。",
+    "en-US": "Please review the attached image.",
+  },
+  "home.heading.projectBefore": {
+    "zh-CN": "我们应该在 ",
+    "en-US": "What should we build in ",
+  },
+  "home.heading.projectAfter": { "zh-CN": " 中构建什么？", "en-US": "?" },
+  "home.heading.default": {
+    "zh-CN": "你想让 Pi 做什么？",
+    "en-US": "What would you like Pi to do?",
+  },
+  "home.starter.explore": {
+    "zh-CN": "探索并理解代码",
+    "en-US": "Explore and understand code",
+  },
+  "home.starter.build": {
+    "zh-CN": "构建新功能、应用或工具",
+    "en-US": "Build a feature, app, or tool",
+  },
+  "home.starter.review": {
+    "zh-CN": "审查代码并提出修改建议",
+    "en-US": "Review code and suggest changes",
+  },
+  "home.starter.fix": {
+    "zh-CN": "修复问题和失败",
+    "en-US": "Fix a bug or failure",
+  },
+  "home.modelUnavailable": {
+    "zh-CN": "当前模型不可用。请先配置 Provider 凭据或选择可用模型。",
+    "en-US":
+      "The current model is unavailable. Configure provider credentials or choose an available model.",
+  },
+  "home.openSettings": { "zh-CN": "去设置", "en-US": "Open settings" },
+  "home.composer.placeholder": {
+    "zh-CN": "描述你想构建或解决的问题",
+    "en-US": "Describe what you want to build or solve",
+  },
+  "home.composer.ariaLabel": {
+    "zh-CN": "第一条消息",
+    "en-US": "First message",
+  },
+  "home.command.goal": { "zh-CN": "目标", "en-US": "Goal" },
+  "home.command.compact": { "zh-CN": "压缩", "en-US": "Compact" },
+  "home.command.reload": { "zh-CN": "重新加载", "en-US": "Reload" },
+  "home.command.insideTask": {
+    "zh-CN": "进入任务后可用",
+    "en-US": "Available after entering a task",
+  },
+  "home.status.creatingTask": {
+    "zh-CN": "正在创建任务…",
+    "en-US": "Creating task…",
+  },
+  "home.status.loadingModels": {
+    "zh-CN": "正在加载模型",
+    "en-US": "Loading models",
+  },
+  "home.status.readingImages": {
+    "zh-CN": "正在读取图片…",
+    "en-US": "Reading images…",
+  },
+  "home.project.ariaLabel": {
+    "zh-CN": "工作项目",
+    "en-US": "Project",
+  },
+  "home.project.standalone": {
+    "zh-CN": "独立任务",
+    "en-US": "Standalone task",
+  },
+  "home.project.choosing": {
+    "zh-CN": "正在选择…",
+    "en-US": "Choosing…",
+  },
+  "home.project.add": { "zh-CN": "添加项目", "en-US": "Add project" },
+
+  "search.title": { "zh-CN": "搜索", "en-US": "Search" },
+  "search.description": {
+    "zh-CN": "搜索对话标题、消息与工具记录",
+    "en-US": "Search conversation titles, messages, and tool records",
+  },
+  "search.summary": {
+    "zh-CN": "“{query}” 找到 {count} 个匹配结果",
+    "en-US": "Matches for “{query}”: {count}",
+  },
+  "search.label": { "zh-CN": "搜索对话", "en-US": "Search conversations" },
+  "search.placeholder": {
+    "zh-CN": "输入关键词",
+    "en-US": "Enter keywords",
+  },
+  "search.submit": { "zh-CN": "搜索", "en-US": "Search" },
+  "search.results.ariaLabel": {
+    "zh-CN": "搜索结果",
+    "en-US": "Search results",
+  },
+  "search.standaloneTask": {
+    "zh-CN": "独立任务",
+    "en-US": "Standalone task",
+  },
+  "search.empty.initialTitle": {
+    "zh-CN": "查找过去的对话",
+    "en-US": "Find past conversations",
+  },
+  "search.empty.initialDescription": {
+    "zh-CN": "输入关键词后，会搜索已索引的标题、消息和工具记录。",
+    "en-US":
+      "Enter keywords to search indexed titles, messages, and tool records.",
+  },
+  "search.empty.noResultsTitle": {
+    "zh-CN": "没有匹配结果",
+    "en-US": "No matching results",
+  },
+  "search.empty.noResultsDescription": {
+    "zh-CN": "尝试更短的关键词，或检查对话是否已归档。",
+    "en-US":
+      "Try a shorter keyword or check whether the conversation was archived.",
+  },
+  "search.entry.title": { "zh-CN": "标题", "en-US": "Title" },
+  "search.entry.message": { "zh-CN": "消息", "en-US": "Message" },
+  "search.entry.tool": { "zh-CN": "工具", "en-US": "Tool" },
+  "search.entry.modelChange": {
+    "zh-CN": "模型变更",
+    "en-US": "Model change",
+  },
+  "search.entry.thinkingChange": {
+    "zh-CN": "推理强度变更",
+    "en-US": "Reasoning change",
+  },
+  "search.entry.compaction": {
+    "zh-CN": "上下文压缩",
+    "en-US": "Context compaction",
+  },
+  "search.entry.branchSummary": {
+    "zh-CN": "分支摘要",
+    "en-US": "Branch summary",
+  },
+  "search.entry.customMessage": {
+    "zh-CN": "扩展消息",
+    "en-US": "Extension message",
+  },
+  "search.entry.goal": { "zh-CN": "目标", "en-US": "Goal" },
+  "search.entry.record": { "zh-CN": "记录", "en-US": "Record" },
 
   "settings.nav.general": { "zh-CN": "常规", "en-US": "General" },
   "settings.nav.appearance": { "zh-CN": "外观", "en-US": "Appearance" },
@@ -609,6 +982,26 @@ const messages = {
     "zh-CN": "启用状态",
     "en-US": "Enabled state",
   },
+  "settings.resources.toggleEnabled": {
+    "zh-CN": "{scope} {name} 启用状态",
+    "en-US": "{scope} {name} enabled state",
+  },
+  "settings.resources.searchLabel": {
+    "zh-CN": "搜索 {kind}",
+    "en-US": "Search {kind}s",
+  },
+  "settings.resources.searchPlaceholder": {
+    "zh-CN": "按名称、package 或路径搜索 {kind}",
+    "en-US": "Search {kind}s by name, package, or path",
+  },
+  "settings.resources.filteredSummary": {
+    "zh-CN": "显示 {visible} / {total} 项",
+    "en-US": "Showing {visible} of {total} items",
+  },
+  "settings.resources.noMatches": {
+    "zh-CN": "没有匹配项。",
+    "en-US": "No matches.",
+  },
   "settings.resources.empty": {
     "zh-CN": "没有解析到这个 scope 的 {kind}。",
     "en-US": "No {kind} was resolved for this scope.",
@@ -794,6 +1187,27 @@ const messages = {
   "settings.mcp.enableTool": {
     "zh-CN": "{name} 启用状态",
     "en-US": "{name} enabled state",
+  },
+  "settings.mcp.status.disabled": {
+    "zh-CN": "已停用",
+    "en-US": "Disabled",
+  },
+  "settings.mcp.status.disconnected": {
+    "zh-CN": "未连接",
+    "en-US": "Disconnected",
+  },
+  "settings.mcp.status.connecting": {
+    "zh-CN": "连接中",
+    "en-US": "Connecting",
+  },
+  "settings.mcp.status.connected": {
+    "zh-CN": "已连接",
+    "en-US": "Connected",
+  },
+  "settings.mcp.status.error": { "zh-CN": "错误", "en-US": "Error" },
+  "settings.mcp.lastConnected": {
+    "zh-CN": "最近连接：{value}",
+    "en-US": "Last connected: {value}",
   },
   "settings.mcp.edit": { "zh-CN": "编辑", "en-US": "Edit" },
   "settings.mcp.testConnection": {

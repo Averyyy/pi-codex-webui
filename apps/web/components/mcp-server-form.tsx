@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useRef, useState } from "react"
 
 import { Button } from "@workspace/ui/components/button"
 import {
@@ -63,6 +63,11 @@ interface FormState {
   timeoutMs: string
 }
 
+interface FormError {
+  field: "arguments" | "timeout"
+  message: string
+}
+
 function initialState(server: McpServerView | null): FormState {
   return {
     id: server?.id ?? "",
@@ -93,6 +98,7 @@ export function McpServerForm({
   selectedProjectName,
   working,
   onOpenChange,
+  onReturnFocus,
   onSave,
 }: {
   open: boolean
@@ -101,14 +107,31 @@ export function McpServerForm({
   selectedProjectName: string | null
   working: boolean
   onOpenChange: (open: boolean) => void
+  onReturnFocus: () => void
   onSave: (server: McpServerFormValue) => Promise<void>
 }) {
   const { t } = useI18n()
   const [form, setForm] = useState(() => initialState(server))
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<FormError | null>(null)
+  const argumentsRef = useRef<HTMLTextAreaElement | null>(null)
+  const timeoutRef = useRef<HTMLInputElement | null>(null)
 
   function field<Key extends keyof FormState>(key: Key, value: FormState[Key]) {
     setForm((current) => ({ ...current, [key]: value }))
+    if (
+      (key === "argsJson" && error?.field === "arguments") ||
+      (key === "timeoutMs" && error?.field === "timeout")
+    ) {
+      setError(null)
+    }
+  }
+
+  function reportError(field: FormError["field"], message: string) {
+    setError({ field, message })
+    requestAnimationFrame(() => {
+      const target = field === "arguments" ? argumentsRef : timeoutRef
+      target.current?.focus()
+    })
   }
 
   async function submit(event: React.FormEvent) {
@@ -118,19 +141,19 @@ export function McpServerForm({
     try {
       args = JSON.parse(form.argsJson)
     } catch {
-      setError(t("settings.mcpForm.argumentsError"))
+      reportError("arguments", t("settings.mcpForm.argumentsError"))
       return
     }
     if (
       !Array.isArray(args) ||
       args.some((value) => typeof value !== "string")
     ) {
-      setError(t("settings.mcpForm.argumentsTypeError"))
+      reportError("arguments", t("settings.mcpForm.argumentsTypeError"))
       return
     }
     const timeoutMs = Number(form.timeoutMs)
     if (!Number.isInteger(timeoutMs)) {
-      setError(t("settings.mcpForm.timeoutError"))
+      reportError("timeout", t("settings.mcpForm.timeoutError"))
       return
     }
 
@@ -156,7 +179,13 @@ export function McpServerForm({
 
   return (
     <Dialog open={open} onOpenChange={working ? undefined : onOpenChange}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+      <DialogContent
+        className="max-h-[90vh] overflow-y-auto sm:max-w-2xl"
+        onCloseAutoFocus={(event) => {
+          event.preventDefault()
+          onReturnFocus()
+        }}
+      >
         <DialogHeader>
           <DialogTitle>
             {server
@@ -269,8 +298,13 @@ export function McpServerForm({
                 </Label>
                 <Textarea
                   id="mcp-args"
+                  ref={argumentsRef}
                   className="min-h-24 font-mono text-xs"
                   value={form.argsJson}
+                  aria-invalid={error?.field === "arguments"}
+                  aria-describedby={
+                    error?.field === "arguments" ? "mcp-form-error" : undefined
+                  }
                   onChange={(event) => field("argsJson", event.target.value)}
                 />
               </div>
@@ -317,11 +351,16 @@ export function McpServerForm({
               </Label>
               <Input
                 id="mcp-timeout"
+                ref={timeoutRef}
                 type="number"
                 min={1000}
                 max={600000}
                 required
                 value={form.timeoutMs}
+                aria-invalid={error?.field === "timeout"}
+                aria-describedby={
+                  error?.field === "timeout" ? "mcp-form-error" : undefined
+                }
                 onChange={(event) => field("timeoutMs", event.target.value)}
               />
             </div>
@@ -334,7 +373,9 @@ export function McpServerForm({
             </label>
           </div>
 
-          {error ? <FieldError>{error}</FieldError> : null}
+          {error ? (
+            <FieldError id="mcp-form-error">{error.message}</FieldError>
+          ) : null}
           <DialogFooter className="mx-0 mb-0">
             <Button
               type="button"

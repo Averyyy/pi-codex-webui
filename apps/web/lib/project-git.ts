@@ -1,7 +1,7 @@
 import "server-only"
 
 import { spawn } from "node:child_process"
-import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises"
+import { mkdtemp, realpath, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 
@@ -38,9 +38,14 @@ type GitResult = { code: number; stdout: string; stderr: string }
 
 export class ProjectGitError extends Error {}
 
-function runGit(cwd: string, args: string[]) {
+function runGit(
+  cwd: string,
+  args: string[],
+  environment?: Record<string, string>
+) {
   return new Promise<GitResult>((resolve, reject) => {
     const child = spawn("git", ["-C", cwd, ...args], {
+      env: environment ? { ...process.env, ...environment } : undefined,
       stdio: ["ignore", "pipe", "pipe"],
     })
     const stdout: Buffer[] = []
@@ -62,22 +67,38 @@ function commandValue(result: GitResult) {
   return result.code === 0 ? result.stdout.trim() || null : null
 }
 
-async function diffAgainstEmpty(projectPath: string, filePath: string) {
+async function diffAgainstEmpty(
+  projectPath: string,
+  filePath: string,
+  hasHead: boolean
+) {
   const directory = await mkdtemp(path.join(tmpdir(), "pi-web-codex-diff-"))
-  const empty = path.join(directory, "empty")
-  await writeFile(empty, "")
+  const environment = { GIT_INDEX_FILE: path.join(directory, "index") }
   try {
-    const result = await runGit(projectPath, [
-      "diff",
-      "--no-index",
-      "--no-ext-diff",
-      "--no-color",
-      "--unified=3",
-      "--",
-      empty,
-      filePath,
-    ])
-    if (result.code > 1) {
+    const initialize = await runGit(
+      projectPath,
+      hasHead ? ["read-tree", "HEAD"] : ["read-tree", "--empty"],
+      environment
+    )
+    if (initialize.code !== 0) {
+      throw new ProjectGitError(
+        initialize.stderr.trim() || "Git diff index initialization failed."
+      )
+    }
+    const add = await runGit(
+      projectPath,
+      ["add", "--intent-to-add", "--", filePath],
+      environment
+    )
+    if (add.code !== 0) {
+      throw new ProjectGitError(add.stderr.trim() || "Git diff failed.")
+    }
+    const result = await runGit(
+      projectPath,
+      ["diff", "--no-ext-diff", "--no-color", "--unified=3", "--", filePath],
+      environment
+    )
+    if (result.code !== 0) {
       throw new ProjectGitError(result.stderr.trim() || "Git diff failed.")
     }
     return result.stdout
@@ -260,10 +281,7 @@ export async function readProjectGitDiff(
   )
   let patch: string
   if (file.index === "?" || !hasHead) {
-    patch = await diffAgainstEmpty(
-      projectPath,
-      path.join(path.resolve(projectPath), file.path)
-    )
+    patch = await diffAgainstEmpty(projectPath, file.path, Boolean(hasHead))
   } else {
     const result = await runGit(projectPath, [
       "diff",
@@ -272,6 +290,7 @@ export async function readProjectGitDiff(
       "--unified=3",
       "HEAD",
       "--",
+      ...(file.originalPath ? [file.originalPath] : []),
       file.path,
     ])
     if (result.code !== 0) {

@@ -11,6 +11,7 @@ import {
   readProjectEntry,
   readProjectFile,
 } from "./project-files"
+import { projectFileErrorCopy } from "./project-file-display"
 import {
   createProjectWorktree,
   readProjectGitDiff,
@@ -24,6 +25,25 @@ import { projectFileManager } from "./project-reveal"
 import { shellCommand } from "./shell-supervisor"
 
 const run = promisify(execFile)
+
+test("project file errors are localized from stable error codes", () => {
+  assert.deepEqual(projectFileErrorCopy("InvalidPath", "zh-CN"), {
+    title: "无法打开路径",
+    description: "请求的项目路径无效或不存在。",
+  })
+  assert.deepEqual(projectFileErrorCopy("InvalidPath", "en-US"), {
+    title: "Unable to open path",
+    description: "The requested project path is invalid or missing.",
+  })
+  assert.equal(
+    projectFileErrorCopy("OutsideProject", "zh-CN").description,
+    "请求的路径位于项目目录之外。"
+  )
+  assert.equal(
+    projectFileErrorCopy("OutsideProject", "en-US").description,
+    "The requested path is outside the project."
+  )
+})
 
 test("project file browser reads real files and blocks paths outside its root", async () => {
   const directory = await mkdtemp(path.join(tmpdir(), "pi-web-files-"))
@@ -61,13 +81,26 @@ test("project file browser reads real files and blocks paths outside its root", 
 
   await assert.rejects(
     readProjectEntry(project, "../outside.txt"),
-    (error: unknown) =>
-      error instanceof ProjectFileError && error.code === "OutsideProject"
+    (error: unknown) => {
+      assert.ok(error instanceof ProjectFileError)
+      assert.equal(error.code, "OutsideProject")
+      assert.equal(error.message, "The requested path is outside the project.")
+      return true
+    }
   )
   await assert.rejects(
     readProjectEntry(project, "outside-link"),
     (error: unknown) =>
       error instanceof ProjectFileError && error.code === "OutsideProject"
+  )
+  await assert.rejects(
+    readProjectEntry(project, "missing.txt"),
+    (error: unknown) => {
+      assert.ok(error instanceof ProjectFileError)
+      assert.equal(error.code, "InvalidPath")
+      assert.equal(error.message, "The requested project path does not exist.")
+      return true
+    }
   )
   await rm(directory, { recursive: true, force: true })
   await assert.rejects(
@@ -89,7 +122,8 @@ test("project Git integration reports the real branch and working tree", async (
     "fixture@example.com",
   ])
   await writeFile(path.join(project, "tracked.txt"), "first\n")
-  await run("git", ["-C", project, "add", "tracked.txt"])
+  await writeFile(path.join(project, "rename-source.txt"), "rename me\n")
+  await run("git", ["-C", project, "add", "tracked.txt", "rename-source.txt"])
   await run("git", ["-C", project, "commit", "-m", "fixture"])
   const worktree = `${project}-worktree`
   await createProjectWorktree(project, worktree, "fixture-worktree")
@@ -103,6 +137,13 @@ test("project Git integration reports the real branch and working tree", async (
     writeFile(path.join(project, "tracked.txt"), "changed\n"),
     writeFile(path.join(project, "untracked.txt"), "new\n"),
   ])
+  await run("git", [
+    "-C",
+    project,
+    "mv",
+    "rename-source.txt",
+    "rename-target.txt",
+  ])
 
   const status = await readProjectGitStatus(project)
   assert.equal(status.available, true)
@@ -110,11 +151,22 @@ test("project Git integration reports the real branch and working tree", async (
     assert.ok(status.branch)
     assert.ok(status.commit)
     assert.deepEqual(
-      status.files.map((file) => [file.index, file.workingTree, file.path]),
+      status.files
+        .filter((file) => file.originalPath === null)
+        .map((file) => [file.index, file.workingTree, file.path]),
       [
         [" ", "M", "tracked.txt"],
         ["?", "?", "untracked.txt"],
       ]
+    )
+    assert.deepEqual(
+      status.files.find((file) => file.originalPath !== null),
+      {
+        index: "R",
+        workingTree: " ",
+        path: "rename-target.txt",
+        originalPath: "rename-source.txt",
+      }
     )
   }
   const trackedDiff = await readProjectGitDiff(project, "tracked.txt")
@@ -123,8 +175,18 @@ test("project Git integration reports the real branch and working tree", async (
   assert.match(trackedDiff.hunks[0] ?? "", /^\+\+\+ /m)
   assert.match(trackedDiff.hunks.join("\n"), /-first\n\+changed/)
   const untrackedDiff = await readProjectGitDiff(project, "untracked.txt")
+  assert.match(
+    untrackedDiff.hunks[0] ?? "",
+    /^diff --git a\/untracked\.txt b\/untracked\.txt$/m
+  )
+  assert.match(untrackedDiff.hunks[0] ?? "", /^new file mode 100644$/m)
+  assert.match(untrackedDiff.hunks[0] ?? "", /^--- \/dev\/null$/m)
+  assert.doesNotMatch(untrackedDiff.hunks[0] ?? "", /pi-web-codex-diff-/)
   assert.match(untrackedDiff.hunks[0] ?? "", /^diff --git/m)
   assert.match(untrackedDiff.hunks.join("\n"), /\+new/)
+  const renamedDiff = await readProjectGitDiff(project, "rename-target.txt")
+  assert.match(renamedDiff.hunks.join("\n"), /rename from rename-source\.txt/)
+  assert.match(renamedDiff.hunks.join("\n"), /rename to rename-target\.txt/)
   await Promise.all([
     rm(project, { recursive: true, force: true }),
     rm(worktree, { recursive: true, force: true }),

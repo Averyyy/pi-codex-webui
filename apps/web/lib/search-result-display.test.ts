@@ -1,6 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 
+import { createTranslator } from "@/lib/i18n"
 import { searchEntryTypeLabel, searchResultHref } from "./search-result-display"
 
 test("presents indexed entry types as Chinese result labels", () => {
@@ -10,6 +11,17 @@ test("presents indexed entry types as Chinese result labels", () => {
   assert.equal(searchEntryTypeLabel("branch_summary"), "分支摘要")
   assert.equal(searchEntryTypeLabel("custom"), "目标")
   assert.equal(searchEntryTypeLabel("future_entry"), "记录")
+})
+
+test("presents indexed entry types in the selected locale", () => {
+  const t = createTranslator("en-US")
+
+  assert.equal(searchEntryTypeLabel("session_title", t), "Title")
+  assert.equal(searchEntryTypeLabel("message", t), "Message")
+  assert.equal(searchEntryTypeLabel("tool", t), "Tool")
+  assert.equal(searchEntryTypeLabel("branch_summary", t), "Branch summary")
+  assert.equal(searchEntryTypeLabel("custom", t), "Goal")
+  assert.equal(searchEntryTypeLabel("future_entry", t), "Record")
 })
 
 test("links every rendered transcript entry to its anchor", () => {

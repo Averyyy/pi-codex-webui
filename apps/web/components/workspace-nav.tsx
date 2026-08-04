@@ -35,6 +35,7 @@ import {
 } from "@workspace/ui/components/sidebar"
 import { WorkspaceNavProject } from "@/components/workspace-nav-project"
 import { WorkspaceNavSession } from "@/components/workspace-nav-session"
+import { useI18n } from "@/components/i18n-provider"
 import { useSessionIndicators } from "@/hooks/use-session-indicators"
 import { pickWorkspaceProject } from "@/lib/project-picker-client"
 import type { SessionSummary, WorkspaceProject } from "@/lib/session-types"
@@ -68,6 +69,7 @@ export function WorkspaceNav({
 }) {
   const pathname = usePathname()
   const router = useRouter()
+  const { t } = useI18n()
   const { isMobile, setOpenMobile, state } = useSidebar()
   const navigationHidden = !isMobile && state === "collapsed"
   const sidebarContentRef = useRef<HTMLDivElement>(null)
@@ -208,7 +210,11 @@ export function WorkspaceNav({
 
   return (
     <>
-      <Sidebar collapsible="offcanvas" role="navigation" aria-label="主导航">
+      <Sidebar
+        collapsible="offcanvas"
+        role="navigation"
+        aria-label={t("workspace.nav.ariaLabel")}
+      >
         <SidebarHeader
           className="px-3 pt-3"
           inert={navigationHidden}
@@ -224,7 +230,7 @@ export function WorkspaceNav({
             <Button asChild variant="ghost" size="icon-sm">
               <Link
                 href="/search"
-                aria-label="搜索对话"
+                aria-label={t("workspace.nav.search")}
                 aria-current={pathname === "/search" ? "page" : undefined}
               >
                 <SearchIcon />
@@ -256,7 +262,7 @@ export function WorkspaceNav({
                       }
                     >
                       <PlusIcon />
-                      <span>新对话</span>
+                      <span>{t("workspace.nav.newConversation")}</span>
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
@@ -266,7 +272,7 @@ export function WorkspaceNav({
 
           {pinnedSessions.length > 0 ? (
             <SidebarGroup className="py-1">
-              <SidebarGroupLabel>置顶</SidebarGroupLabel>
+              <SidebarGroupLabel>{t("workspace.nav.pinned")}</SidebarGroupLabel>
               <SidebarGroupContent>
                 <SidebarMenu>
                   {pinnedSessions.map((session) => (
@@ -292,10 +298,14 @@ export function WorkspaceNav({
           ) : null}
 
           <SidebarGroup className="py-1">
-            <SidebarGroupLabel>项目</SidebarGroupLabel>
+            <SidebarGroupLabel>{t("workspace.nav.projects")}</SidebarGroupLabel>
             <SidebarGroupAction
               type="button"
-              aria-label={addingProject ? "正在选择项目" : "添加项目"}
+              aria-label={
+                addingProject
+                  ? t("workspace.nav.choosingProject")
+                  : t("workspace.nav.addProject")
+              }
               disabled={addingProject}
               onClick={() => void addProject()}
             >
@@ -329,7 +339,11 @@ export function WorkspaceNav({
                       ) : (
                         <ChevronRightIcon />
                       )}
-                      <span>{projectsExpanded ? "收起" : "展开显示"}</span>
+                      <span>
+                        {projectsExpanded
+                          ? t("workspace.nav.collapseProjects")
+                          : t("workspace.nav.expandProjects")}
+                      </span>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                 ) : null}
@@ -346,7 +360,7 @@ export function WorkspaceNav({
               <SidebarGroup className="py-1">
                 <SidebarGroupLabel asChild>
                   <CollapsibleTrigger className="group/tasks w-full cursor-pointer justify-between hover:bg-sidebar-accent">
-                    <span>任务</span>
+                    <span>{t("workspace.nav.tasks")}</span>
                     <ChevronRightIcon className="transition-transform group-data-[state=open]/tasks:rotate-90" />
                   </CollapsibleTrigger>
                 </SidebarGroupLabel>
@@ -381,10 +395,10 @@ export function WorkspaceNav({
         <SidebarFooter inert={navigationHidden} aria-hidden={navigationHidden}>
           <SidebarMenu>
             <SidebarMenuItem>
-              <SidebarMenuButton asChild tooltip="设置">
+              <SidebarMenuButton asChild tooltip={t("workspace.nav.settings")}>
                 <Link href="/settings/general">
                   <SettingsIcon />
-                  <span>设置</span>
+                  <span>{t("workspace.nav.settings")}</span>
                 </Link>
               </SidebarMenuButton>
             </SidebarMenuItem>

@@ -28,6 +28,7 @@ import { cn } from "@workspace/ui/lib/utils"
 import { displaySessionTitle } from "@/lib/session-display"
 import { responseJson } from "@/lib/api-response"
 import type { SessionSummary } from "@/lib/session-types"
+import { useI18n } from "@/components/i18n-provider"
 
 export type ConversationShortcutModifier = "⌘" | "Ctrl"
 
@@ -52,8 +53,12 @@ export function WorkspaceNavSession({
 }) {
   const pathname = usePathname()
   const router = useRouter()
+  const { t } = useI18n()
   const [working, setWorking] = useState(false)
-  const title = displaySessionTitle(session)
+  const title = displaySessionTitle(session, {
+    task: t("workspace.nav.newTask"),
+    conversation: t("workspace.nav.unnamedConversation"),
+  })
   const shortcutLabel =
     shortcutNumber === undefined || shortcutModifier === undefined
       ? null
@@ -100,7 +105,11 @@ export function WorkspaceNavSession({
             variant="ghost"
             size="icon-xs"
             disabled={working}
-            aria-label={session.isPinned ? "取消置顶对话" : "置顶对话"}
+            aria-label={
+              session.isPinned
+                ? t("workspace.nav.unpinConversation")
+                : t("workspace.nav.pinConversation")
+            }
             onClick={() =>
               void mutate(`/api/v1/sessions/${session.id}/pin`, {
                 pinned: !session.isPinned,
@@ -111,7 +120,9 @@ export function WorkspaceNavSession({
           </Button>
         </TooltipTrigger>
         <TooltipContent side="top">
-          {session.isPinned ? "取消置顶" : "置顶对话"}
+          {session.isPinned
+            ? t("workspace.nav.unpin")
+            : t("workspace.nav.pinConversation")}
         </TooltipContent>
       </Tooltip>
       <Tooltip>
@@ -121,7 +132,7 @@ export function WorkspaceNavSession({
             variant="ghost"
             size="icon-xs"
             disabled={working}
-            aria-label="归档对话"
+            aria-label={t("workspace.nav.archiveConversation")}
             onClick={() => {
               void (async () => {
                 if (await mutate(`/api/v1/sessions/${session.id}/archive`)) {
@@ -133,7 +144,9 @@ export function WorkspaceNavSession({
             <ArchiveIcon />
           </Button>
         </TooltipTrigger>
-        <TooltipContent side="top">归档对话</TooltipContent>
+        <TooltipContent side="top">
+          {t("workspace.nav.archiveConversation")}
+        </TooltipContent>
       </Tooltip>
     </div>
   )
@@ -148,11 +161,11 @@ export function WorkspaceNavSession({
         aria-hidden="true"
         className="size-4 animate-spin motion-reduce:animate-none"
       />
-      <span className="sr-only">正在运行</span>
+      <span className="sr-only">{t("workspace.nav.running")}</span>
     </span>
   ) : unread ? (
     <span className="pointer-events-none absolute top-1/2 right-2 size-2 -translate-y-1/2 rounded-full bg-blue-500">
-      <span className="sr-only">新完成</span>
+      <span className="sr-only">{t("workspace.nav.newlyCompleted")}</span>
     </span>
   ) : null
 

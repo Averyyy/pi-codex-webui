@@ -1,5 +1,6 @@
 "use client"
 
+import { useRef } from "react"
 import { PlusIcon, type LucideIcon } from "lucide-react"
 
 import { Button } from "@workspace/ui/components/button"
@@ -9,6 +10,8 @@ import {
   PopoverTrigger,
 } from "@workspace/ui/components/popover"
 import { cn } from "@workspace/ui/lib/utils"
+
+import { useI18n } from "@/components/i18n-provider"
 
 export interface ComposerCommand {
   id: string
@@ -81,6 +84,8 @@ export function ComposerCommandMenu({
   onActiveCommandChange: (commandId: string) => void
   onCommandSelect: (command: ComposerCommand) => void
 }) {
+  const { t } = useI18n()
+  const preserveInputFocusOnCloseRef = useRef(false)
   const visibleCommands = filterComposerCommands(commands, query)
   const enabledCommands = visibleCommands.filter((command) => !command.disabled)
 
@@ -131,7 +136,7 @@ export function ComposerCommandMenu({
           variant="secondary"
           size="icon"
           className="rounded-full"
-          aria-label="命令"
+          aria-label={t("composer.commands")}
           onClick={onTriggerClick}
         >
           <PlusIcon />
@@ -142,16 +147,23 @@ export function ComposerCommandMenu({
         align="start"
         className="w-[min(26rem,calc(100vw-2rem))] p-1"
         onOpenAutoFocus={(event) => {
+          preserveInputFocusOnCloseRef.current = preserveInputFocus
           if (preserveInputFocus) event.preventDefault()
         }}
         onCloseAutoFocus={(event) => {
-          if (preserveInputFocus) event.preventDefault()
+          if (preserveInputFocusOnCloseRef.current) event.preventDefault()
+          preserveInputFocusOnCloseRef.current = false
         }}
       >
         <p className="px-2 py-1 text-xs font-medium text-muted-foreground">
-          命令
+          {t("composer.commands")}
         </p>
-        <div id={menuId} role="menu" aria-label="命令" className="grid gap-0.5">
+        <div
+          id={menuId}
+          role="menu"
+          aria-label={t("composer.commands")}
+          className="grid gap-0.5"
+        >
           {visibleCommands.map((command) => {
             const Icon = command.icon
             const active = command.id === activeCommandId
@@ -189,7 +201,7 @@ export function ComposerCommandMenu({
               role="status"
               className="px-2 py-3 text-sm text-muted-foreground"
             >
-              没有匹配的命令
+              {t("composer.commands.noMatches")}
             </p>
           ) : null}
         </div>
