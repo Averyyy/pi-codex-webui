@@ -1,5 +1,6 @@
 "use client"
 
+import { useRef } from "react"
 import { usePathname, useRouter } from "next/navigation"
 import { ShieldCheckIcon, ShieldOffIcon } from "lucide-react"
 
@@ -20,10 +21,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@workspace/ui/components/select"
-import type { ResourceCatalog } from "@workspace/runtime-protocol"
+import {
+  resourceCatalogSchema,
+  type ResourceCatalog,
+} from "@workspace/runtime-protocol"
 
 import { useI18n } from "@/components/i18n-provider"
-import { responseJson } from "@/lib/api-response"
+import { validatedResponseJson } from "@/lib/api-response"
 
 export interface ResourceProject {
   id: string
@@ -53,8 +57,11 @@ export function ResourceProjectControls({
   const router = useRouter()
   const pathname = usePathname()
   const { t } = useI18n()
+  const workingRef = useRef(false)
 
   async function setTrust(trusted: boolean) {
+    if (workingRef.current) return
+    workingRef.current = true
     onWorkingChange(true)
     onError(null)
     try {
@@ -66,8 +73,9 @@ export function ResourceProjectControls({
         },
         body: JSON.stringify({ trusted }),
       })
-      const result = await responseJson<ResourceCatalog>(
+      const result = await validatedResponseJson(
         response,
+        (value) => resourceCatalogSchema.parse(value),
         t("settings.common.saveFailed")
       )
       onCatalogChange(result)
@@ -75,6 +83,7 @@ export function ResourceProjectControls({
     } catch (failure) {
       onError(failure instanceof Error ? failure.message : String(failure))
     } finally {
+      workingRef.current = false
       onWorkingChange(false)
     }
   }

@@ -320,6 +320,43 @@ const messages = {
     "zh-CN": "确定",
     "en-US": "Confirm",
   },
+  "session.extension.defaultTitle": {
+    "zh-CN": "Pi 扩展",
+    "en-US": "Pi extension",
+  },
+  "session.extension.viewDescription": {
+    "zh-CN": "交互式 WebUI 扩展视图。",
+    "en-US": "Interactive WebUI extension view.",
+  },
+  "session.extension.panelDescription": {
+    "zh-CN": "交互式 WebUI 扩展面板。",
+    "en-US": "Interactive WebUI extension panel.",
+  },
+  "session.extension.tuiDescription": {
+    "zh-CN": "交互式 Pi 终端界面。",
+    "en-US": "Interactive Pi terminal surface.",
+  },
+  "session.extension.tuiLabel": { "zh-CN": "Pi TUI", "en-US": "Pi TUI" },
+  "session.extension.nativeUnavailable": {
+    "zh-CN": "原生 Adapter 不可用，正在打开 Pi TUI…",
+    "en-US": "Native adapter unavailable. Opening Pi TUI…",
+  },
+  "session.extension.clientStatusFailed": {
+    "zh-CN": "WebUI client 状态上报失败（HTTP {status}）。",
+    "en-US": "WebUI client status failed (HTTP {status}).",
+  },
+  "session.extension.actionFailed": {
+    "zh-CN": "WebUI 扩展操作失败。",
+    "en-US": "WebUI extension action failed.",
+  },
+  "session.extension.viewsSyncFailed": {
+    "zh-CN": "WebUI 视图同步失败（HTTP {status}）。",
+    "en-US": "WebUI views sync failed (HTTP {status}).",
+  },
+  "session.extension.catalogSyncFailed": {
+    "zh-CN": "WebUI 扩展目录同步失败（HTTP {status}）。",
+    "en-US": "WebUI extension catalog failed (HTTP {status}).",
+  },
   "session.command.goal": { "zh-CN": "目标", "en-US": "Goal" },
   "session.command.goalDescription": {
     "zh-CN": "让 Pi 持续工作直到目标完成",
@@ -1523,13 +1560,13 @@ const messages = {
     "zh-CN": "重命名项目",
     "en-US": "Rename project",
   },
-  "workspace.project.archiveTasks": {
-    "zh-CN": "归档任务",
-    "en-US": "Archive tasks",
+  "workspace.project.archiveConversations": {
+    "zh-CN": "归档对话",
+    "en-US": "Archive conversations",
   },
   "workspace.project.remove": { "zh-CN": "移除", "en-US": "Remove" },
   "workspace.project.conversationCount": {
-    "zh-CN": "{count} 个对话串",
+    "zh-CN": "{count} 个对话",
     "en-US": "Conversations: {count}",
   },
   "workspace.project.toggleConversations": {
@@ -1573,18 +1610,28 @@ const messages = {
   },
   "workspace.project.create": { "zh-CN": "创建", "en-US": "Create" },
   "workspace.project.archiveTitle": {
-    "zh-CN": "归档 {name} 中的任务？",
-    "en-US": "Archive tasks in {name}?",
+    "zh-CN": "归档 {name} 中的对话？",
+    "en-US": "Archive conversations in {name}?",
   },
-  "workspace.project.archiveDescription": {
+  "workspace.project.archiveDescriptionOne": {
     "zh-CN":
-      "将从导航中移除 {count} 个任务；正在运行的任务会先停止。项目目录和 Pi session 文件不会删除。",
+      "将从导航中移除 {count} 个对话；如果它正在运行，会先停止。项目目录和 Pi session 文件不会删除。",
     "en-US":
-      "This removes {count} tasks from navigation and stops any that are running. The project folder and Pi session files are kept.",
+      "This removes {count} conversation from navigation and stops it if it is running. The project folder and Pi session files are kept.",
   },
-  "workspace.project.archiveConfirm": {
-    "zh-CN": "归档 {count} 个任务",
-    "en-US": "Archive {count} tasks",
+  "workspace.project.archiveDescriptionMany": {
+    "zh-CN":
+      "将从导航中移除 {count} 个对话；正在运行的对话会先停止。项目目录和 Pi session 文件不会删除。",
+    "en-US":
+      "This removes {count} conversations from navigation and stops any that are running. The project folder and Pi session files are kept.",
+  },
+  "workspace.project.archiveConfirmOne": {
+    "zh-CN": "归档 {count} 个对话",
+    "en-US": "Archive {count} conversation",
+  },
+  "workspace.project.archiveConfirmMany": {
+    "zh-CN": "归档 {count} 个对话",
+    "en-US": "Archive {count} conversations",
   },
   "workspace.project.removeTitle": {
     "zh-CN": "移除 {name}？",
@@ -1692,6 +1739,7 @@ const messages = {
     "en-US": "Enter keywords",
   },
   "search.submit": { "zh-CN": "搜索", "en-US": "Search" },
+  "search.submitting": { "zh-CN": "搜索中…", "en-US": "Searching…" },
   "search.results.ariaLabel": {
     "zh-CN": "搜索结果",
     "en-US": "Search results",
@@ -2201,17 +2249,17 @@ const messages = {
   },
 
   "settings.packages.installTitle": {
-    "zh-CN": "安装 Pi package",
+    "zh-CN": "安装 Pi 软件包",
     "en-US": "Install Pi package",
   },
   "settings.packages.installDescription": {
     "zh-CN":
-      "直接交给 Pi DefaultPackageManager；支持 npm、git 和本地路径 source。",
+      "交给 Pi 的 DefaultPackageManager 安装；支持 npm、git 和本地路径。",
     "en-US":
       "Pass the source to Pi DefaultPackageManager; npm, git, and local paths are supported.",
   },
   "settings.packages.source": {
-    "zh-CN": "Package source",
+    "zh-CN": "软件包来源",
     "en-US": "Package source",
   },
   "settings.packages.sourcePlaceholder": {
@@ -2219,23 +2267,28 @@ const messages = {
     "en-US": "npm:@scope/package or git:https://…",
   },
   "settings.packages.scope": {
-    "zh-CN": "Package scope",
+    "zh-CN": "安装范围",
     "en-US": "Package scope",
   },
-  "settings.packages.global": { "zh-CN": "Global", "en-US": "Global" },
+  "settings.packages.global": { "zh-CN": "全局", "en-US": "Global" },
   "settings.packages.currentProject": {
-    "zh-CN": "Current Project",
+    "zh-CN": "当前项目",
     "en-US": "Current Project",
   },
   "settings.packages.install": { "zh-CN": "安装", "en-US": "Install" },
   "settings.packages.configured": {
-    "zh-CN": "已配置 Packages",
+    "zh-CN": "已配置的软件包",
     "en-US": "Configured packages",
   },
-  "settings.packages.items": {
+  "settings.packages.itemCountOne": {
+    "zh-CN": "{count} 项",
+    "en-US": "{count} item",
+  },
+  "settings.packages.itemCountMany": {
     "zh-CN": "{count} 项",
     "en-US": "{count} items",
   },
+  "settings.packages.kind": { "zh-CN": "软件包", "en-US": "packages" },
   "settings.packages.missing": { "zh-CN": "未安装", "en-US": "Not installed" },
   "settings.packages.missingPath": {
     "zh-CN": "Pi settings 中已配置，但本地安装缺失",
@@ -2251,7 +2304,7 @@ const messages = {
   },
   "settings.packages.cancel": { "zh-CN": "取消", "en-US": "Cancel" },
   "settings.packages.confirmRemoveTitle": {
-    "zh-CN": "移除 Package？",
+    "zh-CN": "移除软件包？",
     "en-US": "Remove package?",
   },
   "settings.packages.confirmRemoveDescription": {
@@ -2263,11 +2316,11 @@ const messages = {
     "en-US": "Remove",
   },
   "settings.packages.filtered": {
-    "zh-CN": "资源 filter 已配置",
+    "zh-CN": "已配置资源筛选规则",
     "en-US": "Resource filter configured",
   },
   "settings.packages.empty": {
-    "zh-CN": "Pi settings 中还没有配置 package。",
+    "zh-CN": "Pi 设置中还没有配置软件包。",
     "en-US": "No package is configured in Pi settings.",
   },
 
@@ -2277,7 +2330,7 @@ const messages = {
   },
   "settings.resources.contextDescription": {
     "zh-CN":
-      "Global 设置由 Pi agent 目录管理；Project 设置写入选中项目的 .pi/settings.json。",
+      "全局设置由 Pi agent 目录管理；项目设置写入所选项目的 .pi/settings.json。",
     "en-US":
       "Global settings are managed by the Pi agent directory; Project settings are written to the selected project's .pi/settings.json.",
   },
@@ -2300,8 +2353,7 @@ const messages = {
     "en-US": "This project has no local resources requiring trust",
   },
   "settings.resources.projectUntrusted": {
-    "zh-CN":
-      "项目未受信任；Pi 不会加载项目 settings、packages、skills 或 extensions。",
+    "zh-CN": "项目未受信任；Pi 不会加载项目设置、软件包、技能或扩展。",
     "en-US":
       "The project is not trusted; Pi will not load its settings, packages, skills, or extensions.",
   },
@@ -2309,25 +2361,29 @@ const messages = {
     "zh-CN": "读取 Pi 资源状态失败。",
     "en-US": "Failed to read Pi resource status.",
   },
-  "settings.resources.global": { "zh-CN": "Global", "en-US": "Global" },
+  "settings.resources.global": { "zh-CN": "全局", "en-US": "Global" },
   "settings.resources.project": {
-    "zh-CN": "Current Project",
+    "zh-CN": "当前项目",
     "en-US": "Current Project",
   },
-  "settings.resources.count": {
+  "settings.resources.countOne": {
+    "zh-CN": "{count} 项",
+    "en-US": "{count} item",
+  },
+  "settings.resources.countMany": {
     "zh-CN": "{count} 项",
     "en-US": "{count} items",
   },
   "settings.resources.inherited": {
-    "zh-CN": "继承 Global",
+    "zh-CN": "继承自全局",
     "en-US": "Inherited from Global",
   },
   "settings.resources.override": {
-    "zh-CN": "Project override",
+    "zh-CN": "项目覆盖",
     "en-US": "Project override",
   },
   "settings.resources.reload": {
-    "zh-CN": "等待 runtime reload",
+    "zh-CN": "等待运行时重新加载",
     "en-US": "Waiting for runtime reload",
   },
   "settings.resources.enabled": {
@@ -2340,11 +2396,11 @@ const messages = {
   },
   "settings.resources.searchLabel": {
     "zh-CN": "搜索 {kind}",
-    "en-US": "Search {kind}s",
+    "en-US": "Search {kind}",
   },
   "settings.resources.searchPlaceholder": {
-    "zh-CN": "按名称、package 或路径搜索 {kind}",
-    "en-US": "Search {kind}s by name, package, or path",
+    "zh-CN": "按名称、软件包或路径搜索 {kind}",
+    "en-US": "Search {kind} by name, package, or path",
   },
   "settings.resources.filteredSummary": {
     "zh-CN": "显示 {visible} / {total} 项",
@@ -2355,8 +2411,29 @@ const messages = {
     "en-US": "No matches.",
   },
   "settings.resources.empty": {
-    "zh-CN": "没有解析到这个 scope 的 {kind}。",
-    "en-US": "No {kind} was resolved for this scope.",
+    "zh-CN": "此范围内没有解析到{kind}。",
+    "en-US": "No {kind} were resolved for this scope.",
+  },
+  "settings.resources.kind.extensions": {
+    "zh-CN": "扩展",
+    "en-US": "extensions",
+  },
+  "settings.resources.kind.skills": { "zh-CN": "技能", "en-US": "skills" },
+  "settings.resources.missing": {
+    "zh-CN": "源文件缺失",
+    "en-US": "Source file missing",
+  },
+  "settings.resources.source.package": {
+    "zh-CN": "软件包",
+    "en-US": "Package",
+  },
+  "settings.resources.source.directory": {
+    "zh-CN": "目录",
+    "en-US": "Directory",
+  },
+  "settings.resources.source.explicitPath": {
+    "zh-CN": "显式路径",
+    "en-US": "Explicit path",
   },
 
   "settings.runtime.saveFailed": {
@@ -2464,35 +2541,50 @@ const messages = {
     "zh-CN": "MCP 测试失败。",
     "en-US": "MCP test failed.",
   },
-  "settings.mcp.context": { "zh-CN": "MCP context", "en-US": "MCP context" },
+  "settings.mcp.invalidInput": {
+    "zh-CN": "MCP 服务器设置无效，请检查各字段后重试。",
+    "en-US":
+      "The MCP server settings are invalid. Review the fields and try again.",
+  },
+  "settings.mcp.context": { "zh-CN": "MCP 上下文", "en-US": "MCP context" },
   "settings.mcp.description": {
-    "zh-CN":
-      "Global server 对所有 runtime 生效；Project server 仅注入选中项目。",
+    "zh-CN": "全局服务器对所有运行时生效；项目服务器仅注入所选项目。",
     "en-US":
       "Global servers apply to every runtime; Project servers are injected only into the selected project.",
   },
-  "settings.mcp.addServer": { "zh-CN": "添加 server", "en-US": "Add server" },
+  "settings.mcp.addServer": {
+    "zh-CN": "添加服务器",
+    "en-US": "Add server",
+  },
   "settings.mcp.noProject": {
-    "zh-CN": "尚无工作区项目；仍可配置 Global MCP server。",
+    "zh-CN": "尚无工作区项目；仍可配置全局 MCP 服务器。",
     "en-US":
       "There are no workspace projects yet; you can still configure a Global MCP server.",
   },
   "settings.mcp.untrusted": {
     "zh-CN":
-      "当前项目未受信任；Project MCP server 不会连接或注入 runtime。请在 Extensions / Skills 页面完成项目信任。",
+      "当前项目未受信任；项目 MCP 服务器不会连接或注入运行时。请先在“扩展”或“技能”页面信任该项目。",
     "en-US":
       "The current project is not trusted; its Project MCP servers will not connect or inject into runtimes. Trust the project on the Extensions / Skills page.",
   },
-  "settings.mcp.serverCount": {
+  "settings.mcp.serverCountOne": {
     "zh-CN": "{count} 项",
-    "en-US": "{count} items",
+    "en-US": "{count} server",
+  },
+  "settings.mcp.serverCountMany": {
+    "zh-CN": "{count} 项",
+    "en-US": "{count} servers",
   },
   "settings.mcp.saved": {
     "zh-CN": "{name} 已保存并应用。",
     "en-US": "{name} was saved and applied.",
   },
-  "settings.mcp.connected": {
-    "zh-CN": "{name} 连接正常 · {latency} ms · {tools} tools",
+  "settings.mcp.connectedOne": {
+    "zh-CN": "{name} 连接正常 · {latency} ms · {tools} 个工具",
+    "en-US": "{name} connected · {latency} ms · {tools} tool",
+  },
+  "settings.mcp.connectedMany": {
+    "zh-CN": "{name} 连接正常 · {latency} ms · {tools} 个工具",
     "en-US": "{name} connected · {latency} ms · {tools} tools",
   },
   "settings.mcp.reconnected": {
@@ -2501,11 +2593,11 @@ const messages = {
   },
   "settings.mcp.cancel": { "zh-CN": "取消", "en-US": "Cancel" },
   "settings.mcp.confirmDeleteTitle": {
-    "zh-CN": "确认删除 MCP server？",
+    "zh-CN": "确认删除 MCP 服务器？",
     "en-US": "Delete this MCP server?",
   },
   "settings.mcp.deleteConfirm": {
-    "zh-CN": "删除 MCP server “{name}”？",
+    "zh-CN": "删除 MCP 服务器“{name}”？",
     "en-US": "Delete MCP server “{name}”?",
   },
   "settings.mcp.deleted": {
@@ -2529,15 +2621,15 @@ const messages = {
     "en-US": "{name} disabled.",
   },
   "settings.mcp.scopeEmpty": {
-    "zh-CN": "尚未配置 {scope} MCP server。",
+    "zh-CN": "{scope}范围内尚未配置 MCP 服务器。",
     "en-US": "No {scope} MCP servers are configured.",
   },
   "settings.mcp.globalServers": {
-    "zh-CN": "Global servers",
+    "zh-CN": "全局服务器",
     "en-US": "Global servers",
   },
   "settings.mcp.projectServers": {
-    "zh-CN": "Project servers",
+    "zh-CN": "项目服务器",
     "en-US": "Project servers",
   },
   "settings.mcp.enableServer": {
@@ -2577,72 +2669,81 @@ const messages = {
   "settings.mcp.reconnect": { "zh-CN": "重连", "en-US": "Reconnect" },
   "settings.mcp.delete": { "zh-CN": "删除", "en-US": "Delete" },
   "settings.mcp.discoveredTools": {
-    "zh-CN": "Discovered tools",
+    "zh-CN": "已发现的工具",
     "en-US": "Discovered tools",
   },
   "settings.mcp.toolsEnabled": {
-    "zh-CN": "{enabled}/{total} enabled",
+    "zh-CN": "已启用 {enabled}/{total}",
     "en-US": "{enabled}/{total} enabled",
   },
   "settings.mcp.toolsAfterConnection": {
-    "zh-CN": "连接成功后会显示 server 实际暴露的 tools。",
+    "zh-CN": "连接成功后会显示服务器实际提供的工具。",
     "en-US": "The server's exposed tools appear after a successful connection.",
   },
   "settings.mcp.toolsAfterEnable": {
-    "zh-CN": "启用或测试连接后发现 tools。",
+    "zh-CN": "启用服务器或测试连接后即可发现工具。",
     "en-US": "Enable or test the connection to discover tools.",
   },
-  "settings.mcp.logs": { "zh-CN": "Logs ({count})", "en-US": "Logs ({count})" },
+  "settings.mcp.logs": {
+    "zh-CN": "日志（{count}）",
+    "en-US": "Logs ({count})",
+  },
   "settings.mcp.noLogs": { "zh-CN": "暂无日志。", "en-US": "No logs." },
 
   "settings.mcpForm.editTitle": {
-    "zh-CN": "编辑 MCP server",
+    "zh-CN": "编辑 MCP 服务器",
     "en-US": "Edit MCP server",
   },
   "settings.mcpForm.addTitle": {
-    "zh-CN": "添加 MCP server",
+    "zh-CN": "添加 MCP 服务器",
     "en-US": "Add MCP server",
   },
   "settings.mcpForm.description": {
-    "zh-CN": "Secret 字段只写入 SecretStore；保存后 API 不会返回明文。",
+    "zh-CN": "敏感值只写入 SecretStore；保存后 API 不会返回明文。",
     "en-US":
       "Secret fields are written only to SecretStore; the API never returns plaintext after saving.",
   },
   "settings.mcpForm.name": { "zh-CN": "名称", "en-US": "Name" },
-  "settings.mcpForm.namespace": { "zh-CN": "Namespace", "en-US": "Namespace" },
+  "settings.mcpForm.namespace": {
+    "zh-CN": "命名空间",
+    "en-US": "Namespace",
+  },
   "settings.mcpForm.toolPrefix": {
     "zh-CN": "工具前缀：mcp__{namespace}__",
     "en-US": "Tool prefix: mcp__{namespace}__",
   },
-  "settings.mcpForm.scope": { "zh-CN": "Scope", "en-US": "Scope" },
-  "settings.mcpForm.transport": { "zh-CN": "Transport", "en-US": "Transport" },
+  "settings.mcpForm.scope": { "zh-CN": "作用范围", "en-US": "Scope" },
+  "settings.mcpForm.transport": {
+    "zh-CN": "传输方式",
+    "en-US": "Transport",
+  },
   "settings.mcpForm.projectMissing": {
     "zh-CN": "未选择项目",
     "en-US": "No project selected",
   },
-  "settings.mcpForm.command": { "zh-CN": "Command", "en-US": "Command" },
+  "settings.mcpForm.command": { "zh-CN": "命令", "en-US": "Command" },
   "settings.mcpForm.arguments": {
-    "zh-CN": "Arguments (JSON string array)",
+    "zh-CN": "参数（JSON 字符串数组）",
     "en-US": "Arguments (JSON string array)",
   },
   "settings.mcpForm.cwd": {
-    "zh-CN": "Working directory（可选）",
+    "zh-CN": "工作目录（可选）",
     "en-US": "Working directory (optional)",
   },
   "settings.mcpForm.cwdPlaceholder": {
-    "zh-CN": "项目级 server 默认使用当前项目目录",
+    "zh-CN": "项目服务器默认使用当前项目目录",
     "en-US": "Project servers use the current project directory by default",
   },
   "settings.mcpForm.environment": {
-    "zh-CN": "Environment",
+    "zh-CN": "环境变量",
     "en-US": "Environment",
   },
   "settings.mcpForm.headers": {
-    "zh-CN": "HTTP headers",
+    "zh-CN": "HTTP 请求头",
     "en-US": "HTTP headers",
   },
   "settings.mcpForm.timeout": {
-    "zh-CN": "Timeout (ms)",
+    "zh-CN": "超时时间（毫秒）",
     "en-US": "Timeout (ms)",
   },
   "settings.mcpForm.enableAfterSave": {
@@ -2655,25 +2756,45 @@ const messages = {
     "en-US": "Save and connect",
   },
   "settings.mcpForm.argumentsError": {
-    "zh-CN": "Arguments 必须是合法的 JSON 字符串数组。",
+    "zh-CN": "参数必须是合法的 JSON 字符串数组。",
     "en-US": "Arguments must be a valid JSON string array.",
   },
   "settings.mcpForm.argumentsTypeError": {
-    "zh-CN": "Arguments 必须是 JSON 字符串数组。",
+    "zh-CN": "参数必须是 JSON 字符串数组。",
     "en-US": "Arguments must be a JSON string array.",
   },
   "settings.mcpForm.timeoutError": {
-    "zh-CN": "Timeout 必须是整数毫秒。",
+    "zh-CN": "超时时间必须是整数毫秒。",
     "en-US": "Timeout must be an integer number of milliseconds.",
   },
+  "settings.mcpForm.argumentsLimitError": {
+    "zh-CN": "参数最多 200 项，且每项不能超过 8192 个字符。",
+    "en-US":
+      "Arguments are limited to 200 items and 8,192 characters per item.",
+  },
   "settings.valueEditor.add": { "zh-CN": "添加", "en-US": "Add" },
-  "settings.valueEditor.key": { "zh-CN": "Key", "en-US": "Key" },
-  "settings.valueEditor.value": { "zh-CN": "Value", "en-US": "Value" },
+  "settings.valueEditor.key": { "zh-CN": "键", "en-US": "Key" },
+  "settings.valueEditor.value": { "zh-CN": "值", "en-US": "Value" },
   "settings.valueEditor.savedKeep": {
     "zh-CN": "已保存，留空保持不变",
     "en-US": "Saved; leave empty to keep it",
   },
-  "settings.valueEditor.secret": { "zh-CN": "Secret", "en-US": "Secret" },
+  "settings.valueEditor.secret": {
+    "zh-CN": "敏感值",
+    "en-US": "Secret",
+  },
+  "settings.valueEditor.keyLabel": {
+    "zh-CN": "{label}第 {index} 项的键",
+    "en-US": "{label} key {index}",
+  },
+  "settings.valueEditor.valueLabel": {
+    "zh-CN": "{label}第 {index} 项的值",
+    "en-US": "{label} value {index}",
+  },
+  "settings.valueEditor.secretLabel": {
+    "zh-CN": "{label}第 {index} 项设为敏感值",
+    "en-US": "{label} secret {index}",
+  },
   "settings.valueEditor.remove": {
     "zh-CN": "删除 {name}",
     "en-US": "Delete {name}",
@@ -2696,7 +2817,7 @@ const messages = {
     "en-US": "Project trusted",
   },
   "settings.webui.globalOnly": {
-    "zh-CN": "仅 Global",
+    "zh-CN": "仅全局",
     "en-US": "Global only",
   },
   "settings.webui.currentProject": {
@@ -2832,12 +2953,20 @@ const messages = {
     "en-US": "Not passed in this session",
   },
   "settings.webui.updateFailed": {
-    "zh-CN": "更新 WebUI Extension 失败。",
+    "zh-CN": "更新 WebUI 扩展失败。",
     "en-US": "WebUI extension update failed.",
   },
   "settings.webui.readFailed": {
-    "zh-CN": "读取 WebUI Extension 状态失败。",
+    "zh-CN": "读取 WebUI 扩展状态失败。",
     "en-US": "Failed to read WebUI extension status.",
+  },
+  "settings.webui.searchLabel": {
+    "zh-CN": "搜索 Adapter",
+    "en-US": "Search adapters",
+  },
+  "settings.webui.searchPlaceholder": {
+    "zh-CN": "按名称、软件包或路径搜索 Adapter",
+    "en-US": "Search adapters by name, package, or path",
   },
 } as const
 

@@ -7,7 +7,7 @@ import {
   type ResourceCatalog,
 } from "@workspace/runtime-protocol"
 
-import { responseJson } from "@/lib/api-response"
+import { validatedResponseJson } from "@/lib/api-response"
 
 export function useResourceCatalog(
   projectId: string,
@@ -37,8 +37,11 @@ export function useResourceCatalog(
         const response = await fetch(
           `/api/v1/resources?projectId=${encodeURIComponent(projectId)}`
         )
-        const body = await responseJson<unknown>(response, fallbackError)
-        const next = resourceCatalogSchema.parse(body)
+        const next = await validatedResponseJson(
+          response,
+          (value) => resourceCatalogSchema.parse(value),
+          fallbackError
+        )
         if (sequence !== updateSequence.current) return
         setCatalogState(next)
         onError(null)

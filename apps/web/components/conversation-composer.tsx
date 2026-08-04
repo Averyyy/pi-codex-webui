@@ -339,6 +339,7 @@ export function ConversationComposer({
       {editor ?? (
         <Textarea
           ref={textareaRef}
+          data-composer-input
           value={value}
           onChange={(event) => handleValueChange(event.target.value)}
           onKeyDown={handleKeyDown}

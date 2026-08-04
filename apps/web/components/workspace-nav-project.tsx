@@ -9,6 +9,7 @@ import {
   FolderIcon,
   FolderOpenIcon,
   GitBranchPlusIcon,
+  LoaderCircleIcon,
   MoreHorizontalIcon,
   PencilIcon,
   PinIcon,
@@ -63,6 +64,7 @@ import {
 } from "@workspace/ui/components/sidebar"
 
 import type { WorkspaceProject } from "@/lib/session-types"
+import type { WorkspaceSessionMutationFocusRequest } from "@/lib/workspace-nav-focus"
 import { responseJson } from "@/lib/api-response"
 import {
   WorkspaceNavSession,
@@ -92,6 +94,7 @@ export function WorkspaceNavProject({
   activeSessionId,
   conversationShortcuts,
   shortcutModifier,
+  onSessionMutationFocus,
 }: {
   project: WorkspaceProject
   mutationToken: string
@@ -100,10 +103,13 @@ export function WorkspaceNavProject({
   activeSessionId: string | null
   conversationShortcuts: ReadonlyMap<string, number>
   shortcutModifier?: ConversationShortcutModifier
+  onSessionMutationFocus: (
+    request: WorkspaceSessionMutationFocusRequest
+  ) => void
 }) {
   const pathname = usePathname()
   const router = useRouter()
-  const { t } = useI18n()
+  const { locale, t } = useI18n()
   const projectPath = `/projects/${project.id}`
   const active = pathname.startsWith(projectPath)
   const sessions = project.sessions.filter((session) => !session.isPinned)
@@ -114,6 +120,7 @@ export function WorkspaceNavProject({
   const [branch, setBranch] = useState("")
   const [working, setWorking] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const localizedSessionCount = project.sessionCount.toLocaleString(locale)
 
   async function mutate(
     url: string,
@@ -219,7 +226,7 @@ export function WorkspaceNavProject({
     },
     {
       kind: "archive",
-      label: t("workspace.project.archiveTasks"),
+      label: t("workspace.project.archiveConversations"),
       icon: ArchiveIcon,
       disabled: project.sessionCount === 0,
     },
@@ -291,6 +298,7 @@ export function WorkspaceNavProject({
                     >
                       <Link
                         href={projectPath}
+                        data-project-link={project.id}
                         aria-current={
                           pathname === projectPath ? "page" : undefined
                         }
@@ -314,7 +322,7 @@ export function WorkspaceNavProject({
                         </div>
                         <p className="mt-2 text-muted-foreground">
                           {t("workspace.project.conversationCount", {
-                            count: project.sessionCount,
+                            count: localizedSessionCount,
                           })}
                         </p>
                         <p className="mt-3 truncate border-t pt-3 text-muted-foreground">
@@ -349,9 +357,14 @@ export function WorkspaceNavProject({
                         aria-label={t("workspace.project.moreActions", {
                           name: project.name,
                         })}
-                        disabled={working}
+                        aria-disabled={working}
+                        aria-busy={working}
                       >
-                        <MoreHorizontalIcon />
+                        {working ? (
+                          <LoaderCircleIcon className="animate-spin motion-reduce:animate-none" />
+                        ) : (
+                          <MoreHorizontalIcon />
+                        )}
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent
@@ -397,6 +410,7 @@ export function WorkspaceNavProject({
                     `${projectPath}/sessions/${session.id}`
                   )}
                   shortcutModifier={shortcutModifier}
+                  onMutationFocus={onSessionMutationFocus}
                   nested
                 />
               ))}
@@ -405,7 +419,7 @@ export function WorkspaceNavProject({
                   <SidebarMenuSubButton asChild>
                     <Link href={projectPath}>
                       {t("workspace.project.viewAll", {
-                        count: sessions.length,
+                        count: sessions.length.toLocaleString(locale),
                       })}
                     </Link>
                   </SidebarMenuSubButton>
@@ -534,9 +548,12 @@ export function WorkspaceNavProject({
                   })}
                 </DialogTitle>
                 <DialogDescription>
-                  {t("workspace.project.archiveDescription", {
-                    count: project.sessionCount,
-                  })}
+                  {t(
+                    project.sessionCount === 1
+                      ? "workspace.project.archiveDescriptionOne"
+                      : "workspace.project.archiveDescriptionMany",
+                    { count: localizedSessionCount }
+                  )}
                 </DialogDescription>
               </DialogHeader>
               {error ? (
@@ -553,13 +570,19 @@ export function WorkspaceNavProject({
                 <Button
                   type="button"
                   variant="destructive"
-                  disabled={working}
+                  aria-disabled={working}
                   aria-busy={working}
                   onClick={() => void archiveProject()}
                 >
-                  {t("workspace.project.archiveConfirm", {
-                    count: project.sessionCount,
-                  })}
+                  {working ? (
+                    <LoaderCircleIcon className="animate-spin motion-reduce:animate-none" />
+                  ) : null}
+                  {t(
+                    project.sessionCount === 1
+                      ? "workspace.project.archiveConfirmOne"
+                      : "workspace.project.archiveConfirmMany",
+                    { count: localizedSessionCount }
+                  )}
                 </Button>
               </DialogFooter>
             </>
@@ -589,10 +612,13 @@ export function WorkspaceNavProject({
                 <Button
                   type="button"
                   variant="destructive"
-                  disabled={working}
+                  aria-disabled={working}
                   aria-busy={working}
                   onClick={() => void removeProject()}
                 >
+                  {working ? (
+                    <LoaderCircleIcon className="animate-spin motion-reduce:animate-none" />
+                  ) : null}
                   {t("workspace.project.remove")}
                 </Button>
               </DialogFooter>

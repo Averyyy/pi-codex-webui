@@ -20,9 +20,11 @@ import type { WebUiViewSnapshot } from "@workspace/runtime-protocol"
 import { cn } from "@workspace/ui/lib/utils"
 
 import { SessionExtensionContext } from "@/components/session-extension-provider"
+import { useI18n } from "@/components/i18n-provider"
 import { WebUiViewHost } from "@/components/webui-view-host"
 
 export function ExtensionOverlayHosts() {
+  const { t } = useI18n()
   const runtime = useContext(SessionExtensionContext)
   if (!runtime) {
     throw new Error("ExtensionOverlayHosts requires SessionExtensionProvider.")
@@ -56,6 +58,14 @@ export function ExtensionOverlayHosts() {
             }}
           >
             <DialogContent
+              onCloseAutoFocus={(event) => {
+                const composer = document.querySelector<HTMLTextAreaElement>(
+                  "[data-composer-input]"
+                )
+                if (!composer) return
+                event.preventDefault()
+                composer.focus()
+              }}
               className={cn(
                 "flex max-h-[calc(100svh-2rem)] w-[calc(100vw-2rem)] min-w-0 flex-col overflow-hidden",
                 view.placement === "session.overlay"
@@ -64,9 +74,11 @@ export function ExtensionOverlayHosts() {
               )}
             >
               <DialogHeader className="shrink-0">
-                <DialogTitle>{view.title ?? "Pi extension"}</DialogTitle>
+                <DialogTitle>
+                  {view.title ?? t("session.extension.defaultTitle")}
+                </DialogTitle>
                 <DialogDescription className="sr-only">
-                  Interactive WebUI extension view.
+                  {t("session.extension.viewDescription")}
                 </DialogDescription>
               </DialogHeader>
               <WebUiViewHost
@@ -86,11 +98,23 @@ export function ExtensionOverlayHosts() {
               if (!open) close(view)
             }}
           >
-            <SheetContent className="min-w-0 gap-0 overflow-hidden">
+            <SheetContent
+              className="min-w-0 gap-0 overflow-hidden"
+              onCloseAutoFocus={(event) => {
+                const composer = document.querySelector<HTMLTextAreaElement>(
+                  "[data-composer-input]"
+                )
+                if (!composer) return
+                event.preventDefault()
+                composer.focus()
+              }}
+            >
               <SheetHeader className="shrink-0">
-                <SheetTitle>{view.title ?? "Pi extension"}</SheetTitle>
+                <SheetTitle>
+                  {view.title ?? t("session.extension.defaultTitle")}
+                </SheetTitle>
                 <SheetDescription className="sr-only">
-                  Interactive WebUI extension panel.
+                  {t("session.extension.panelDescription")}
                 </SheetDescription>
               </SheetHeader>
               <WebUiViewHost

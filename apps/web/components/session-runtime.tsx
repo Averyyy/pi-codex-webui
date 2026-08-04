@@ -993,7 +993,7 @@ export function SessionRuntime({
         if (request.method === "notify") {
           const notify = request.notifyType ?? "info"
           toast[notify](request.message)
-          notifyWhenHidden("Pi extension", request.message)
+          notifyWhenHidden(t("session.extension.defaultTitle"), request.message)
         } else if (request.method === "setStatus") {
           setExtensionStatuses((current) => {
             const next = { ...current }
@@ -1769,7 +1769,13 @@ export function SessionRuntime({
           }
         }}
       >
-        <DialogContent showCloseButton={false}>
+        <DialogContent
+          showCloseButton={false}
+          onCloseAutoFocus={(event) => {
+            event.preventDefault()
+            composerTextareaRef.current?.focus()
+          }}
+        >
           {extensionRequest ? (
             <div className="grid gap-5">
               <DialogHeader>
@@ -1874,15 +1880,21 @@ export function SessionRuntime({
           }
         }}
       >
-        <DialogContent className="sm:max-w-4xl">
+        <DialogContent
+          className="sm:max-w-4xl"
+          onCloseAutoFocus={(event) => {
+            event.preventDefault()
+            composerTextareaRef.current?.focus()
+          }}
+        >
           {modalSurface ? (
             <>
               <DialogHeader>
                 <DialogTitle>
-                  {modalSurface.title ?? "Pi extension"}
+                  {modalSurface.title ?? t("session.extension.defaultTitle")}
                 </DialogTitle>
                 <DialogDescription className="sr-only">
-                  Interactive Pi terminal surface.
+                  {t("session.extension.tuiDescription")}
                 </DialogDescription>
               </DialogHeader>
               <PiTuiSurface

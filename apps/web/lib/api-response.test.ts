@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 
-import { ApiError, responseJson } from "./api-response"
+import { ApiError, responseJson, validatedResponseJson } from "./api-response"
 
 test("responseJson preserves structured API errors", async () => {
   await assert.rejects(
@@ -53,5 +53,27 @@ test("responseJson rejects an invalid successful response", async () => {
     responseJson(new Response("not json")),
     (error: unknown) =>
       error instanceof ApiError && error.message === "服务器返回了无效响应。"
+  )
+})
+
+test("validatedResponseJson rejects a successful response with the wrong shape", async () => {
+  await assert.rejects(
+    validatedResponseJson(
+      Response.json({ revision: "stale" }),
+      (value) => {
+        if (
+          typeof value !== "object" ||
+          value === null ||
+          !("revision" in value) ||
+          typeof value.revision !== "number"
+        ) {
+          throw new Error("Invalid response")
+        }
+        return value.revision
+      },
+      "读取设置失败。"
+    ),
+    (error: unknown) =>
+      error instanceof ApiError && error.message === "读取设置失败。"
   )
 })

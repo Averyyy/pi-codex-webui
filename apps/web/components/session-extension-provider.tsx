@@ -17,6 +17,7 @@ import {
   type WebUiViewSnapshot,
 } from "@workspace/runtime-protocol"
 
+import { useI18n } from "@/components/i18n-provider"
 import { useSessionEvents } from "@/components/session-streaming-context"
 import type { WebUiExtensionCatalogView } from "@/lib/webui-extensions/types"
 
@@ -78,6 +79,7 @@ export function SessionExtensionProvider({
   initialViews: WebUiViewSnapshot[]
   children: ReactNode
 }) {
+  const { t } = useI18n()
   const sessionEvents = useSessionEvents()
   const [catalog, setCatalog] = useState(initialCatalog)
   const [views, setViews] = useState<Record<string, WebUiViewSnapshot>>(() =>
@@ -110,11 +112,11 @@ export function SessionExtensionProvider({
         error?: string
       }
       if (!response.ok) {
-        throw new Error(result.error ?? "WebUI extension action failed.")
+        throw new Error(result.error ?? t("session.extension.actionFailed"))
       }
       return result.result
     },
-    [mutationToken, sessionId]
+    [mutationToken, sessionId, t]
   )
 
   const report = useCallback(
@@ -139,10 +141,14 @@ export function SessionExtensionProvider({
         }
       )
       if (!response.ok && !(status === "disposed" && response.status === 409)) {
-        throw new Error(`WebUI client status failed (HTTP ${response.status}).`)
+        throw new Error(
+          t("session.extension.clientStatusFailed", {
+            status: response.status,
+          })
+        )
       }
     },
-    [mutationToken, sessionId]
+    [mutationToken, sessionId, t]
   )
 
   const loadViews = useEffectEvent(async () => {
@@ -156,7 +162,9 @@ export function SessionExtensionProvider({
         { cache: "no-store" }
       )
       if (!response.ok) {
-        throw new Error(`WebUI views sync failed (HTTP ${response.status}).`)
+        throw new Error(
+          t("session.extension.viewsSyncFailed", { status: response.status })
+        )
       }
       const snapshots = webUiViewSnapshotsSchema.parse(await response.json())
       if (
@@ -188,7 +196,7 @@ export function SessionExtensionProvider({
     })
     if (!response.ok) {
       throw new Error(
-        `WebUI extension catalog failed (HTTP ${response.status}).`
+        t("session.extension.catalogSyncFailed", { status: response.status })
       )
     }
     const next = (await response.json()) as WebUiExtensionCatalogView

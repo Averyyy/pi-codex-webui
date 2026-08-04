@@ -355,7 +355,7 @@ export function NewConversation({
             {selectedProject ? (
               <>
                 {t("home.heading.projectBefore")}
-                <span className="underline decoration-border underline-offset-8">
+                <span className="[overflow-wrap:anywhere] underline decoration-border underline-offset-8">
                   {selectedProject.name}
                 </span>
                 {t("home.heading.projectAfter")}
@@ -474,7 +474,7 @@ export function NewConversation({
                   aria-live="polite"
                   className="flex items-center gap-1.5 text-xs text-muted-foreground"
                 >
-                  <LoaderCircleIcon className="size-3 animate-spin" />
+                  <LoaderCircleIcon className="size-3 animate-spin motion-reduce:animate-none" />
                   {t("home.status.creatingTask")}
                 </span>
               ) : loadingModels ? (
@@ -483,7 +483,7 @@ export function NewConversation({
                   aria-live="polite"
                   className="flex items-center gap-1.5 text-xs text-muted-foreground"
                 >
-                  <LoaderCircleIcon className="size-3 animate-spin" />
+                  <LoaderCircleIcon className="size-3 animate-spin motion-reduce:animate-none" />
                   {t("home.status.loadingModels")}
                 </span>
               ) : composerImages.loading ? (
@@ -492,7 +492,7 @@ export function NewConversation({
                   aria-live="polite"
                   className="flex items-center gap-1.5 text-xs text-muted-foreground"
                 >
-                  <LoaderCircleIcon className="size-3 animate-spin" />
+                  <LoaderCircleIcon className="size-3 animate-spin motion-reduce:animate-none" />
                   {t("home.status.readingImages")}
                 </span>
               ) : null}

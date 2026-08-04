@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 
 import { Badge } from "@workspace/ui/components/badge"
 import {
@@ -13,14 +13,18 @@ import {
 } from "@workspace/ui/components/card"
 import { Input } from "@workspace/ui/components/input"
 import { Switch } from "@workspace/ui/components/switch"
-import type { ResourceCatalog, ResourceView } from "@workspace/runtime-protocol"
+import {
+  resourceCatalogSchema,
+  type ResourceCatalog,
+  type ResourceView,
+} from "@workspace/runtime-protocol"
 
 import {
   ResourceProjectControls,
   type ResourceProject,
 } from "@/components/resource-project-controls"
 import { useI18n } from "@/components/i18n-provider"
-import { responseJson } from "@/lib/api-response"
+import { validatedResponseJson } from "@/lib/api-response"
 import { useResourceCatalog } from "@/lib/use-resource-catalog"
 
 function resourceDisplayName(resource: ResourceView) {
@@ -64,6 +68,9 @@ export function ResourceListSettings({
   const [workingId, setWorkingId] = useState<string | null>(null)
   const [trustWorking, setTrustWorking] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const workingRef = useRef(false)
+  const errorRef = useRef<HTMLParagraphElement | null>(null)
+  const focusErrorRef = useRef(false)
   const [catalog, setCatalog] = useResourceCatalog(
     projectId,
     sessionIds,
@@ -79,8 +86,31 @@ export function ResourceListSettings({
     ? resources.filter((resource) => matchesQuery(resource, normalizedQuery))
     : resources
   const busy = workingId !== null || trustWorking
+  const kindLabel =
+    kind === "skill"
+      ? t("settings.resources.kind.skills")
+      : t("settings.resources.kind.extensions")
+
+  useEffect(() => {
+    if (!error || busy || !focusErrorRef.current) return
+    focusErrorRef.current = false
+    const frame = requestAnimationFrame(() => errorRef.current?.focus())
+    return () => cancelAnimationFrame(frame)
+  }, [busy, error])
+
+  function reportMutationError(failure: unknown) {
+    focusErrorRef.current = true
+    setError(failure instanceof Error ? failure.message : String(failure))
+  }
+
+  function handleProjectError(message: string | null) {
+    if (message) focusErrorRef.current = true
+    setError(message)
+  }
 
   async function toggle(resource: ResourceView, enabled: boolean) {
+    if (workingRef.current) return
+    workingRef.current = true
     setWorkingId(resource.id)
     setError(null)
     try {
@@ -96,14 +126,16 @@ export function ResourceListSettings({
           enabled,
         }),
       })
-      const result = await responseJson<ResourceCatalog>(
+      const result = await validatedResponseJson(
         response,
+        (value) => resourceCatalogSchema.parse(value),
         t("settings.common.saveFailed")
       )
       setCatalog(result)
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure))
+      reportMutationError(failure)
     } finally {
+      workingRef.current = false
       setWorkingId(null)
     }
   }
@@ -118,7 +150,7 @@ export function ResourceListSettings({
         working={busy}
         onWorkingChange={setTrustWorking}
         onCatalogChange={setCatalog}
-        onError={setError}
+        onError={handleProjectError}
       />
       <div className="grid gap-1.5">
         <Input
@@ -126,12 +158,15 @@ export function ResourceListSettings({
           value={query}
           autoComplete="off"
           aria-label={t("settings.resources.searchLabel", {
-            kind: kind === "skill" ? "skill" : "extension",
+            kind: kindLabel,
           })}
           placeholder={t("settings.resources.searchPlaceholder", {
-            kind: kind === "skill" ? "skill" : "extension",
+            kind: kindLabel,
           })}
-          onChange={(event) => setQuery(event.target.value)}
+          onChange={(event) => {
+            setQuery(event.target.value)
+            setError(null)
+          }}
         />
         {normalizedQuery ? (
           <p aria-live="polite" className="text-xs text-muted-foreground">
@@ -158,7 +193,12 @@ export function ResourceListSettings({
             <div className="flex items-baseline justify-between gap-4">
               <h2 className="text-lg font-semibold">{scopeLabel}</h2>
               <span className="text-xs text-muted-foreground">
-                {t("settings.resources.count", { count: allScoped.length })}
+                {t(
+                  allScoped.length === 1
+                    ? "settings.resources.countOne"
+                    : "settings.resources.countMany",
+                  { count: allScoped.length }
+                )}
               </span>
             </div>
             {scoped.length ? (
@@ -180,6 +220,11 @@ export function ResourceListSettings({
                       {resource.reloadRequired ? (
                         <Badge variant="outline">
                           {t("settings.resources.reload")}
+                        </Badge>
+                      ) : null}
+                      {resource.missing ? (
+                        <Badge variant="destructive">
+                          {t("settings.resources.missing")}
                         </Badge>
                       ) : null}
                     </CardTitle>
@@ -204,7 +249,13 @@ export function ResourceListSettings({
                     </CardAction>
                   </CardHeader>
                   <CardContent className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-                    <span>{resource.source}</span>
+                    <span>
+                      {resource.source === "package"
+                        ? t("settings.resources.source.package")
+                        : resource.source === "directory"
+                          ? t("settings.resources.source.directory")
+                          : t("settings.resources.source.explicitPath")}
+                    </span>
                     <span>·</span>
                     <span className="break-all">{resource.sourcePath}</span>
                   </CardContent>
@@ -215,7 +266,7 @@ export function ResourceListSettings({
                 {allScoped.length
                   ? t("settings.resources.noMatches")
                   : t("settings.resources.empty", {
-                      kind: kind === "skill" ? "skill" : "extension",
+                      kind: kindLabel,
                     })}
               </p>
             )}
@@ -223,7 +274,12 @@ export function ResourceListSettings({
         )
       })}
       {error ? (
-        <p role="alert" className="text-sm text-destructive">
+        <p
+          ref={errorRef}
+          role="alert"
+          tabIndex={-1}
+          className="text-sm text-destructive outline-none"
+        >
           {error}
         </p>
       ) : null}

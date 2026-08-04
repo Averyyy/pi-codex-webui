@@ -28,17 +28,29 @@ test("shared UI labels follow the Chinese locale", () => {
   assert.equal(t("settings.webui.source.builtin"), "内置")
   assert.equal(t("settings.webui.nativeRendering"), "原生 Web 渲染")
   assert.equal(t("settings.webui.probeNotPassed"), "本会话尚未通过")
+  assert.equal(t("settings.webui.searchLabel"), "搜索 Adapter")
+  assert.equal(t("session.extension.defaultTitle"), "Pi 扩展")
   assert.equal(
-    t("settings.webui.readFailed"),
-    "读取 WebUI Extension 状态失败。"
+    t("session.extension.nativeUnavailable"),
+    "原生 Adapter 不可用，正在打开 Pi TUI…"
   )
+  assert.equal(t("settings.webui.readFailed"), "读取 WebUI 扩展状态失败。")
+  assert.equal(t("settings.packages.source"), "软件包来源")
+  assert.equal(t("settings.packages.itemCountOne", { count: 1 }), "1 项")
+  assert.equal(t("settings.resources.global"), "全局")
+  assert.equal(t("settings.resources.project"), "当前项目")
+  assert.equal(t("settings.resources.source.explicitPath"), "显式路径")
+  assert.equal(t("settings.mcp.context"), "MCP 上下文")
+  assert.equal(t("settings.mcp.serverCountMany", { count: 2 }), "2 项")
+  assert.equal(t("settings.mcpForm.environment"), "环境变量")
+  assert.equal(t("settings.valueEditor.secret"), "敏感值")
   assert.equal(t("settings.resources.readFailed"), "读取 Pi 资源状态失败。")
   assert.equal(
     t("settings.resources.toggleEnabled", {
-      scope: "Global",
+      scope: t("settings.resources.global"),
       name: "npm:pi-notify",
     }),
-    "Global npm:pi-notify 启用状态"
+    "全局 npm:pi-notify 启用状态"
   )
   assert.equal(
     t("settings.resources.filteredSummary", { visible: 2, total: 19 }),
@@ -72,7 +84,17 @@ test("shared UI labels follow the Chinese locale", () => {
   assert.equal(t("session.subagents.status.running"), "运行中")
   assert.equal(t("session.workspace.openFinder"), "在 Finder 中打开")
   assert.equal(t("workspace.nav.newConversation"), "新对话")
+  assert.equal(t("workspace.project.archiveConversations"), "归档对话")
+  assert.equal(
+    t("workspace.project.archiveDescriptionOne", { count: "1" }),
+    "将从导航中移除 1 个对话；如果它正在运行，会先停止。项目目录和 Pi session 文件不会删除。"
+  )
+  assert.equal(
+    t("workspace.project.archiveConfirmMany", { count: "12" }),
+    "归档 12 个对话"
+  )
   assert.equal(t("home.heading.default"), "你想让 Pi 做什么？")
+  assert.equal(t("search.submitting"), "搜索中…")
   assert.equal(
     t("search.summary", { query: "STREAM-3", count: 1 }),
     "“STREAM-3” 找到 1 个匹配结果"
@@ -103,10 +125,26 @@ test("shared UI labels retain their English defaults", () => {
   assert.equal(t("settings.webui.source.builtin"), "Built-in")
   assert.equal(t("settings.webui.nativeRendering"), "Native Web rendering")
   assert.equal(t("settings.webui.probeNotPassed"), "Not passed in this session")
+  assert.equal(t("settings.webui.searchLabel"), "Search adapters")
+  assert.equal(t("session.extension.defaultTitle"), "Pi extension")
+  assert.equal(
+    t("session.extension.nativeUnavailable"),
+    "Native adapter unavailable. Opening Pi TUI…"
+  )
   assert.equal(
     t("settings.webui.readFailed"),
     "Failed to read WebUI extension status."
   )
+  assert.equal(t("settings.packages.source"), "Package source")
+  assert.equal(t("settings.packages.itemCountOne", { count: 1 }), "1 item")
+  assert.equal(t("settings.packages.itemCountMany", { count: 2 }), "2 items")
+  assert.equal(
+    t("settings.resources.searchPlaceholder", { kind: "extensions" }),
+    "Search extensions by name, package, or path"
+  )
+  assert.equal(t("settings.resources.source.explicitPath"), "Explicit path")
+  assert.equal(t("settings.mcp.serverCountOne", { count: 1 }), "1 server")
+  assert.equal(t("settings.mcp.serverCountMany", { count: 2 }), "2 servers")
   assert.equal(
     t("settings.resources.readFailed"),
     "Failed to read Pi resource status."
@@ -160,7 +198,20 @@ test("shared UI labels retain their English defaults", () => {
   assert.equal(t("session.subagents.toolUsesOne", { count: 1 }), "1 tool use")
   assert.equal(t("session.workspace.openFinder"), "Open in Finder")
   assert.equal(t("workspace.nav.newConversation"), "New conversation")
+  assert.equal(
+    t("workspace.project.archiveConversations"),
+    "Archive conversations"
+  )
+  assert.equal(
+    t("workspace.project.archiveDescriptionOne", { count: "1" }),
+    "This removes 1 conversation from navigation and stops it if it is running. The project folder and Pi session files are kept."
+  )
+  assert.equal(
+    t("workspace.project.archiveConfirmMany", { count: "1,234" }),
+    "Archive 1,234 conversations"
+  )
   assert.equal(t("home.heading.default"), "What would you like Pi to do?")
+  assert.equal(t("search.submitting"), "Searching…")
   assert.equal(
     t("search.summary", { query: "STREAM-3", count: 1 }),
     "Matches for “STREAM-3”: 1"

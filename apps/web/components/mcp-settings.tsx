@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react"
 import { usePathname, useRouter } from "next/navigation"
 import { PlusIcon } from "lucide-react"
+import { z } from "zod"
 
 import { Button } from "@workspace/ui/components/button"
 import {
@@ -33,7 +34,7 @@ import {
   type McpServerFormValue,
 } from "@/components/mcp-server-form"
 import { useI18n } from "@/components/i18n-provider"
-import { responseJson } from "@/lib/api-response"
+import { ApiError, validatedResponseJson } from "@/lib/api-response"
 import { newestSettingsRevision } from "@/lib/settings-revision"
 
 interface McpProject {
@@ -48,6 +49,33 @@ function projectQuery(projectId: string | null) {
 
 function endpoint(path: string, projectId: string | null) {
   return `${path}${projectQuery(projectId)}`
+}
+
+const mcpTestResultSchema = z.object({
+  latencyMs: z.number().nonnegative().optional(),
+  toolCount: z.number().int().nonnegative().optional(),
+  catalog: mcpCatalogSchema,
+})
+
+async function mcpCatalogResponse(response: Response, fallback: string) {
+  return validatedResponseJson(
+    response,
+    (value) => mcpCatalogSchema.parse(value),
+    fallback
+  )
+}
+
+function conflictCatalog(failure: unknown) {
+  if (!(failure instanceof ApiError) || failure.code !== "ConfigConflict") {
+    return null
+  }
+  const details = failure.details
+  const current =
+    typeof details === "object" && details !== null && "current" in details
+      ? details.current
+      : null
+  const parsed = mcpCatalogSchema.safeParse(current)
+  return parsed.success ? parsed.data : null
 }
 
 export function McpSettings({
@@ -67,10 +95,14 @@ export function McpSettings({
   const [formOpen, setFormOpen] = useState(false)
   const [working, setWorking] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [formError, setFormError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [pendingDelete, setPendingDelete] = useState<McpServerView | null>(null)
   const catalogUpdateSequence = useRef(0)
   const formTriggerRef = useRef<HTMLButtonElement | null>(null)
+  const workingRef = useRef(false)
+  const errorRef = useRef<HTMLParagraphElement | null>(null)
+  const focusErrorRef = useRef(false)
   const selectedProject =
     projects.find((project) => project.id === catalog.projectId) ?? null
 
@@ -83,12 +115,11 @@ export function McpSettings({
         const response = await fetch(
           endpoint("/api/v1/mcp/servers", catalog.projectId)
         )
-        const body = await responseJson<unknown>(
+        const next = await mcpCatalogResponse(
           response,
           t("settings.mcp.readFailed")
         )
         if (active && sequence === catalogUpdateSequence.current) {
-          const next = mcpCatalogSchema.parse(body)
           setCatalog((current) => newestSettingsRevision(current, next))
           setError(null)
         }
@@ -107,14 +138,62 @@ export function McpSettings({
     }
   }, [catalog.projectId, t])
 
+  useEffect(() => {
+    if (!error || working !== null || !focusErrorRef.current) return
+    focusErrorRef.current = false
+    const frame = requestAnimationFrame(() => errorRef.current?.focus())
+    return () => cancelAnimationFrame(frame)
+  }, [error, working])
+
   function acceptCatalog(next: McpCatalog) {
     catalogUpdateSequence.current += 1
     setCatalog((current) => newestSettingsRevision(current, next))
   }
 
-  function handleFailure(failure: unknown) {
-    setError(failure instanceof Error ? failure.message : String(failure))
-    router.refresh()
+  function startWorking(key: string) {
+    if (workingRef.current) return false
+    workingRef.current = true
+    setWorking(key)
+    return true
+  }
+
+  function stopWorking() {
+    workingRef.current = false
+    setWorking(null)
+  }
+
+  async function reconcileFailure(failure: unknown) {
+    const current = conflictCatalog(failure)
+    if (current) {
+      acceptCatalog(current)
+    } else {
+      try {
+        const response = await fetch(
+          endpoint("/api/v1/mcp/servers", catalog.projectId)
+        )
+        acceptCatalog(
+          await mcpCatalogResponse(response, t("settings.mcp.readFailed"))
+        )
+      } catch {
+        // Preserve the original operation error when reconciliation also fails.
+      }
+    }
+    if (failure instanceof ApiError) {
+      if (failure.code === "ConfigConflict") {
+        return t("settings.common.conflict")
+      }
+      if (failure.code === "InvalidMcpInput") {
+        return t("settings.mcp.invalidInput")
+      }
+    }
+    return failure instanceof Error
+      ? failure.message
+      : t("settings.mcp.requestFailed")
+  }
+
+  async function reportPageFailure(failure: unknown) {
+    focusErrorRef.current = true
+    setError(await reconcileFailure(failure))
   }
 
   function mutationHeaders(includeRevision = true) {
@@ -128,19 +207,19 @@ export function McpSettings({
   }
 
   async function readCatalog(response: Response) {
-    const body = await responseJson<unknown>(
+    const next = await mcpCatalogResponse(
       response,
       t("settings.mcp.requestFailed")
     )
-    const next = mcpCatalogSchema.parse(body)
     acceptCatalog(next)
     return next
   }
 
   async function save(server: McpServerFormValue) {
     const key = editing ? `edit:${editing.id}` : "create"
-    setWorking(key)
+    if (!startWorking(key)) return
     setError(null)
+    setFormError(null)
     setNotice(null)
     try {
       const response = await fetch(
@@ -161,9 +240,9 @@ export function McpSettings({
       setEditing(null)
       setNotice(t("settings.mcp.saved", { name: server.name }))
     } catch (failure) {
-      handleFailure(failure)
+      setFormError(await reconcileFailure(failure))
     } finally {
-      setWorking(null)
+      stopWorking()
     }
   }
 
@@ -173,7 +252,7 @@ export function McpSettings({
     body: unknown,
     success: string
   ) {
-    setWorking(key)
+    if (!startWorking(key)) return
     setError(null)
     setNotice(null)
     try {
@@ -188,14 +267,14 @@ export function McpSettings({
       await readCatalog(response)
       setNotice(success)
     } catch (failure) {
-      handleFailure(failure)
+      await reportPageFailure(failure)
     } finally {
-      setWorking(null)
+      stopWorking()
     }
   }
 
   async function test(server: McpServerView) {
-    setWorking(`test:${server.id}`)
+    if (!startWorking(`test:${server.id}`)) return
     setError(null)
     setNotice(null)
     try {
@@ -203,29 +282,34 @@ export function McpSettings({
         endpoint(`/api/v1/mcp/servers/${server.id}/test`, catalog.projectId),
         { method: "POST", headers: mutationHeaders(false) }
       )
-      const result = await responseJson<{
-        latencyMs?: number
-        toolCount?: number
-        catalog?: unknown
-      }>(response, t("settings.mcp.testFailed"))
-      const next = mcpCatalogSchema.parse(result.catalog)
-      acceptCatalog(next)
+      const result = await validatedResponseJson(
+        response,
+        (value) => mcpTestResultSchema.parse(value),
+        t("settings.mcp.testFailed")
+      )
+      acceptCatalog(result.catalog)
+      const toolCount = result.toolCount ?? 0
       setNotice(
-        t("settings.mcp.connected", {
-          name: server.name,
-          latency: result.latencyMs ?? 0,
-          tools: result.toolCount ?? 0,
-        })
+        t(
+          toolCount === 1
+            ? "settings.mcp.connectedOne"
+            : "settings.mcp.connectedMany",
+          {
+            name: server.name,
+            latency: result.latencyMs ?? 0,
+            tools: toolCount,
+          }
+        )
       )
     } catch (failure) {
-      handleFailure(failure)
+      await reportPageFailure(failure)
     } finally {
-      setWorking(null)
+      stopWorking()
     }
   }
 
   async function reconnect(server: McpServerView) {
-    setWorking(`reconnect:${server.id}`)
+    if (!startWorking(`reconnect:${server.id}`)) return
     setError(null)
     setNotice(null)
     try {
@@ -239,14 +323,14 @@ export function McpSettings({
       await readCatalog(response)
       setNotice(t("settings.mcp.reconnected", { name: server.name }))
     } catch (failure) {
-      handleFailure(failure)
+      await reportPageFailure(failure)
     } finally {
-      setWorking(null)
+      stopWorking()
     }
   }
 
   async function remove(server: McpServerView) {
-    setWorking(`delete:${server.id}`)
+    if (!startWorking(`delete:${server.id}`)) return
     setError(null)
     setNotice(null)
     try {
@@ -257,9 +341,9 @@ export function McpSettings({
       await readCatalog(response)
       setNotice(t("settings.mcp.deleted", { name: server.name }))
     } catch (failure) {
-      handleFailure(failure)
+      await reportPageFailure(failure)
     } finally {
-      setWorking(null)
+      stopWorking()
     }
   }
 
@@ -283,6 +367,8 @@ export function McpSettings({
               onClick={(event) => {
                 formTriggerRef.current = event.currentTarget
                 setEditing(null)
+                setFormError(null)
+                setError(null)
                 setFormOpen(true)
               }}
             >
@@ -348,7 +434,12 @@ export function McpSettings({
                   : t("settings.mcp.projectServers")}
               </h2>
               <span className="text-xs text-muted-foreground">
-                {t("settings.mcp.serverCount", { count: servers.length })}
+                {t(
+                  servers.length === 1
+                    ? "settings.mcp.serverCountOne"
+                    : "settings.mcp.serverCountMany",
+                  { count: servers.length }
+                )}
               </span>
             </div>
             {servers.length ? (
@@ -363,6 +454,8 @@ export function McpSettings({
                   onEdit={(trigger) => {
                     formTriggerRef.current = trigger
                     setEditing(server)
+                    setFormError(null)
+                    setError(null)
                     setFormOpen(true)
                   }}
                   onTest={() => void test(server)}
@@ -397,7 +490,10 @@ export function McpSettings({
             ) : (
               <p className="rounded-xl border border-dashed p-5 text-sm text-muted-foreground">
                 {t("settings.mcp.scopeEmpty", {
-                  scope: scope === "global" ? "Global" : "Project",
+                  scope:
+                    scope === "global"
+                      ? t("settings.resources.global")
+                      : t("settings.resources.project"),
                 })}
               </p>
             )}
@@ -411,7 +507,12 @@ export function McpSettings({
         </p>
       ) : null}
       {error ? (
-        <p role="alert" className="text-sm text-destructive">
+        <p
+          ref={errorRef}
+          role="alert"
+          tabIndex={-1}
+          className="text-sm text-destructive outline-none"
+        >
           {error}
         </p>
       ) : null}
@@ -424,10 +525,15 @@ export function McpSettings({
           selectedProjectId={catalog.projectId}
           selectedProjectName={selectedProject?.name ?? null}
           working={working !== null}
+          serverError={formError}
           onReturnFocus={() => formTriggerRef.current?.focus()}
+          onClearError={() => setFormError(null)}
           onOpenChange={(open) => {
             setFormOpen(open)
-            if (!open) setEditing(null)
+            if (!open) {
+              setEditing(null)
+              setFormError(null)
+            }
           }}
           onSave={save}
         />

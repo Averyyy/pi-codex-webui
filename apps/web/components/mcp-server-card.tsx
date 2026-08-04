@@ -30,6 +30,7 @@ import type {
 } from "@workspace/runtime-protocol"
 
 import { useI18n } from "@/components/i18n-provider"
+import { formatTimestamp } from "@/lib/session-display"
 
 const statusLabelKey = {
   disabled: "settings.mcp.status.disabled",
@@ -75,7 +76,7 @@ export function McpServerCard({
     enabled: boolean
   ) => void
 }) {
-  const { t } = useI18n()
+  const { locale, t } = useI18n()
 
   return (
     <Card>
@@ -150,7 +151,7 @@ export function McpServerCard({
         {server.lastConnectedAt ? (
           <p className="text-xs text-muted-foreground">
             {t("settings.mcp.lastConnected", {
-              value: server.lastConnectedAt.replace("T", " "),
+              value: formatTimestamp(server.lastConnectedAt, locale),
             })}
           </p>
         ) : null}
@@ -214,8 +215,13 @@ export function McpServerCard({
 
         <Collapsible>
           <CollapsibleTrigger asChild>
-            <Button type="button" variant="ghost" size="sm">
-              <ChevronDownIcon />
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="[&[data-state=open]>svg]:rotate-180"
+            >
+              <ChevronDownIcon className="transition-transform" />
               {t("settings.mcp.logs", { count: server.logs.length })}
             </Button>
           </CollapsibleTrigger>

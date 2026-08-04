@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, type FormEvent } from "react"
+import { useEffect, useRef, useState, type FormEvent } from "react"
 import {
   LoaderCircleIcon,
   PackagePlusIcon,
@@ -26,7 +26,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@workspace/ui/components/select"
-import type { ResourceCatalog } from "@workspace/runtime-protocol"
+import {
+  resourceCatalogSchema,
+  type ResourceCatalog,
+} from "@workspace/runtime-protocol"
 
 import {
   ResourceProjectControls,
@@ -34,7 +37,7 @@ import {
 } from "@/components/resource-project-controls"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { useI18n } from "@/components/i18n-provider"
-import { responseJson } from "@/lib/api-response"
+import { validatedResponseJson } from "@/lib/api-response"
 import { useResourceCatalog } from "@/lib/use-resource-catalog"
 
 export function PackageSettings({
@@ -60,6 +63,9 @@ export function PackageSettings({
   >(null)
   const [trustWorking, setTrustWorking] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const workingRef = useRef(false)
+  const errorRef = useRef<HTMLParagraphElement | null>(null)
+  const focusErrorRef = useRef(false)
   const [catalog, setCatalog] = useResourceCatalog(
     projectId,
     sessionIds,
@@ -77,9 +83,27 @@ export function PackageSettings({
     : catalog.packages
   const busy = working !== null || trustWorking
 
+  useEffect(() => {
+    if (!error || busy || !focusErrorRef.current) return
+    focusErrorRef.current = false
+    const frame = requestAnimationFrame(() => errorRef.current?.focus())
+    return () => cancelAnimationFrame(frame)
+  }, [busy, error])
+
+  function reportMutationError(failure: unknown) {
+    focusErrorRef.current = true
+    setError(failure instanceof Error ? failure.message : String(failure))
+  }
+
+  function handleProjectError(message: string | null) {
+    if (message) focusErrorRef.current = true
+    setError(message)
+  }
+
   async function readCatalog(response: Response) {
-    const result = await responseJson<ResourceCatalog>(
+    const result = await validatedResponseJson(
       response,
+      (value) => resourceCatalogSchema.parse(value),
       t("settings.common.saveFailed")
     )
     setCatalog(result)
@@ -88,7 +112,8 @@ export function PackageSettings({
   async function install(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const packageSource = source.trim()
-    if (!packageSource) return
+    if (!packageSource || workingRef.current) return
+    workingRef.current = true
     setWorking("install")
     setError(null)
     try {
@@ -104,13 +129,16 @@ export function PackageSettings({
       )
       setSource("")
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure))
+      reportMutationError(failure)
     } finally {
+      workingRef.current = false
       setWorking(null)
     }
   }
 
   async function mutate(packageId: string, operation: "remove" | "update") {
+    if (workingRef.current) return
+    workingRef.current = true
     setWorking(`${operation}:${packageId}`)
     setError(null)
     try {
@@ -135,8 +163,9 @@ export function PackageSettings({
         )
       )
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure))
+      reportMutationError(failure)
     } finally {
+      workingRef.current = false
       setWorking(null)
     }
   }
@@ -158,7 +187,7 @@ export function PackageSettings({
         working={busy}
         onWorkingChange={setTrustWorking}
         onCatalogChange={setCatalog}
-        onError={setError}
+        onError={handleProjectError}
       />
       <Card>
         <CardHeader>
@@ -175,7 +204,10 @@ export function PackageSettings({
             <Input
               value={source}
               disabled={busy}
-              onChange={(event) => setSource(event.target.value)}
+              onChange={(event) => {
+                setSource(event.target.value)
+                setError(null)
+              }}
               placeholder={t("settings.packages.sourcePlaceholder")}
               aria-label={t("settings.packages.source")}
             />
@@ -220,7 +252,12 @@ export function PackageSettings({
             {t("settings.packages.configured")}
           </h2>
           <span className="text-xs text-muted-foreground">
-            {t("settings.packages.items", { count: catalog.packages.length })}
+            {t(
+              catalog.packages.length === 1
+                ? "settings.packages.itemCountOne"
+                : "settings.packages.itemCountMany",
+              { count: catalog.packages.length }
+            )}
           </span>
         </div>
         <div className="grid gap-1.5">
@@ -229,12 +266,15 @@ export function PackageSettings({
             value={query}
             autoComplete="off"
             aria-label={t("settings.resources.searchLabel", {
-              kind: "package",
+              kind: t("settings.packages.kind"),
             })}
             placeholder={t("settings.resources.searchPlaceholder", {
-              kind: "package",
+              kind: t("settings.packages.kind"),
             })}
-            onChange={(event) => setQuery(event.target.value)}
+            onChange={(event) => {
+              setQuery(event.target.value)
+              setError(null)
+            }}
           />
           {normalizedQuery ? (
             <p aria-live="polite" className="text-xs text-muted-foreground">
@@ -249,10 +289,12 @@ export function PackageSettings({
           visiblePackages.map((pkg) => (
             <Card key={pkg.id} size="sm">
               <CardHeader>
-                <CardTitle className="flex flex-wrap items-center gap-2">
+                <CardTitle className="flex min-w-0 flex-wrap items-center gap-2 break-all">
                   {pkg.source}
                   <Badge variant="outline">
-                    {pkg.scope === "global" ? "Global" : "Project"}
+                    {pkg.scope === "global"
+                      ? t("settings.resources.global")
+                      : t("settings.resources.project")}
                   </Badge>
                   {pkg.missing ? (
                     <Badge variant="destructive">
@@ -316,7 +358,12 @@ export function PackageSettings({
         )}
       </section>
       {error ? (
-        <p role="alert" className="text-sm text-destructive">
+        <p
+          ref={errorRef}
+          role="alert"
+          tabIndex={-1}
+          className="text-sm text-destructive outline-none"
+        >
           {error}
         </p>
       ) : null}

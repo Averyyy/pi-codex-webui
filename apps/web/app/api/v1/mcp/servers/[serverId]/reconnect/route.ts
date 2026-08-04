@@ -19,6 +19,6 @@ export async function POST(
     await getMcpService().test(serverId, context)
     return Response.json(await getMcpService().catalog(context))
   } catch (error) {
-    return mcpErrorResponse(error)
+    return await mcpErrorResponse(error, selectedProjectId(request))
   }
 }

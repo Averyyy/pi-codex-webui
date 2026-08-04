@@ -22,6 +22,6 @@ export async function POST(
       catalog: await getMcpService().catalog(context),
     })
   } catch (error) {
-    return mcpErrorResponse(error)
+    return await mcpErrorResponse(error, selectedProjectId(request))
   }
 }

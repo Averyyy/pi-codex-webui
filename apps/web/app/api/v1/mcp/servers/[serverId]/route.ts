@@ -83,7 +83,7 @@ export async function PATCH(
     )
     return await mcpCatalogResponse(projectId)
   } catch (error) {
-    return mcpErrorResponse(error)
+    return await mcpErrorResponse(error, selectedProjectId(request))
   }
 }
 
@@ -120,6 +120,6 @@ export async function DELETE(
     )
     return await mcpCatalogResponse(projectId)
   } catch (error) {
-    return mcpErrorResponse(error)
+    return await mcpErrorResponse(error, selectedProjectId(request))
   }
 }

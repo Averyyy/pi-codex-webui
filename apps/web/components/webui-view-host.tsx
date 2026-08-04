@@ -9,6 +9,7 @@ import type {
 import type { WebUiViewSnapshot } from "@workspace/runtime-protocol"
 import { cn } from "@workspace/ui/lib/utils"
 
+import { useI18n } from "@/components/i18n-provider"
 import { SessionExtensionContext } from "@/components/session-extension-provider"
 
 const clients = new Map<
@@ -53,6 +54,7 @@ export function WebUiViewHost({
   view: WebUiViewSnapshot
   className?: string
 }) {
+  const { t } = useI18n()
   const runtime = useContext(SessionExtensionContext)
   const hostRef = useRef<HTMLDivElement>(null)
   const mountedRef = useRef<{
@@ -101,7 +103,7 @@ export function WebUiViewHost({
     const showFailure = (message: string) => {
       const notice = document.createElement("p")
       notice.setAttribute("role", "status")
-      notice.textContent = "Native adapter unavailable. Opening Pi TUI…"
+      notice.textContent = t("session.extension.nativeUnavailable")
       notice.style.cssText =
         "margin:0;padding:12px;font:14px system-ui;opacity:.7"
       shadowRoot.replaceChildren(notice)
@@ -169,7 +171,7 @@ export function WebUiViewHost({
       }
       shadowRoot.replaceChildren()
     }
-  }, [adapterKey, clientUrl, identity, invoke, report, styleUrl, viewId])
+  }, [adapterKey, clientUrl, identity, invoke, report, styleUrl, t, viewId])
 
   return <div ref={hostRef} className={cn("min-w-0", className)} />
 }

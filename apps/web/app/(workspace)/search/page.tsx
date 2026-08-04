@@ -1,8 +1,9 @@
 import Link from "next/link"
+import Form from "next/form"
+import { redirect } from "next/navigation"
 import { SearchIcon } from "lucide-react"
 
 import { Badge } from "@workspace/ui/components/badge"
-import { Button } from "@workspace/ui/components/button"
 import {
   Card,
   CardContent,
@@ -19,7 +20,10 @@ import {
 } from "@workspace/ui/components/empty"
 import { Field, FieldGroup, FieldLabel } from "@workspace/ui/components/field"
 
-import { ConversationSearchInput } from "@/components/conversation-search-input"
+import {
+  ConversationSearchInput,
+  ConversationSearchSubmitButton,
+} from "@/components/conversation-search-input"
 import { searchSessions } from "@/lib/catalog"
 import { getLocalizedConfig } from "@/lib/i18n-server"
 import {
@@ -27,12 +31,15 @@ import {
   searchResultHref,
 } from "@/lib/search-result-display"
 import { displaySessionTitle, formatTimestamp } from "@/lib/session-display"
+import { resolveSearchQuery } from "@/lib/workspace-route-query"
 
 export default async function SearchPage({
   searchParams,
 }: PageProps<"/search">) {
   const value = (await searchParams).q
-  const query = (Array.isArray(value) ? value[0] : value)?.trim() ?? ""
+  const { value: query, canonicalHref } = resolveSearchQuery(value)
+  if (canonicalHref) redirect(canonicalHref)
+
   const [{ config, t }, results] = await Promise.all([
     getLocalizedConfig(),
     query ? searchSessions(query) : Promise.resolve([]),
@@ -53,27 +60,24 @@ export default async function SearchPage({
             {query
               ? t("search.summary", {
                   query,
-                  count: results.length,
+                  count: results.length.toLocaleString(locale),
                 })
               : t("search.description")}
           </p>
         </div>
       </header>
 
-      <form action="/search">
+      <Form action="/search">
         <FieldGroup>
           <Field orientation="horizontal">
             <FieldLabel htmlFor="conversation-search" className="sr-only">
               {t("search.label")}
             </FieldLabel>
-            <ConversationSearchInput defaultValue={query} />
-            <Button type="submit">
-              <SearchIcon data-icon="inline-start" />
-              {t("search.submit")}
-            </Button>
+            <ConversationSearchInput key={query} defaultValue={query} />
+            <ConversationSearchSubmitButton />
           </Field>
         </FieldGroup>
-      </form>
+      </Form>
 
       <section
         className="grid gap-3"
@@ -111,9 +115,11 @@ export default async function SearchPage({
                         }
                       )}
                     </CardTitle>
-                    <CardDescription className="mt-1">
+                    <CardDescription className="mt-1 [overflow-wrap:anywhere]">
                       {result.projectName ?? t("search.standaloneTask")} ·{" "}
-                      {formatTimestamp(result.timestamp, locale)}
+                      <time dateTime={result.timestamp}>
+                        {formatTimestamp(result.timestamp, locale)}
+                      </time>
                     </CardDescription>
                   </div>
                   <Badge variant="secondary" className="shrink-0">

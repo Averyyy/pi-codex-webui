@@ -37,3 +37,16 @@ export async function responseJson<T>(
   }
   return result
 }
+
+export async function validatedResponseJson<T>(
+  response: Response,
+  parse: (value: unknown) => T,
+  fallbackError?: string
+) {
+  const value = await responseJson<unknown>(response, fallbackError)
+  try {
+    return parse(value)
+  } catch {
+    throw new ApiError(fallbackError ?? "服务器返回了无效响应。")
+  }
+}

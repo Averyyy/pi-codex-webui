@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useRef, useState } from "react"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import {
@@ -28,6 +28,7 @@ import { cn } from "@workspace/ui/lib/utils"
 import { displaySessionTitle } from "@/lib/session-display"
 import { responseJson } from "@/lib/api-response"
 import type { SessionSummary } from "@/lib/session-types"
+import type { WorkspaceSessionMutationFocusRequest } from "@/lib/workspace-nav-focus"
 import { useI18n } from "@/components/i18n-provider"
 
 export type ConversationShortcutModifier = "⌘" | "Ctrl"
@@ -41,6 +42,7 @@ export function WorkspaceNavSession({
   nested = false,
   shortcutNumber,
   shortcutModifier,
+  onMutationFocus,
 }: {
   session: SessionSummary
   href: string
@@ -50,11 +52,16 @@ export function WorkspaceNavSession({
   nested?: boolean
   shortcutNumber?: number
   shortcutModifier?: ConversationShortcutModifier
+  onMutationFocus: (request: WorkspaceSessionMutationFocusRequest) => void
 }) {
   const pathname = usePathname()
   const router = useRouter()
   const { t } = useI18n()
-  const [working, setWorking] = useState(false)
+  const workingRef = useRef(false)
+  const [workingAction, setWorkingAction] = useState<"pin" | "archive" | null>(
+    null
+  )
+  const working = workingAction !== null
   const title = displaySessionTitle(session, {
     task: t("workspace.nav.newTask"),
     conversation: t("workspace.nav.unnamedConversation"),
@@ -70,8 +77,15 @@ export function WorkspaceNavSession({
       ? undefined
       : `${shortcutModifier === "⌘" ? "Meta" : "Control"}+${shortcutNumber}`
 
-  async function mutate(path: string, body?: unknown) {
-    setWorking(true)
+  async function mutate(
+    action: "pin" | "archive",
+    path: string,
+    body?: unknown,
+    onSuccess?: () => void
+  ) {
+    if (workingRef.current) return false
+    workingRef.current = true
+    setWorkingAction(action)
     try {
       await responseJson(
         await fetch(path, {
@@ -86,13 +100,15 @@ export function WorkspaceNavSession({
           body: body === undefined ? undefined : JSON.stringify(body),
         })
       )
+      onSuccess?.()
       router.refresh()
       return true
     } catch (error) {
       toast.error(error instanceof Error ? error.message : String(error))
       return false
     } finally {
-      setWorking(false)
+      workingRef.current = false
+      setWorkingAction(null)
     }
   }
 
@@ -104,19 +120,35 @@ export function WorkspaceNavSession({
             type="button"
             variant="ghost"
             size="icon-xs"
-            disabled={working}
+            aria-disabled={working}
+            aria-busy={workingAction === "pin"}
+            data-session-pin={session.id}
+            data-pinned={String(session.isPinned)}
             aria-label={
               session.isPinned
                 ? t("workspace.nav.unpinConversation")
                 : t("workspace.nav.pinConversation")
             }
             onClick={() =>
-              void mutate(`/api/v1/sessions/${session.id}/pin`, {
-                pinned: !session.isPinned,
-              })
+              void mutate(
+                "pin",
+                `/api/v1/sessions/${session.id}/pin`,
+                { pinned: !session.isPinned },
+                () =>
+                  onMutationFocus({
+                    kind: "pin",
+                    sessionId: session.id,
+                    pinned: !session.isPinned,
+                    projectId: session.projectId,
+                  })
+              )
             }
           >
-            <PinIcon className={cn(session.isPinned && "fill-current")} />
+            {workingAction === "pin" ? (
+              <LoaderCircleIcon className="animate-spin motion-reduce:animate-none" />
+            ) : (
+              <PinIcon className={cn(session.isPinned && "fill-current")} />
+            )}
           </Button>
         </TooltipTrigger>
         <TooltipContent side="top">
@@ -131,17 +163,36 @@ export function WorkspaceNavSession({
             type="button"
             variant="ghost"
             size="icon-xs"
-            disabled={working}
+            aria-disabled={working}
+            aria-busy={workingAction === "archive"}
             aria-label={t("workspace.nav.archiveConversation")}
             onClick={() => {
               void (async () => {
-                if (await mutate(`/api/v1/sessions/${session.id}/archive`)) {
-                  if (pathname === href) router.push("/")
+                const navigateHome = pathname === href
+                if (
+                  await mutate(
+                    "archive",
+                    `/api/v1/sessions/${session.id}/archive`,
+                    undefined,
+                    () =>
+                      onMutationFocus({
+                        kind: "archive",
+                        sessionId: session.id,
+                        href,
+                        navigateHome,
+                      })
+                  )
+                ) {
+                  if (navigateHome) router.push("/")
                 }
               })()
             }}
           >
-            <ArchiveIcon />
+            {workingAction === "archive" ? (
+              <LoaderCircleIcon className="animate-spin motion-reduce:animate-none" />
+            ) : (
+              <ArchiveIcon />
+            )}
           </Button>
         </TooltipTrigger>
         <TooltipContent side="top">

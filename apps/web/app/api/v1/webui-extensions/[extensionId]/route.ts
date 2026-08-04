@@ -5,7 +5,7 @@ import { webUiExtensionIdSchema } from "@/lib/config-schema"
 import { validateLocalMutation } from "@/lib/request-security"
 import { runtimeErrorResponse } from "@/lib/runtime-api"
 import { getRuntimeSupervisor } from "@/lib/runtime-supervisor"
-import { loadWebUiExtensionSettings } from "@/lib/webui-extension-settings-data"
+import { loadWebUiExtensionCatalog } from "@/lib/webui-extension-settings-data"
 
 export const runtime = "nodejs"
 
@@ -33,12 +33,14 @@ export async function PATCH(
       { status: 428 }
     )
   }
+  let selectedProjectId: string | null = null
   try {
     const extensionId = webUiExtensionIdSchema.parse(
       (await context.params).extensionId
     )
     const preference = preferenceSchema.parse(await request.json())
-    const data = await loadWebUiExtensionSettings(preference.projectId)
+    selectedProjectId = preference.projectId ?? null
+    const data = await loadWebUiExtensionCatalog(selectedProjectId)
     const group = data.catalog.groups.find((item) => item.id === extensionId)
     if (!group) {
       return Response.json(
@@ -71,14 +73,19 @@ export async function PATCH(
       },
     })
     void getRuntimeSupervisor().refreshWebUiExtensions()
-    const next = await loadWebUiExtensionSettings(preference.projectId)
+    const next = await loadWebUiExtensionCatalog(selectedProjectId)
     return Response.json(next.catalog, {
       headers: { "Cache-Control": "no-store" },
     })
   } catch (error) {
     if (error instanceof ConfigConflictError) {
+      const current = await loadWebUiExtensionCatalog(selectedProjectId)
       return Response.json(
-        { error: error.message, revision: error.currentRevision },
+        {
+          error: error.message,
+          code: "ConfigConflict",
+          current: current.catalog,
+        },
         { status: 409 }
       )
     }

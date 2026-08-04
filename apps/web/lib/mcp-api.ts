@@ -51,20 +51,35 @@ export async function restartScope(server: McpServerConfig) {
   return { cwd: context.projectPath, global: false }
 }
 
-export function mcpErrorResponse(error: unknown) {
+export async function mcpErrorResponse(
+  error: unknown,
+  projectId: string | null
+) {
   if (error instanceof ConfigConflictError) {
+    const current = await getMcpService().catalog(
+      await resolveMcpContext(projectId)
+    )
     return Response.json(
-      { error: error.message, revision: error.currentRevision },
+      {
+        error: error.message,
+        code: "ConfigConflict",
+        current,
+      },
       { status: 409 }
     )
   }
-  if (
-    error instanceof ZodError ||
-    error instanceof McpConfigError ||
-    error instanceof SyntaxError
-  ) {
+  if (error instanceof ZodError || error instanceof SyntaxError) {
     return Response.json(
-      { error: error instanceof Error ? error.message : "Invalid MCP input." },
+      {
+        error: "Invalid MCP server settings.",
+        code: "InvalidMcpInput",
+      },
+      { status: 400 }
+    )
+  }
+  if (error instanceof McpConfigError) {
+    return Response.json(
+      { error: error.message, code: "McpConfigError" },
       { status: 400 }
     )
   }

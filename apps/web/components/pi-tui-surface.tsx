@@ -7,6 +7,8 @@ import type {
   TuiSurfaceSnapshot,
 } from "@workspace/runtime-protocol"
 
+import { useI18n } from "@/components/i18n-provider"
+
 type Props = {
   surface: TuiSurfaceSnapshot
   onAction: (action: TuiSurfaceAction) => Promise<void>
@@ -17,6 +19,7 @@ const INPUT_BATCH_MS = 8
 const MAX_INPUT_LENGTH = 65_536
 
 export function PiTuiSurface({ surface, onAction, onError }: Props) {
+  const { t } = useI18n()
   const containerRef = useRef<HTMLDivElement>(null)
   const renderRef = useRef<(() => void) | null>(null)
   const readSurface = useEffectEvent(() => surface)
@@ -158,7 +161,7 @@ export function PiTuiSurface({ surface, onAction, onError }: Props) {
     <div
       ref={containerRef}
       role="application"
-      aria-label={surface.title ?? "Pi TUI"}
+      aria-label={surface.title ?? t("session.extension.tuiLabel")}
       className={
         surface.mode === "inline"
           ? "h-40 w-full overflow-hidden rounded-lg bg-muted/30 p-2 text-foreground"

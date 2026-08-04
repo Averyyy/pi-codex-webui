@@ -16,7 +16,7 @@ export async function GET(request: Request) {
   try {
     return await mcpCatalogResponse(selectedProjectId(request))
   } catch (error) {
-    return mcpErrorResponse(error)
+    return await mcpErrorResponse(error, selectedProjectId(request))
   }
 }
 
@@ -49,6 +49,6 @@ export async function POST(request: Request) {
     )
     return await mcpCatalogResponse(projectId)
   } catch (error) {
-    return mcpErrorResponse(error)
+    return await mcpErrorResponse(error, selectedProjectId(request))
   }
 }

@@ -1,6 +1,6 @@
 "use client"
 
-import { useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 
 import { Button } from "@workspace/ui/components/button"
 import {
@@ -30,6 +30,7 @@ import type {
 
 import { McpValueEditor } from "@/components/mcp-value-editor"
 import { useI18n } from "@/components/i18n-provider"
+import { parseMcpArguments } from "@/lib/mcp-form-validation"
 
 export interface McpServerFormValue {
   id: string
@@ -97,8 +98,10 @@ export function McpServerForm({
   selectedProjectId,
   selectedProjectName,
   working,
+  serverError,
   onOpenChange,
   onReturnFocus,
+  onClearError,
   onSave,
 }: {
   open: boolean
@@ -106,8 +109,10 @@ export function McpServerForm({
   selectedProjectId: string | null
   selectedProjectName: string | null
   working: boolean
+  serverError: string | null
   onOpenChange: (open: boolean) => void
   onReturnFocus: () => void
+  onClearError: () => void
   onSave: (server: McpServerFormValue) => Promise<void>
 }) {
   const { t } = useI18n()
@@ -115,12 +120,21 @@ export function McpServerForm({
   const [error, setError] = useState<FormError | null>(null)
   const argumentsRef = useRef<HTMLTextAreaElement | null>(null)
   const timeoutRef = useRef<HTMLInputElement | null>(null)
+  const serverErrorRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    if (!serverError || working) return
+    const frame = requestAnimationFrame(() => serverErrorRef.current?.focus())
+    return () => cancelAnimationFrame(frame)
+  }, [serverError, working])
 
   function field<Key extends keyof FormState>(key: Key, value: FormState[Key]) {
     setForm((current) => ({ ...current, [key]: value }))
+    onClearError()
     if (
       (key === "argsJson" && error?.field === "arguments") ||
-      (key === "timeoutMs" && error?.field === "timeout")
+      (key === "timeoutMs" && error?.field === "timeout") ||
+      key === "transportType"
     ) {
       setError(null)
     }
@@ -137,18 +151,16 @@ export function McpServerForm({
   async function submit(event: React.FormEvent) {
     event.preventDefault()
     setError(null)
-    let args: unknown
-    try {
-      args = JSON.parse(form.argsJson)
-    } catch {
-      reportError("arguments", t("settings.mcpForm.argumentsError"))
-      return
-    }
-    if (
-      !Array.isArray(args) ||
-      args.some((value) => typeof value !== "string")
-    ) {
-      reportError("arguments", t("settings.mcpForm.argumentsTypeError"))
+    onClearError()
+    const parsedArguments = parseMcpArguments(form.transportType, form.argsJson)
+    if (parsedArguments.error) {
+      const message =
+        parsedArguments.error === "invalid-json"
+          ? t("settings.mcpForm.argumentsError")
+          : parsedArguments.error === "not-string-array"
+            ? t("settings.mcpForm.argumentsTypeError")
+            : t("settings.mcpForm.argumentsLimitError")
+      reportError("arguments", message)
       return
     }
     const timeoutMs = Number(form.timeoutMs)
@@ -168,7 +180,7 @@ export function McpServerForm({
           ? {
               type: "stdio",
               command: form.command,
-              args,
+              args: parsedArguments.arguments,
               cwd: form.cwd.trim() || null,
             }
           : { type: "http", url: form.url, headers: form.headers },
@@ -208,6 +220,7 @@ export function McpServerForm({
               <Input
                 id="mcp-name"
                 required
+                maxLength={80}
                 value={form.name}
                 onChange={(event) => field("name", event.target.value)}
                 placeholder="GitHub"
@@ -218,6 +231,7 @@ export function McpServerForm({
               <Input
                 id="mcp-id"
                 required
+                maxLength={48}
                 disabled={server !== null}
                 value={form.id}
                 onChange={(event) => field("id", event.target.value)}
@@ -245,9 +259,11 @@ export function McpServerForm({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="global">Global</SelectItem>
+                  <SelectItem value="global">
+                    {t("settings.resources.global")}
+                  </SelectItem>
                   <SelectItem value="project" disabled={!selectedProjectId}>
-                    Current Project
+                    {t("settings.resources.project")}
                   </SelectItem>
                 </SelectContent>
               </Select>
@@ -287,6 +303,7 @@ export function McpServerForm({
                 <Input
                   id="mcp-command"
                   required
+                  maxLength={2_048}
                   value={form.command}
                   onChange={(event) => field("command", event.target.value)}
                   placeholder="npx"
@@ -301,6 +318,7 @@ export function McpServerForm({
                   ref={argumentsRef}
                   className="min-h-24 font-mono text-xs"
                   value={form.argsJson}
+                  maxLength={1_640_000}
                   aria-invalid={error?.field === "arguments"}
                   aria-describedby={
                     error?.field === "arguments" ? "mcp-form-error" : undefined
@@ -313,6 +331,7 @@ export function McpServerForm({
                 <Input
                   id="mcp-cwd"
                   value={form.cwd}
+                  maxLength={2_048}
                   onChange={(event) => field("cwd", event.target.value)}
                   placeholder={t("settings.mcpForm.cwdPlaceholder")}
                 />
@@ -331,6 +350,7 @@ export function McpServerForm({
                   id="mcp-url"
                   type="url"
                   required
+                  maxLength={2_048}
                   value={form.url}
                   onChange={(event) => field("url", event.target.value)}
                   placeholder="https://mcp.example.com/mcp"
@@ -376,6 +396,16 @@ export function McpServerForm({
           {error ? (
             <FieldError id="mcp-form-error">{error.message}</FieldError>
           ) : null}
+          {serverError ? (
+            <FieldError
+              ref={serverErrorRef}
+              id="mcp-server-error"
+              tabIndex={-1}
+              className="outline-none"
+            >
+              {serverError}
+            </FieldError>
+          ) : null}
           <DialogFooter className="mx-0 mb-0">
             <Button
               type="button"
@@ -388,7 +418,9 @@ export function McpServerForm({
             <Button type="submit" disabled={working}>
               {working
                 ? t("settings.common.saving")
-                : t("settings.mcpForm.saveConnecting")}
+                : form.enabled
+                  ? t("settings.mcpForm.saveConnecting")
+                  : t("settings.common.save")}
             </Button>
           </DialogFooter>
         </form>

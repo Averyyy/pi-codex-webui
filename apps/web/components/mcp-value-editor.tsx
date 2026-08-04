@@ -46,6 +46,7 @@ export function McpValueEditor({
           type="button"
           variant="outline"
           size="xs"
+          disabled={values.length >= 200}
           onClick={() =>
             onChange([
               ...values,
@@ -63,7 +64,12 @@ export function McpValueEditor({
           className="grid gap-2 rounded-lg border bg-muted/20 p-2 sm:grid-cols-[minmax(7rem,0.8fr)_minmax(9rem,1fr)_auto_auto] sm:items-center"
         >
           <Input
-            aria-label={`${label} key ${index + 1}`}
+            required
+            maxLength={256}
+            aria-label={t("settings.valueEditor.keyLabel", {
+              label,
+              index: index + 1,
+            })}
             placeholder={t("settings.valueEditor.key")}
             value={value.key}
             onChange={(event) =>
@@ -71,7 +77,11 @@ export function McpValueEditor({
             }
           />
           <Input
-            aria-label={`${label} value ${index + 1}`}
+            maxLength={8_192}
+            aria-label={t("settings.valueEditor.valueLabel", {
+              label,
+              index: index + 1,
+            })}
             type={value.secret ? "password" : "text"}
             placeholder={
               value.secret && value.configured
@@ -88,7 +98,10 @@ export function McpValueEditor({
           />
           <label className="flex items-center gap-2 text-xs text-muted-foreground">
             <Switch
-              aria-label={`${label} secret ${index + 1}`}
+              aria-label={t("settings.valueEditor.secretLabel", {
+                label,
+                index: index + 1,
+              })}
               checked={value.secret}
               onCheckedChange={(secret) =>
                 update(index, {

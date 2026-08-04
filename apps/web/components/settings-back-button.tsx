@@ -16,6 +16,7 @@ export function SettingsBackButton() {
       type="button"
       variant="ghost"
       size="icon"
+      className="md:hidden"
       aria-label={t("settings.back")}
       title={t("settings.back")}
       onClick={() => router.back()}

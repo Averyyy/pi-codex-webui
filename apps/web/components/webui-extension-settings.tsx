@@ -36,9 +36,10 @@ import type {
   WebUiExtensionGroupView,
 } from "@/lib/webui-extensions/types"
 import { useI18n } from "@/components/i18n-provider"
-import { responseJson } from "@/lib/api-response"
+import { ApiError, validatedResponseJson } from "@/lib/api-response"
 import type { Translator } from "@/lib/i18n"
 import { newestSettingsRevision } from "@/lib/settings-revision"
+import { parseWebUiExtensionCatalog } from "@/lib/webui-extensions/catalog-schema"
 
 const STATUS_LABEL_KEYS = {
   tested: "settings.webui.status.tested",
@@ -59,6 +60,29 @@ function sourceLabel(
   if (source === "project") return t("settings.webui.source.project")
   if (source === "development") return t("settings.webui.source.development")
   return t("settings.webui.source.external")
+}
+
+function conflictCatalog(failure: unknown) {
+  if (!(failure instanceof ApiError) || failure.code !== "ConfigConflict") {
+    return null
+  }
+  const details = failure.details
+  const current =
+    typeof details === "object" && details !== null && "current" in details
+      ? details.current
+      : null
+  const parsed = (() => {
+    try {
+      return parseWebUiExtensionCatalog(current)
+    } catch {
+      return null
+    }
+  })()
+  return parsed
+}
+
+async function catalogResponse(response: Response, fallback: string) {
+  return validatedResponseJson(response, parseWebUiExtensionCatalog, fallback)
 }
 
 export function WebUiExtensionSettings({
@@ -82,6 +106,9 @@ export function WebUiExtensionSettings({
   const [workingId, setWorkingId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const catalogUpdateSequence = useRef(0)
+  const workingRef = useRef(false)
+  const errorRef = useRef<HTMLParagraphElement | null>(null)
+  const focusErrorRef = useRef(false)
   const sessionKey = sessionIds.join("\0")
   const normalizedQuery = query.trim().toLocaleLowerCase()
   const visibleGroups = normalizedQuery
@@ -113,7 +140,7 @@ export function WebUiExtensionSettings({
           ? `?projectId=${encodeURIComponent(projectId)}`
           : ""
         const response = await fetch(`/api/v1/webui-extensions${query}`)
-        const next = await responseJson<WebUiExtensionCatalogView>(
+        const next = await catalogResponse(
           response,
           t("settings.webui.readFailed")
         )
@@ -137,15 +164,48 @@ export function WebUiExtensionSettings({
     }
   }, [projectId, sessionKey, t])
 
+  useEffect(() => {
+    if (!error || workingId !== null || !focusErrorRef.current) return
+    focusErrorRef.current = false
+    const frame = requestAnimationFrame(() => errorRef.current?.focus())
+    return () => cancelAnimationFrame(frame)
+  }, [error, workingId])
+
   function acceptCatalog(next: WebUiExtensionCatalogView) {
     catalogUpdateSequence.current += 1
     setCatalog((current) => newestSettingsRevision(current, next))
+  }
+
+  async function reconcileFailure(failure: unknown) {
+    const current = conflictCatalog(failure)
+    if (current) {
+      acceptCatalog(current)
+    } else {
+      try {
+        const query = projectId
+          ? `?projectId=${encodeURIComponent(projectId)}`
+          : ""
+        const response = await fetch(`/api/v1/webui-extensions${query}`)
+        acceptCatalog(
+          await catalogResponse(response, t("settings.webui.readFailed"))
+        )
+      } catch {
+        // Preserve the original operation error when reconciliation also fails.
+      }
+    }
+    return failure instanceof ApiError && failure.code === "ConfigConflict"
+      ? t("settings.common.conflict")
+      : failure instanceof Error
+        ? failure.message
+        : t("settings.webui.updateFailed")
   }
 
   async function update(
     group: WebUiExtensionGroupView,
     patch: Partial<WebUiExtensionGroupView["preference"]>
   ) {
+    if (workingRef.current) return
+    workingRef.current = true
     setWorkingId(group.id)
     setError(null)
     try {
@@ -162,15 +222,16 @@ export function WebUiExtensionSettings({
           ...patch,
         }),
       })
-      const result = await responseJson<WebUiExtensionCatalogView>(
+      const result = await catalogResponse(
         response,
         t("settings.webui.updateFailed")
       )
       acceptCatalog(result)
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure))
-      router.refresh()
+      focusErrorRef.current = true
+      setError(await reconcileFailure(failure))
     } finally {
+      workingRef.current = false
       setWorkingId(null)
     }
   }
@@ -232,13 +293,12 @@ export function WebUiExtensionSettings({
           type="search"
           value={query}
           autoComplete="off"
-          aria-label={t("settings.resources.searchLabel", {
-            kind: "Adapter",
-          })}
-          placeholder={t("settings.resources.searchPlaceholder", {
-            kind: "Adapter",
-          })}
-          onChange={(event) => setQuery(event.target.value)}
+          aria-label={t("settings.webui.searchLabel")}
+          placeholder={t("settings.webui.searchPlaceholder")}
+          onChange={(event) => {
+            setQuery(event.target.value)
+            setError(null)
+          }}
         />
         {normalizedQuery ? (
           <p aria-live="polite" className="text-xs text-muted-foreground">
@@ -434,7 +494,12 @@ export function WebUiExtensionSettings({
         </p>
       ))}
       {error ? (
-        <p role="alert" className="text-sm text-destructive">
+        <p
+          ref={errorRef}
+          role="alert"
+          tabIndex={-1}
+          className="text-sm text-destructive outline-none"
+        >
           {error}
         </p>
       ) : null}
