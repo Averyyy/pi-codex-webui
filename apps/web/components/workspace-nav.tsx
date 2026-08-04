@@ -48,6 +48,7 @@ import { useSessionIndicators } from "@/hooks/use-session-indicators"
 import { pickWorkspaceProject } from "@/lib/project-picker-client"
 import type { SessionSummary, WorkspaceProject } from "@/lib/session-types"
 import {
+  isWorkspaceNavItemVisible,
   workspaceNavFocusTarget,
   type WorkspaceNavFocusTarget,
   type WorkspaceSessionMutationFocusRequest,
@@ -150,7 +151,7 @@ export function WorkspaceNav({
           "a[data-conversation-shortcut]"
         ) ?? []
       )
-        .filter((link) => link.checkVisibility())
+        .filter(isWorkspaceNavItemVisible)
         .map((link) => link.dataset.conversationShortcut!),
     []
   )
@@ -186,7 +187,7 @@ export function WorkspaceNav({
           (button) =>
             button.dataset.sessionPin === target.sessionId &&
             button.dataset.pinned === String(target.pinned) &&
-            button.checkVisibility()
+            isWorkspaceNavItemVisible(button)
         ) ?? null
 
       if (!focusElement && !target.pinned) {
@@ -219,7 +220,7 @@ export function WorkspaceNav({
         ).find(
           (link) =>
             link.dataset.conversationShortcut === target.href &&
-            link.checkVisibility()
+            isWorkspaceNavItemVisible(link)
         ) ?? null
     } else {
       if (

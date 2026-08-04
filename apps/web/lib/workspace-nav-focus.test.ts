@@ -1,7 +1,21 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 
-import { workspaceNavFocusTarget } from "@/lib/workspace-nav-focus"
+import {
+  isWorkspaceNavItemVisible,
+  workspaceNavFocusTarget,
+} from "@/lib/workspace-nav-focus"
+
+test("navigation visibility uses rendered boxes without checkVisibility", () => {
+  assert.equal(
+    isWorkspaceNavItemVisible({ getClientRects: () => ({ length: 1 }) }),
+    true
+  )
+  assert.equal(
+    isWorkspaceNavItemVisible({ getClientRects: () => ({ length: 0 }) }),
+    false
+  )
+})
 
 test("pin mutations retain the destination action as their focus target", () => {
   assert.deepEqual(

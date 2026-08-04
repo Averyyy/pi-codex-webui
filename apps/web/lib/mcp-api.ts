@@ -6,6 +6,7 @@ import { ConfigConflictError } from "./config"
 import type { McpServerConfig } from "./config-schema"
 import { McpConfigError, type McpServerInput } from "./mcp-config"
 import { getMcpService } from "./mcp-service"
+import { isMcpServiceError, mcpServiceErrorResponse } from "./mcp-service-error"
 import { resolveMcpContext } from "./mcp-settings-data"
 import { runtimeErrorResponse } from "./runtime-api"
 
@@ -82,6 +83,10 @@ export async function mcpErrorResponse(
       { error: error.message, code: "McpConfigError" },
       { status: 400 }
     )
+  }
+  if (isMcpServiceError(error)) {
+    const response = mcpServiceErrorResponse(error)
+    return Response.json(response.body, { status: response.status })
   }
   return runtimeErrorResponse(error)
 }

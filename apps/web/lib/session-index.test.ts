@@ -192,7 +192,11 @@ test("standalone sessions survive reindexing and remain outside projects", async
       ),
       writeFile(
         taskFile,
-        sessionJsonl("native-task", taskCwd, "standalone needle")
+        sessionJsonl(
+          "native-task",
+          taskCwd,
+          "standalone needle 请务必实际调用 bash 工具 UI compact maxsim"
+        )
       ),
       writeFile(branchFile, branchedSessionJsonl("native-branch", taskCwd)),
       writeFile(
@@ -417,6 +421,27 @@ test("standalone sessions survive reindexing and remain outside projects", async
     assert.equal(searchResult.sessionId, task.id)
     assert.equal(searchResult.projectId, null)
     assert.equal(searchResult.projectName, null)
+    assert.equal(
+      (await searchSessions("实际调用"))[0]?.sessionId,
+      task.id,
+      "trigram search should find a Chinese substring within a longer token"
+    )
+    const [shortChineseResult] = await searchSessions("调用")
+    assert.equal(
+      shortChineseResult?.sessionId,
+      task.id,
+      "queries shorter than a trigram should use exact substring search"
+    )
+    assert.match(shortChineseResult?.snippet ?? "", /【调用】/u)
+    assert.equal((await searchSessions("ui"))[0]?.sessionId, task.id)
+    assert.equal((await searchSessions("compact ui"))[0]?.sessionId, task.id)
+    assert.deepEqual(await searchSessions("compact zz"), [])
+    assert.equal(
+      (await searchSessions("compact\0maxsim")).some(
+        ({ sessionId }) => sessionId === task.id
+      ),
+      true
+    )
 
     await writeFile(
       taskFile,
@@ -464,6 +489,7 @@ test("standalone sessions survive reindexing and remain outside projects", async
     assert.equal(await archiveSession(task.id), archivedAt)
     await syncPiSessionIndex()
     assert.equal((await listArchivedSessions())[0]?.id, task.id)
+    assert.deepEqual(await searchSessions("standalone updated"), [])
     assert.equal(await restoreArchivedSession(task.id), true)
     assert.equal(await isSessionArchived(task.id), false)
     assert.equal((await listWorkspaceTasks())[0]?.id, task.id)

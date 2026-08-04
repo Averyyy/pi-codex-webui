@@ -87,7 +87,7 @@ test("database v1 migration preserves sessions and adds runtime bindings", async
   legacy.close()
 
   const migrated = await getDatabase()
-  assert.equal(migrated.prepare("PRAGMA user_version").get()?.user_version, 10)
+  assert.equal(migrated.prepare("PRAGMA user_version").get()?.user_version, 11)
   assert.equal(
     migrated
       .prepare("SELECT indexed_lines FROM sessions WHERE id = 'session-1'")
@@ -237,7 +237,7 @@ test("database v2 migration backfills cwd and permits standalone sessions", asyn
   legacy.close()
 
   const migrated = await getDatabase()
-  assert.equal(migrated.prepare("PRAGMA user_version").get()?.user_version, 10)
+  assert.equal(migrated.prepare("PRAGMA user_version").get()?.user_version, 11)
   assert.equal(
     migrated
       .prepare("SELECT indexed_lines FROM sessions WHERE id = 'session-2'")
@@ -331,6 +331,64 @@ test("database v2 migration backfills cwd and permits standalone sessions", asyn
     0
   )
   assert.deepEqual(migrated.prepare("PRAGMA foreign_key_check").all(), [])
+  migrated.close()
+  globalThis.piWebCodexDatabase = undefined
+  await rm(root, { recursive: true, force: true })
+  if (previousConfigDir === undefined)
+    delete process.env.PI_WEB_CODEX_CONFIG_DIR
+  else process.env.PI_WEB_CODEX_CONFIG_DIR = previousConfigDir
+})
+
+test("database v10 migration rebuilds existing search rows with trigram indexing", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "pi-web-codex-db-v10-"))
+  const previousConfigDir = process.env.PI_WEB_CODEX_CONFIG_DIR
+  process.env.PI_WEB_CODEX_CONFIG_DIR = root
+  const databasePath = path.join(root, "state.db")
+  const legacy = new DatabaseSync(databasePath)
+  legacy.exec(`
+    CREATE VIRTUAL TABLE session_search USING fts5(
+      session_id UNINDEXED,
+      entry_id UNINDEXED,
+      entry_type UNINDEXED,
+      timestamp UNINDEXED,
+      text,
+      tokenize = 'unicode61'
+    );
+    INSERT INTO session_search VALUES (
+      'session-existing', 'entry-existing', 'message',
+      '2026-07-14T00:00:00.000Z', '请务必实际调用 bash 工具'
+    );
+    PRAGMA user_version = 10;
+  `)
+  legacy.close()
+
+  const migrated = await getDatabase()
+  assert.equal(migrated.prepare("PRAGMA user_version").get()?.user_version, 11)
+  assert.deepEqual(
+    {
+      ...migrated
+        .prepare(
+          `SELECT session_id, entry_id, text
+           FROM session_search
+           WHERE session_search MATCH '"实际调用"'`
+        )
+        .get(),
+    },
+    {
+      session_id: "session-existing",
+      entry_id: "entry-existing",
+      text: "请务必实际调用 bash 工具",
+    }
+  )
+  assert.match(
+    String(
+      migrated
+        .prepare("SELECT sql FROM sqlite_schema WHERE name = 'session_search'")
+        .get()?.sql
+    ),
+    /tokenize = 'trigram'/u
+  )
+
   migrated.close()
   globalThis.piWebCodexDatabase = undefined
   await rm(root, { recursive: true, force: true })

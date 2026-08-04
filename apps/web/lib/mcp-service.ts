@@ -24,6 +24,7 @@ import type {
 } from "./config-schema"
 import { readSecret } from "./secret-store"
 import { getEventHub } from "./event-hub"
+import { McpServiceError } from "./mcp-service-error"
 
 interface DiscoveredTool {
   name: string
@@ -425,13 +426,25 @@ export class McpService {
     const config = await loadConfig()
     const server = config.mcp.servers[serverId]
     if (!server || !relevant(server, context)) {
-      throw new Error(`MCP server ${serverId} does not exist in this scope.`)
+      throw new McpServiceError(
+        "McpServerNotFound",
+        `MCP server ${serverId} does not exist in this scope.`
+      )
     }
     if (server.scope === "project" && !context.projectTrusted) {
-      throw new Error("The project must be trusted before testing this server.")
+      throw new McpServiceError(
+        "McpProjectNotTrusted",
+        "The project must be trusted before testing this server."
+      )
     }
     const startedAt = performance.now()
-    await this.connect(server, context, true)
+    try {
+      await this.connect(server, context, true)
+    } catch (error) {
+      throw new McpServiceError("McpConnectionFailed", errorMessage(error), {
+        cause: error,
+      })
+    }
     return {
       latencyMs: Math.round(performance.now() - startedAt),
       toolCount: this.state(serverId).tools.length,

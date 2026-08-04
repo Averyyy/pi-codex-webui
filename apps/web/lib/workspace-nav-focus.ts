@@ -19,6 +19,16 @@ export type WorkspaceNavFocusTarget =
   | { kind: "session"; href: string; archivedSessionId: string }
   | { kind: "new"; archivedSessionId: string }
 
+export interface WorkspaceNavVisibilityTarget {
+  getClientRects(): { readonly length: number }
+}
+
+export function isWorkspaceNavItemVisible(
+  target: WorkspaceNavVisibilityTarget
+) {
+  return target.getClientRects().length > 0
+}
+
 export function workspaceNavFocusTarget(
   request: WorkspaceSessionMutationFocusRequest,
   visibleConversationHrefs: readonly string[]

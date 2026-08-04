@@ -14,6 +14,7 @@ import { z } from "zod"
 import { patchConfig } from "./config"
 import { setMcpToolEnabled } from "./mcp-config"
 import { McpService } from "./mcp-service"
+import { McpServiceError } from "./mcp-service-error"
 import { writeSecret } from "./secret-store"
 
 const context = {
@@ -141,6 +142,12 @@ test("MCP service discovers and calls stdio and HTTP tools without exposing secr
     }
     await rm(directory, { recursive: true, force: true })
   })
+
+  await assert.rejects(
+    () => service.test("missing", context),
+    (error: unknown) =>
+      error instanceof McpServiceError && error.code === "McpServerNotFound"
+  )
 
   await patchConfig(0, {
     mcp: {

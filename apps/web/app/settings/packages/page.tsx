@@ -1,16 +1,20 @@
+import { notFound } from "next/navigation"
+
 import { PackageSettings } from "@/components/package-settings"
 import { SettingsSection } from "@/components/settings-section"
 import { getLocalizedConfig } from "@/lib/i18n-server"
 import { loadResourceSettings } from "@/lib/resource-settings-data"
+import type { SettingsProjectParam } from "@/lib/settings-project-selection"
 
 export default async function PackagesSettingsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ projectId?: string }>
+  searchParams: Promise<{ projectId?: SettingsProjectParam }>
 }) {
   const { projectId } = await searchParams
   const { t } = await getLocalizedConfig()
   const data = await loadResourceSettings(projectId)
+  if (!data) notFound()
 
   return (
     <SettingsSection

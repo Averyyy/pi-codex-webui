@@ -164,8 +164,8 @@ export function PiTuiSurface({ surface, onAction, onError }: Props) {
       aria-label={surface.title ?? t("session.extension.tuiLabel")}
       className={
         surface.mode === "inline"
-          ? "h-40 w-full overflow-hidden rounded-lg bg-muted/30 p-2 text-foreground"
-          : "h-[min(55vh,26rem)] w-full overflow-hidden rounded-lg bg-muted/30 p-2 text-foreground"
+          ? "h-40 w-full overflow-hidden rounded-lg bg-muted/30 p-2 text-foreground [&_.xterm-viewport]:!bg-transparent"
+          : "h-[min(55vh,26rem)] w-full overflow-hidden rounded-lg bg-muted/30 p-2 text-foreground [&_.xterm-viewport]:!bg-transparent"
       }
       onPointerDown={() =>
         containerRef.current

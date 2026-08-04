@@ -55,7 +55,7 @@ type SidebarContextProps = {
   openMobile: boolean
   setOpenMobile: (open: boolean) => void
   isMobile: boolean
-  toggleSidebar: (trigger?: HTMLButtonElement) => void
+  toggleSidebar: (trigger?: HTMLElement) => void
   restoreMobileTriggerFocus: () => boolean
 }
 
@@ -85,7 +85,8 @@ function SidebarProvider({
 }) {
   const isMobile = useIsMobile()
   const [openMobile, setOpenMobile] = React.useState(false)
-  const mobileTriggerRef = React.useRef<HTMLButtonElement>(null)
+  const mobileTriggerRef = React.useRef<HTMLElement>(null)
+  const desktopCollapseFocusRef = React.useRef<HTMLElement>(null)
   const [sidebarWidth, _setSidebarWidth] = React.useState<number | null>(null)
 
   // This is the internal state of the sidebar.
@@ -113,17 +114,29 @@ function SidebarProvider({
 
   // Helper to toggle the sidebar.
   const toggleSidebar = React.useCallback(
-    (trigger?: HTMLButtonElement) => {
+    (trigger?: HTMLElement) => {
       if (isMobile) {
         if (!openMobile) rememberFocusTarget(mobileTriggerRef, trigger ?? null)
         setOpenMobile((open) => !open)
         return
       }
 
+      if (open && trigger?.closest('[data-slot="sidebar"]')) {
+        rememberFocusTarget(
+          desktopCollapseFocusRef,
+          trigger
+            .closest<HTMLElement>('[data-slot="sidebar"]')
+            ?.querySelector<HTMLElement>('[data-sidebar="rail"]') ?? null
+        )
+      }
       setOpen((open) => !open)
     },
-    [isMobile, openMobile, setOpen]
+    [isMobile, open, openMobile, setOpen]
   )
+
+  React.useLayoutEffect(() => {
+    if (!open) restoreFocusTarget(desktopCollapseFocusRef)
+  }, [open])
 
   const restoreMobileTriggerFocus = React.useCallback(
     () => restoreFocusTarget(mobileTriggerRef),
@@ -138,7 +151,11 @@ function SidebarProvider({
         (event.metaKey || event.ctrlKey)
       ) {
         event.preventDefault()
-        toggleSidebar()
+        toggleSidebar(
+          document.activeElement instanceof HTMLElement
+            ? document.activeElement
+            : undefined
+        )
       }
     }
 
@@ -503,7 +520,7 @@ function SidebarRail({
           event.preventDefault()
           return
         }
-        toggleSidebar()
+        toggleSidebar(event.currentTarget)
       }}
       onKeyDown={handleKeyDown}
       onPointerCancel={handlePointerCancel}

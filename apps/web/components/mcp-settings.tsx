@@ -99,6 +99,7 @@ export function McpSettings({
   const [notice, setNotice] = useState<string | null>(null)
   const [pendingDelete, setPendingDelete] = useState<McpServerView | null>(null)
   const catalogUpdateSequence = useRef(0)
+  const formRevisionRef = useRef<number | null>(null)
   const formTriggerRef = useRef<HTMLButtonElement | null>(null)
   const workingRef = useRef(false)
   const errorRef = useRef<HTMLParagraphElement | null>(null)
@@ -164,45 +165,55 @@ export function McpSettings({
 
   async function reconcileFailure(failure: unknown) {
     const current = conflictCatalog(failure)
+    let reconciled: McpCatalog | null = null
     if (current) {
+      reconciled = current
       acceptCatalog(current)
     } else {
       try {
         const response = await fetch(
           endpoint("/api/v1/mcp/servers", catalog.projectId)
         )
-        acceptCatalog(
-          await mcpCatalogResponse(response, t("settings.mcp.readFailed"))
+        reconciled = await mcpCatalogResponse(
+          response,
+          t("settings.mcp.readFailed")
         )
+        acceptCatalog(reconciled)
       } catch {
         // Preserve the original operation error when reconciliation also fails.
       }
     }
+    let message: string
     if (failure instanceof ApiError) {
       if (failure.code === "ConfigConflict") {
-        return t("settings.common.conflict")
+        message = t("settings.common.conflict")
+      } else if (failure.code === "InvalidMcpInput") {
+        message = t("settings.mcp.invalidInput")
+      } else {
+        message = failure.message
       }
-      if (failure.code === "InvalidMcpInput") {
-        return t("settings.mcp.invalidInput")
-      }
+    } else {
+      message =
+        failure instanceof Error
+          ? failure.message
+          : t("settings.mcp.requestFailed")
     }
-    return failure instanceof Error
-      ? failure.message
-      : t("settings.mcp.requestFailed")
+    return { message, revision: reconciled?.revision ?? null }
   }
 
   async function reportPageFailure(failure: unknown) {
     focusErrorRef.current = true
-    setError(await reconcileFailure(failure))
+    setError((await reconcileFailure(failure)).message)
   }
 
-  function mutationHeaders(includeRevision = true) {
+  function mutationHeaders(
+    includeRevision = true,
+    revision = catalog.revision
+  ) {
     return {
       "Content-Type": "application/json",
       "X-Pi-Web-Codex-Mutation-Token": mutationToken,
-      ...(includeRevision
-        ? { "If-Match": `"revision-${catalog.revision}"` }
-        : {}),
+      ...(includeRevision ? { "If-Match": `"revision-${revision}"` } : {}),
     }
   }
 
@@ -229,7 +240,10 @@ export function McpSettings({
         ),
         {
           method: editing ? "PATCH" : "POST",
-          headers: mutationHeaders(),
+          headers: mutationHeaders(
+            true,
+            formRevisionRef.current ?? catalog.revision
+          ),
           body: JSON.stringify(
             editing ? { type: "configuration", server } : server
           ),
@@ -238,9 +252,14 @@ export function McpSettings({
       await readCatalog(response)
       setFormOpen(false)
       setEditing(null)
+      formRevisionRef.current = null
       setNotice(t("settings.mcp.saved", { name: server.name }))
     } catch (failure) {
-      setFormError(await reconcileFailure(failure))
+      const reconciled = await reconcileFailure(failure)
+      if (reconciled.revision !== null) {
+        formRevisionRef.current = reconciled.revision
+      }
+      setFormError(reconciled.message)
     } finally {
       stopWorking()
     }
@@ -366,6 +385,7 @@ export function McpSettings({
               disabled={working !== null}
               onClick={(event) => {
                 formTriggerRef.current = event.currentTarget
+                formRevisionRef.current = catalog.revision
                 setEditing(null)
                 setFormError(null)
                 setError(null)
@@ -453,6 +473,7 @@ export function McpSettings({
                   }
                   onEdit={(trigger) => {
                     formTriggerRef.current = trigger
+                    formRevisionRef.current = catalog.revision
                     setEditing(server)
                     setFormError(null)
                     setError(null)
@@ -531,6 +552,7 @@ export function McpSettings({
           onOpenChange={(open) => {
             setFormOpen(open)
             if (!open) {
+              formRevisionRef.current = null
               setEditing(null)
               setFormError(null)
             }

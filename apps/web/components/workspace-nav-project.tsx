@@ -1,6 +1,6 @@
 "use client"
 
-import { Fragment, useState, type FormEvent } from "react"
+import { Fragment, useRef, useState, type FormEvent } from "react"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import {
@@ -62,6 +62,10 @@ import {
   SidebarMenuSubButton,
   SidebarMenuSubItem,
 } from "@workspace/ui/components/sidebar"
+import {
+  rememberFocusTarget,
+  restoreFocusTarget,
+} from "@workspace/ui/lib/focus-restoration"
 
 import type { WorkspaceProject } from "@/lib/session-types"
 import type { WorkspaceSessionMutationFocusRequest } from "@/lib/workspace-nav-focus"
@@ -120,6 +124,7 @@ export function WorkspaceNavProject({
   const [branch, setBranch] = useState("")
   const [working, setWorking] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const dialogReturnFocusRef = useRef<HTMLElement>(null)
   const localizedSessionCount = project.sessionCount.toLocaleString(locale)
 
   async function mutate(
@@ -251,6 +256,7 @@ export function WorkspaceNavProject({
       void mutate(`/api/v1/projects/${project.id}/reveal`)
       return
     }
+    setError(null)
     if (kind === "rename") setName(project.name)
     setDialog(kind)
   }
@@ -288,7 +294,17 @@ export function WorkspaceNavProject({
         <SidebarMenuItem>
           <ContextMenu>
             <ContextMenuTrigger asChild>
-              <div className="group/project relative">
+              <div
+                className="group/project relative"
+                onContextMenu={(event) => {
+                  rememberFocusTarget(
+                    dialogReturnFocusRef,
+                    event.currentTarget.querySelector<HTMLElement>(
+                      "a[data-project-link]"
+                    )
+                  )
+                }}
+              >
                 <HoverCard openDelay={500} closeDelay={100}>
                   <HoverCardTrigger asChild>
                     <SidebarMenuButton
@@ -354,6 +370,18 @@ export function WorkspaceNavProject({
                       <Button
                         variant="ghost"
                         size="icon-sm"
+                        onFocus={(event) => {
+                          rememberFocusTarget(
+                            dialogReturnFocusRef,
+                            event.currentTarget
+                          )
+                        }}
+                        onClick={(event) => {
+                          rememberFocusTarget(
+                            dialogReturnFocusRef,
+                            event.currentTarget
+                          )
+                        }}
                         aria-label={t("workspace.project.moreActions", {
                           name: project.name,
                         })}
@@ -439,7 +467,13 @@ export function WorkspaceNavProject({
           }
         }}
       >
-        <DialogContent>
+        <DialogContent
+          onCloseAutoFocus={(event) => {
+            if (restoreFocusTarget(dialogReturnFocusRef)) {
+              event.preventDefault()
+            }
+          }}
+        >
           {dialog === "rename" ? (
             <form onSubmit={submitRename} className="contents">
               <DialogHeader>

@@ -1,3 +1,5 @@
+import { normalizeSessionSearchQuery } from "@/lib/session-search-query"
+
 export type WorkspaceRouteQueryValue = string | string[] | undefined
 
 interface ResolvedWorkspaceRouteQuery<T> {
@@ -35,7 +37,7 @@ export function resolveSearchQuery(
   if (value === undefined) return { value: "", canonicalHref: null }
 
   const rawValue = firstQueryValue(value)
-  const query = rawValue.trim()
+  const query = normalizeSessionSearchQuery(rawValue)
   const canonicalHref = query
     ? `/search?q=${encodeURIComponent(query)}`
     : "/search"

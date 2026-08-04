@@ -198,7 +198,7 @@ export function ShellTerminal({
       role="application"
       aria-label={t("session.terminal.ariaLabel")}
       className={cn(
-        "size-full min-h-32 overflow-hidden bg-background p-3 text-foreground",
+        "size-full min-h-32 overflow-hidden bg-background p-3 text-foreground [&_.xterm-viewport]:!bg-transparent",
         className
       )}
       onPointerDown={() =>

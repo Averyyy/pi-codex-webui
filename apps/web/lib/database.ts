@@ -4,12 +4,16 @@ import { mkdir } from "node:fs/promises"
 import { DatabaseSync } from "node:sqlite"
 
 import { getAppPaths } from "./app-paths"
+import {
+  exactSubstringSearchSnippet,
+  sessionSearchContainsExactSubstring,
+} from "./session-search-query"
 
 declare global {
   var piWebCodexDatabase: Promise<DatabaseSync> | undefined
 }
 
-const SCHEMA_VERSION = 10
+const SCHEMA_VERSION = 11
 
 async function openDatabase() {
   const paths = getAppPaths()
@@ -89,7 +93,7 @@ async function openDatabase() {
         entry_type UNINDEXED,
         timestamp UNINDEXED,
         text,
-        tokenize = 'unicode61'
+        tokenize = 'trigram'
       );
 
       PRAGMA user_version = ${SCHEMA_VERSION};
@@ -285,6 +289,37 @@ async function openDatabase() {
       SELECT id, '', 'session_title', updated_at, trim(title)
       FROM sessions
       WHERE title IS NOT NULL AND trim(title) <> '';
+      PRAGMA user_version = 10;
+      COMMIT;
+    `)
+    version = 10
+  }
+
+  if (version === 10) {
+    database.exec(`
+      BEGIN IMMEDIATE;
+
+      CREATE TABLE session_search_v10 AS
+      SELECT session_id, entry_id, entry_type, timestamp, text
+      FROM session_search;
+
+      DROP TABLE session_search;
+      CREATE VIRTUAL TABLE session_search USING fts5(
+        session_id UNINDEXED,
+        entry_id UNINDEXED,
+        entry_type UNINDEXED,
+        timestamp UNINDEXED,
+        text,
+        tokenize = 'trigram'
+      );
+
+      INSERT INTO session_search(
+        session_id, entry_id, entry_type, timestamp, text
+      )
+      SELECT session_id, entry_id, entry_type, timestamp, text
+      FROM session_search_v10;
+
+      DROP TABLE session_search_v10;
       PRAGMA user_version = ${SCHEMA_VERSION};
       COMMIT;
     `)
@@ -298,6 +333,24 @@ async function openDatabase() {
   }
 
   database.exec("PRAGMA foreign_keys = ON;")
+  database.function(
+    "pi_search_contains",
+    { deterministic: true },
+    (text, term) =>
+      typeof text === "string" &&
+      typeof term === "string" &&
+      sessionSearchContainsExactSubstring(text, term)
+        ? 1
+        : 0
+  )
+  database.function(
+    "pi_search_snippet",
+    { deterministic: true },
+    (text, term) =>
+      typeof text === "string" && typeof term === "string"
+        ? exactSubstringSearchSnippet(text, term)
+        : ""
+  )
 
   return database
 }

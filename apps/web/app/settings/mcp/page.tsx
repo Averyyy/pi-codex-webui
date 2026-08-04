@@ -1,16 +1,20 @@
+import { notFound } from "next/navigation"
+
 import { McpSettings } from "@/components/mcp-settings"
 import { SettingsSection } from "@/components/settings-section"
 import { getLocalizedConfig } from "@/lib/i18n-server"
 import { loadMcpSettings } from "@/lib/mcp-settings-data"
+import type { SettingsProjectParam } from "@/lib/settings-project-selection"
 
 export default async function McpSettingsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ projectId?: string }>
+  searchParams: Promise<{ projectId?: SettingsProjectParam }>
 }) {
   const { projectId } = await searchParams
   const { t } = await getLocalizedConfig()
   const data = await loadMcpSettings(projectId)
+  if (!data) notFound()
 
   return (
     <SettingsSection

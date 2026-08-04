@@ -16,6 +16,7 @@ import {
   syncPiSessionFile,
   syncPiSessionIndex,
 } from "@/lib/session-index"
+import { createSessionSearchPlan } from "@/lib/session-search-query"
 import type {
   ProjectSummary,
   ArchivedSession,
@@ -721,15 +722,30 @@ export async function getSessionIdentityByNativeFile(
 
 export async function searchSessions(query: string) {
   await syncPiSessionIndex()
+  const search = createSessionSearchPlan(query)
+  if (
+    !search.normalizedQuery ||
+    (search.indexedTerms.length === 0 &&
+      search.exactSubstringTerms.length === 0)
+  ) {
+    return []
+  }
+
   const database = await getDatabase()
-  const matchQuery = query
-    .trim()
-    .split(/\s+/u)
-    .map((token) => `"${token.replaceAll('"', '""')}"`)
-    .join(" AND ")
+  const exactSubstringFilters = search.exactSubstringTerms.map(
+    () => "pi_search_contains(session_search.text, ?) = 1"
+  )
+  const searchFilters = [
+    ...(search.matchQuery ? ["session_search MATCH ?"] : []),
+    ...exactSubstringFilters,
+  ].join(" AND ")
+  const snippet = search.matchQuery
+    ? "snippet(session_search, 4, '【', '】', '…', 24)"
+    : "pi_search_snippet(session_search.text, search_query.snippet_term)"
   const rows = database
     .prepare(
-      `WITH RECURSIVE active_entries(session_id, entry_id) AS (
+      `WITH RECURSIVE search_query(snippet_term) AS (VALUES (?)),
+       active_entries(session_id, entry_id) AS (
          SELECT id, last_entry_id
          FROM sessions
          WHERE last_entry_id IS NOT NULL
@@ -756,12 +772,13 @@ export async function searchSessions(query: string) {
               END AS entry_id,
               session_search.entry_type,
               session_search.timestamp,
-              snippet(session_search, 4, '【', '】', '…', 24) AS snippet
+              ${snippet} AS snippet
        FROM session_search
        JOIN sessions ON sessions.id = session_search.session_id
        LEFT JOIN projects ON projects.id = sessions.project_id
+       CROSS JOIN search_query
        WHERE sessions.archived_at IS NULL
-         AND session_search MATCH ?
+         AND ${searchFilters}
          AND (
            (session_search.entry_id = ''
              AND session_search.entry_type = 'session_title')
@@ -772,10 +789,15 @@ export async function searchSessions(query: string) {
                AND active_entries.entry_id = session_search.entry_id
            )
          )
-       ORDER BY rank, session_search.timestamp DESC
+       ORDER BY ${search.matchQuery ? "rank," : ""}
+         session_search.timestamp DESC
        LIMIT 100`
     )
-    .all(matchQuery) as unknown as SearchRow[]
+    .all(
+      search.exactSubstringTerms[0] ?? "",
+      ...(search.matchQuery ? [search.matchQuery] : []),
+      ...search.exactSubstringTerms
+    ) as unknown as SearchRow[]
   return rows.map((row): SessionSearchResult => ({
     projectId: row.project_id,
     projectName: row.project_name,

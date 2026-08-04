@@ -3,11 +3,16 @@ import "server-only"
 import { listWorkspaceProjects } from "@/lib/catalog"
 import { getMutationToken } from "@/lib/request-security"
 import { getRuntimeSupervisor } from "@/lib/runtime-supervisor"
+import {
+  selectSettingsProject,
+  type SettingsProjectParam,
+} from "@/lib/settings-project-selection"
 
-export async function loadResourceSettings(projectId?: string) {
+export async function loadResourceSettings(projectId: SettingsProjectParam) {
   const projects = await listWorkspaceProjects()
-  const selected =
-    projects.find((project) => project.id === projectId) ?? projects[0] ?? null
+  const selection = selectSettingsProject(projects, projectId)
+  if (selection.invalid) return null
+  const selected = selection.project
   return {
     projects: projects.map(({ id, name, path }) => ({ id, name, path })),
     selectedProjectId: selected?.id ?? null,

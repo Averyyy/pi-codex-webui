@@ -51,10 +51,25 @@ test("search canonicalizes padded and repeated queries", () => {
     value: "compact maxsim",
     canonicalHref: "/search?q=compact%20maxsim",
   })
+  assert.deepEqual(resolveSearchQuery("compact   maxsim\nrerank"), {
+    value: "compact maxsim rerank",
+    canonicalHref: "/search?q=compact%20maxsim%20rerank",
+  })
 })
 
 test("search removes a blank query", () => {
   assert.deepEqual(resolveSearchQuery("  "), {
+    value: "",
+    canonicalHref: "/search",
+  })
+})
+
+test("search turns null bytes into canonical token boundaries", () => {
+  assert.deepEqual(resolveSearchQuery(" compact\0maxsim "), {
+    value: "compact maxsim",
+    canonicalHref: "/search?q=compact%20maxsim",
+  })
+  assert.deepEqual(resolveSearchQuery("\0"), {
     value: "",
     canonicalHref: "/search",
   })
