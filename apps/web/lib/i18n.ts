@@ -14,6 +14,10 @@ const messages = {
     "zh-CN": "切换侧边栏",
     "en-US": "Toggle Sidebar",
   },
+  "ui.resizeSidebar": {
+    "zh-CN": "调整侧边栏宽度；点击折叠或展开",
+    "en-US": "Resize the sidebar; click to collapse or expand",
+  },
 
   "composer.reasoningEffort": {
     "zh-CN": "推理强度",

@@ -15,29 +15,57 @@ import {
   EMPTY_STREAMING_MESSAGES,
   SessionStreamStore,
 } from "@/lib/session-stream-store"
+import { SessionEventStream } from "@/lib/session-event-stream"
 
-const SessionStreamingContext = createContext<SessionStreamStore | null>(null)
+interface SessionStreamingContextValue {
+  events: SessionEventStream
+  store: SessionStreamStore
+}
+
+const SessionStreamingContext =
+  createContext<SessionStreamingContextValue | null>(null)
 
 export function SessionStreamingProvider({
+  sessionId,
+  initialEventCursor,
   children,
 }: {
+  sessionId: string
+  initialEventCursor: string
   children: ReactNode
 }) {
-  const [store] = useState(() => new SessionStreamStore())
+  const [value] = useState(() => ({
+    events: new SessionEventStream(sessionId, initialEventCursor),
+    store: new SessionStreamStore(),
+  }))
 
-  useEffect(() => () => store.dispose(), [store])
+  useEffect(() => {
+    value.events.open()
+    return () => {
+      value.events.close()
+      value.store.dispose()
+    }
+  }, [value])
 
   return (
-    <SessionStreamingContext value={store}>{children}</SessionStreamingContext>
+    <SessionStreamingContext value={value}>{children}</SessionStreamingContext>
   )
 }
 
-export function useSessionStreaming() {
-  const store = useContext(SessionStreamingContext)
-  if (!store) {
+function useSessionStreamingContext() {
+  const value = useContext(SessionStreamingContext)
+  if (!value) {
     throw new Error("Session streaming requires SessionStreamingProvider.")
   }
-  return store
+  return value
+}
+
+export function useSessionStreaming() {
+  return useSessionStreamingContext().store
+}
+
+export function useSessionEvents() {
+  return useSessionStreamingContext().events
 }
 
 export function useStreamingMessages() {

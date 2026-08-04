@@ -1,8 +1,4 @@
-import {
-  archiveProjectSessions,
-  getProject,
-  listProjectSessions,
-} from "@/lib/catalog"
+import { getProject, listProjectSessions } from "@/lib/catalog"
 import { validateLocalMutation } from "@/lib/request-security"
 import { runtimeErrorResponse } from "@/lib/runtime-api"
 import { getRuntimeSupervisor } from "@/lib/runtime-supervisor"
@@ -25,8 +21,7 @@ export async function POST(
     }
     const sessions = await listProjectSessions(projectId)
     const supervisor = getRuntimeSupervisor()
-    for (const session of sessions) await supervisor.stop(session.id)
-    const archived = await archiveProjectSessions(
+    const archived = await supervisor.archiveProjectSessions(
       projectId,
       sessions.map((session) => session.id)
     )

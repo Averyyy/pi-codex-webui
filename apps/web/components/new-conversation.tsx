@@ -54,7 +54,10 @@ import { useSessionComposerDraftStore } from "@/components/session-composer-draf
 import { ApiError, responseJson } from "@/lib/api-response"
 import { pickWorkspaceProject } from "@/lib/project-picker-client"
 import type { ComposerImage } from "@/lib/prompt-images"
-import { NEW_CONVERSATION_DRAFT_ID } from "@/lib/session-composer-draft-store"
+import {
+  draftAfterAcceptedSend,
+  NEW_CONVERSATION_DRAFT_ID,
+} from "@/lib/session-composer-draft-store"
 
 const NO_PROJECT = "__none__"
 
@@ -178,8 +181,10 @@ export function NewConversation({
     composerDraftStore.read(NEW_CONVERSATION_DRAFT_ID)
   )
   const [message, setMessageState] = useState(initialComposerDraft.text)
+  const messageRef = useRef(initialComposerDraft.text)
   const setMessage = useCallback(
     (nextMessage: string) => {
+      messageRef.current = nextMessage
       composerDraftStore.setText(NEW_CONVERSATION_DRAFT_ID, nextMessage)
       setMessageState(nextMessage)
     },
@@ -284,7 +289,7 @@ export function NewConversation({
         )
       )
 
-      setMessage("")
+      setMessage(draftAfterAcceptedSend(messageRef.current, message))
       composerImages.clearImages()
       router.push(
         created.projectId === null

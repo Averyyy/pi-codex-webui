@@ -170,6 +170,7 @@ export function WorkspaceNavSession({
             title={title}
             data-conversation-shortcut={href}
             aria-keyshortcuts={ariaShortcut}
+            aria-current={pathname === href ? "page" : undefined}
           >
             <span className="min-w-0 truncate">{title}</span>
           </Link>
@@ -194,6 +195,7 @@ export function WorkspaceNavSession({
           prefetch={false}
           data-conversation-shortcut={href}
           aria-keyshortcuts={ariaShortcut}
+          aria-current={pathname === href ? "page" : undefined}
         >
           <MessageSquareTextIcon />
           <span className="min-w-0 flex-1 truncate">{title}</span>

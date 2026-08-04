@@ -15,8 +15,11 @@ interface FakeRuntime {
   snapshot: RuntimeSnapshot | null
   cleaned: boolean
   pendingResourceReload: boolean
+  pendingModelReload: boolean
   pending: Map<string, unknown>
   stopPromise: Promise<void> | null
+  resourceReloadPromise: Promise<RuntimeSnapshot> | null
+  modelReloadPromise: Promise<RuntimeSnapshot> | null
   child: {
     exitCode: number | null
     signalCode: NodeJS.Signals | null
@@ -27,8 +30,16 @@ interface FakeRuntime {
 interface RuntimeSupervisorInternals {
   runtimes: Map<string, FakeRuntime>
   activations: Map<string, Promise<FakeRuntime>>
+  sessionClosures: Map<string, Promise<unknown>>
   request(runtime: FakeRuntime, message: { type: string }): Promise<unknown>
+  startRuntime(sessionId: string): Promise<FakeRuntime>
+  runSessionClosure<T>(
+    sessionIds: string[],
+    operation: () => Promise<T>
+  ): Promise<T>
+  reloadRuntimeModelSettings(runtime: FakeRuntime): Promise<RuntimeSnapshot>
   reloadRuntimeResources(runtime: FakeRuntime): Promise<RuntimeSnapshot>
+  reloadModelSettings(): Promise<void>
   refreshSettledRuntimeSnapshot(runtime: FakeRuntime): Promise<void>
   waitForExit(runtime: FakeRuntime["child"], timeoutMs: number): Promise<void>
 }
@@ -63,8 +74,11 @@ function runtime(
     snapshot: currentSnapshot,
     cleaned: false,
     pendingResourceReload: false,
+    pendingModelReload: false,
     pending: new Map(),
     stopPromise: null,
+    resourceReloadPromise: null,
+    modelReloadPromise: null,
     child: { exitCode: null, signalCode: null, kill },
   }
 }
@@ -197,4 +211,196 @@ test("concurrent stop requests share one runtime shutdown", async () => {
   finishShutdown()
   await Promise.all([first, second])
   assert.equal(managed.stopPromise, null)
+})
+
+test("stop waits for an in-flight activation before shutting down", async () => {
+  const supervisor = new RuntimeSupervisor(new EventHub())
+  const state = internals(supervisor)
+  const managed = runtime(
+    "session-f",
+    "ready",
+    snapshot("session-f", "assistant-entry")
+  )
+  let finishActivation!: (runtime: FakeRuntime) => void
+  const activation = new Promise<FakeRuntime>((resolve) => {
+    finishActivation = resolve
+  })
+  state.activations.set(managed.webSessionId, activation)
+
+  let shutdownRequests = 0
+  let finishShutdown!: () => void
+  state.request = async () => {
+    shutdownRequests += 1
+    await new Promise<void>((resolve) => {
+      finishShutdown = resolve
+    })
+  }
+  state.waitForExit = async () => {}
+
+  const stopping = supervisor.stop(managed.webSessionId)
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal(shutdownRequests, 0)
+
+  state.runtimes.set(managed.webSessionId, managed)
+  finishActivation(managed)
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal(shutdownRequests, 1)
+  finishShutdown()
+  await stopping
+})
+
+test("activation waits until an archive or delete closure finishes", async () => {
+  const supervisor = new RuntimeSupervisor(new EventHub())
+  const state = internals(supervisor)
+  const managed = runtime(
+    "session-g",
+    "ready",
+    snapshot("session-g", "assistant-entry")
+  )
+  let finishClosure!: () => void
+  const closure = state.runSessionClosure(
+    [managed.webSessionId],
+    () =>
+      new Promise<void>((resolve) => {
+        finishClosure = resolve
+      })
+  )
+  await new Promise((resolve) => setImmediate(resolve))
+
+  let starts = 0
+  state.startRuntime = async () => {
+    starts += 1
+    return managed
+  }
+  const activation = supervisor.activate(managed.webSessionId)
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal(starts, 0)
+
+  finishClosure()
+  await closure
+  assert.equal(await activation, managed)
+  assert.equal(starts, 1)
+  assert.equal(state.sessionClosures.size, 0)
+})
+
+test("resource reloads drain changes requested during an active reload", async () => {
+  const events = new EventHub()
+  const supervisor = new RuntimeSupervisor(events)
+  const state = internals(supervisor)
+  const managed = runtime(
+    "session-h",
+    "ready",
+    snapshot("session-h", "before-reload")
+  )
+  state.runtimes.set(managed.webSessionId, managed)
+  const resolvers: ((value: RuntimeSnapshot) => void)[] = []
+  state.request = async (_runtime, message) => {
+    assert.equal(message.type, "runtime.reload-resources")
+    return new Promise<RuntimeSnapshot>((resolve) => resolvers.push(resolve))
+  }
+
+  const first = state.reloadRuntimeResources(managed)
+  const second = state.reloadRuntimeResources(managed)
+  assert.equal(first, second)
+  assert.equal(resolvers.length, 1)
+
+  resolvers.shift()!(snapshot(managed.webSessionId, "first-reload"))
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal(resolvers.length, 1)
+  resolvers.shift()!(snapshot(managed.webSessionId, "second-reload"))
+  await Promise.all([first, second])
+
+  assert.equal(managed.snapshot?.leafId, "second-reload")
+  assert.equal(managed.pendingResourceReload, false)
+  assert.equal(managed.resourceReloadPromise, null)
+  assert.deepEqual(
+    events.recent(managed.webSessionId).map((event) => event.type),
+    ["runtime.starting", "runtime.ready", "runtime.starting", "runtime.ready"]
+  )
+})
+
+test("a failed model reload terminates the uncertain runtime", async () => {
+  const supervisor = new RuntimeSupervisor(new EventHub())
+  const state = internals(supervisor)
+  let kills = 0
+  const managed = runtime(
+    "session-i",
+    "ready",
+    snapshot("session-i", "before-reload"),
+    () => {
+      kills += 1
+      return true
+    }
+  )
+  state.runtimes.set(managed.webSessionId, managed)
+  state.request = async () => {
+    throw new Error("model reload failed")
+  }
+
+  await assert.rejects(
+    state.reloadRuntimeModelSettings(managed),
+    /model reload failed/
+  )
+  assert.equal(managed.status, "crashed")
+  assert.equal(managed.pendingModelReload, false)
+  assert.equal(managed.modelReloadPromise, null)
+  assert.equal(kills, 1)
+})
+
+test("a model reload queued during a resource reload runs after it", async () => {
+  const supervisor = new RuntimeSupervisor(new EventHub())
+  const state = internals(supervisor)
+  const managed = runtime(
+    "session-j",
+    "ready",
+    snapshot("session-j", "before-reloads")
+  )
+  state.runtimes.set(managed.webSessionId, managed)
+  const requests: string[] = []
+  let finishResourceReload!: (value: RuntimeSnapshot) => void
+  state.request = async (_runtime, message) => {
+    requests.push(message.type)
+    if (message.type === "runtime.reload-resources") {
+      return new Promise<RuntimeSnapshot>((resolve) => {
+        finishResourceReload = resolve
+      })
+    }
+    assert.equal(message.type, "runtime.reload-model-settings")
+    return snapshot(managed.webSessionId, "model-reloaded")
+  }
+
+  const resourceReload = state.reloadRuntimeResources(managed)
+  await state.reloadModelSettings()
+  assert.equal(managed.pendingModelReload, true)
+  finishResourceReload(snapshot(managed.webSessionId, "resources-reloaded"))
+  await resourceReload
+  await new Promise((resolve) => setImmediate(resolve))
+  await managed.modelReloadPromise
+
+  assert.deepEqual(requests, [
+    "runtime.reload-resources",
+    "runtime.reload-model-settings",
+  ])
+  assert.equal(managed.snapshot?.leafId, "model-reloaded")
+})
+
+test("hot reload reuse initializes state added to an existing supervisor", () => {
+  const managed = runtime(
+    "session-k",
+    "ready",
+    snapshot("session-k", "existing-runtime")
+  )
+  delete (managed as Partial<FakeRuntime>).resourceReloadPromise
+  delete (managed as Partial<FakeRuntime>).modelReloadPromise
+  const supervisor = {
+    runtimes: new Map([[managed.webSessionId, managed]]),
+    activations: new Map(),
+  } as unknown as RuntimeSupervisor
+
+  const reused = RuntimeSupervisor.reuseAfterHotReload(supervisor)
+
+  assert.equal(Object.getPrototypeOf(reused), RuntimeSupervisor.prototype)
+  assert.ok(internals(reused).sessionClosures instanceof Map)
+  assert.equal(managed.resourceReloadPromise, null)
+  assert.equal(managed.modelReloadPromise, null)
 })

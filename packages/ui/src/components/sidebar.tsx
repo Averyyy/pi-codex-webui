@@ -5,6 +5,10 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { Slot } from "radix-ui"
 
 import { useIsMobile } from "@workspace/ui/hooks/use-mobile"
+import {
+  rememberFocusTarget,
+  restoreFocusTarget,
+} from "@workspace/ui/lib/focus-restoration"
 import { cn } from "@workspace/ui/lib/utils"
 import { Button } from "@workspace/ui/components/button"
 import { Input } from "@workspace/ui/components/input"
@@ -51,7 +55,8 @@ type SidebarContextProps = {
   openMobile: boolean
   setOpenMobile: (open: boolean) => void
   isMobile: boolean
-  toggleSidebar: () => void
+  toggleSidebar: (trigger?: HTMLButtonElement) => void
+  restoreMobileTriggerFocus: () => boolean
 }
 
 const SidebarContext = React.createContext<SidebarContextProps | null>(null)
@@ -80,6 +85,7 @@ function SidebarProvider({
 }) {
   const isMobile = useIsMobile()
   const [openMobile, setOpenMobile] = React.useState(false)
+  const mobileTriggerRef = React.useRef<HTMLButtonElement>(null)
   const [sidebarWidth, _setSidebarWidth] = React.useState<number | null>(null)
 
   // This is the internal state of the sidebar.
@@ -106,9 +112,23 @@ function SidebarProvider({
   }, [])
 
   // Helper to toggle the sidebar.
-  const toggleSidebar = React.useCallback(() => {
-    return isMobile ? setOpenMobile((open) => !open) : setOpen((open) => !open)
-  }, [isMobile, setOpen, setOpenMobile])
+  const toggleSidebar = React.useCallback(
+    (trigger?: HTMLButtonElement) => {
+      if (isMobile) {
+        if (!openMobile) rememberFocusTarget(mobileTriggerRef, trigger ?? null)
+        setOpenMobile((open) => !open)
+        return
+      }
+
+      setOpen((open) => !open)
+    },
+    [isMobile, openMobile, setOpen]
+  )
+
+  const restoreMobileTriggerFocus = React.useCallback(
+    () => restoreFocusTarget(mobileTriggerRef),
+    []
+  )
 
   // Adds a keyboard shortcut to toggle the sidebar.
   React.useEffect(() => {
@@ -141,6 +161,7 @@ function SidebarProvider({
       openMobile,
       setOpenMobile,
       toggleSidebar,
+      restoreMobileTriggerFocus,
     }),
     [
       state,
@@ -152,6 +173,7 @@ function SidebarProvider({
       openMobile,
       setOpenMobile,
       toggleSidebar,
+      restoreMobileTriggerFocus,
     ]
   )
 
@@ -194,7 +216,13 @@ function Sidebar({
   variant?: "sidebar" | "floating" | "inset"
   collapsible?: "offcanvas" | "icon" | "none"
 }) {
-  const { isMobile, state, openMobile, setOpenMobile } = useSidebar()
+  const {
+    isMobile,
+    state,
+    openMobile,
+    setOpenMobile,
+    restoreMobileTriggerFocus,
+  } = useSidebar()
   const { sidebarTitle, sidebarDescription } = useUiLabels()
 
   if (collapsible === "none") {
@@ -220,7 +248,10 @@ function Sidebar({
           data-sidebar="sidebar"
           data-slot="sidebar"
           data-mobile="true"
-          className="w-(--sidebar-width) bg-sidebar p-0 text-sidebar-foreground [&>button]:hidden"
+          className="w-(--sidebar-width) bg-sidebar p-0 text-sidebar-foreground [&_[data-slot=sidebar-header]]:pr-12"
+          onCloseAutoFocus={(event) => {
+            if (restoreMobileTriggerFocus()) event.preventDefault()
+          }}
           style={
             {
               "--sidebar-width": SIDEBAR_WIDTH_MOBILE,
@@ -301,7 +332,7 @@ function SidebarTrigger({
       className={cn(className)}
       onClick={(event) => {
         onClick?.(event)
-        toggleSidebar()
+        toggleSidebar(event.currentTarget)
       }}
       {...props}
     >
@@ -322,6 +353,7 @@ function SidebarRail({
     sidebarWidth,
     setSidebarWidth: commitSidebarWidth,
   } = useSidebar()
+  const { resizeSidebar } = useUiLabels()
   const railRef = React.useRef<HTMLButtonElement>(null)
   const dragRef = React.useRef<{
     pointerId: number
@@ -452,7 +484,7 @@ function SidebarRail({
       ref={railRef}
       data-sidebar="rail"
       data-slot="sidebar-rail"
-      aria-label="调整侧边栏宽度；点击折叠或展开"
+      aria-label={resizeSidebar}
       tabIndex={0}
       onClick={(event) => {
         if (suppressClickRef.current) {

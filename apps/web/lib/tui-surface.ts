@@ -1,9 +1,11 @@
 import type { TuiSurfaceSnapshot } from "@workspace/runtime-protocol"
 
+import { stripAnsi } from "./ansi"
+
 export function isVisibleTuiSurface(surface: TuiSurfaceSnapshot) {
   return (
     surface.mode !== "inline" ||
-    surface.data.length > 0 ||
+    stripAnsi(surface.data).trim().length > 0 ||
     surface.title !== undefined ||
     surface.progress
   )

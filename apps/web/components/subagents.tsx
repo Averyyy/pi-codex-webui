@@ -40,6 +40,8 @@ import {
 import { ScrollArea } from "@workspace/ui/components/scroll-area"
 import { cn } from "@workspace/ui/lib/utils"
 
+import { useSessionEvents } from "@/components/session-streaming-context"
+
 const EMPTY_SNAPSHOT: SubagentsSnapshot = {
   version: 1,
   revision: 0,
@@ -130,6 +132,7 @@ export function SubagentsProvider({
   installed: boolean
   children: ReactNode
 }) {
+  const sessionEvents = useSessionEvents()
   const [snapshotState, setSnapshotState] = useState({
     sessionId,
     snapshot: EMPTY_SNAPSHOT,
@@ -168,7 +171,6 @@ export function SubagentsProvider({
     const refresh = () => {
       void load().catch((error: Error) => toast.error(error.message))
     }
-    const events = new EventSource(`/api/v1/events?sessionId=${sessionId}`)
     const update = (source: Event) => {
       const event = JSON.parse((source as MessageEvent<string>).data) as {
         payload: unknown
@@ -180,24 +182,32 @@ export function SubagentsProvider({
       setSnapshotState({ sessionId, snapshot: EMPTY_SNAPSHOT })
     }
 
-    events.addEventListener("subagents.updated", update)
-    events.addEventListener("runtime.ready", refresh)
-    events.addEventListener("resync.required", refresh)
-    for (const type of [
-      "runtime.starting",
-      "runtime.stopping",
-      "runtime.stopped",
-      "runtime.crashed",
-    ]) {
-      events.addEventListener(type, clear)
-    }
+    const unsubscribeUpdates = sessionEvents.subscribe(
+      ["subagents.updated"],
+      update
+    )
+    const unsubscribeRefresh = sessionEvents.subscribe(
+      ["runtime.ready", "resync.required"],
+      refresh
+    )
+    const unsubscribeClear = sessionEvents.subscribe(
+      [
+        "runtime.starting",
+        "runtime.stopping",
+        "runtime.stopped",
+        "runtime.crashed",
+      ],
+      clear
+    )
     refresh()
 
     return () => {
       disposed = true
-      events.close()
+      unsubscribeUpdates()
+      unsubscribeRefresh()
+      unsubscribeClear()
     }
-  }, [acceptSnapshot, installed, sessionId])
+  }, [acceptSnapshot, installed, sessionEvents, sessionId])
 
   const stop = useCallback(
     async (agentId: string) => {

@@ -218,7 +218,11 @@ export function WorkspaceNav({
               pi-web-codex
             </Link>
             <Button asChild variant="ghost" size="icon-sm">
-              <Link href="/search" aria-label="搜索对话">
+              <Link
+                href="/search"
+                aria-label="搜索对话"
+                aria-current={pathname === "/search" ? "page" : undefined}
+              >
                 <SearchIcon />
               </Link>
             </Button>
@@ -239,7 +243,14 @@ export function WorkspaceNav({
                     className="font-medium"
                     isActive={pathname === "/" || pathname === "/new"}
                   >
-                    <Link href="/">
+                    <Link
+                      href="/"
+                      aria-current={
+                        pathname === "/" || pathname === "/new"
+                          ? "page"
+                          : undefined
+                      }
+                    >
                       <PlusIcon />
                       <span>新对话</span>
                     </Link>

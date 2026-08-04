@@ -83,6 +83,7 @@ import { SessionTreeViewer } from "@/components/session-tree-viewer"
 import { useSessionComposerDraftStore } from "@/components/session-composer-draft-context"
 import {
   SessionStreamingToolStatus,
+  useSessionEvents,
   useSessionStreaming,
 } from "@/components/session-streaming"
 import { stripAnsi } from "@/lib/ansi"
@@ -91,6 +92,7 @@ import { compactionEndOutcome } from "@/lib/compaction-events"
 import type { PiGoalState } from "@/lib/pi-goal"
 import { reconcilePromptQueueMutation } from "@/lib/prompt-queue-sync"
 import type { RuntimeStreamMessage } from "@/lib/session-stream-store"
+import { draftAfterAcceptedSend } from "@/lib/session-composer-draft-store"
 import { isVisibleTuiSurface } from "@/lib/tui-surface"
 
 interface RuntimeEvent {
@@ -317,6 +319,7 @@ export function SessionRuntime({
   initialGoalState: PiGoalState | null
 }) {
   const router = useRouter()
+  const sessionEvents = useSessionEvents()
   const stream = useSessionStreaming()
   const composerDraftStore = useSessionComposerDraftStore()
   const [, startTranscriptTransition] = useTransition()
@@ -510,7 +513,7 @@ export function SessionRuntime({
       })
       stream.requestFollow()
       if (options.clearDraft) {
-        setDraft((current) => (current.trim() === text ? "" : current))
+        setDraft((current) => draftAfterAcceptedSend(current, rawMessage))
         composerImages.clearImages()
       }
       return true
@@ -695,11 +698,6 @@ export function SessionRuntime({
   }
 
   useEffect(() => {
-    const search = new URLSearchParams({
-      sessionId,
-      after: initialEventCursor,
-    })
-    const events = new EventSource(`/api/v1/events?${search}`)
     void Promise.all([loadTuiSurfaces(), loadExtensionRequests()]).catch(
       (failure: unknown) =>
         setError(failure instanceof Error ? failure.message : String(failure))
@@ -1061,15 +1059,19 @@ export function SessionRuntime({
       }
     }
 
-    for (const type of EVENT_TYPES) events.addEventListener(type, handle)
-    events.onerror = () => {
-      setConnectionError("实时连接已断开；浏览器正在自动重连。")
+    const unsubscribeEvents = sessionEvents.subscribe(EVENT_TYPES, handle)
+    const unsubscribeConnection = sessionEvents.subscribeConnection((state) =>
+      setConnectionError(
+        state === "error" ? "实时连接已断开；浏览器正在自动重连。" : null
+      )
+    )
+    return () => {
+      unsubscribeEvents()
+      unsubscribeConnection()
     }
-    events.onopen = () => setConnectionError(null)
-    return () => events.close()
   }, [
-    initialEventCursor,
     router,
+    sessionEvents,
     sessionId,
     setDraft,
     stream,

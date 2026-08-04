@@ -7,7 +7,10 @@ import { SessionDiagnostics } from "@/components/session-diagnostics"
 import { SessionExtensionProvider } from "@/components/session-extension-provider"
 import { SessionOperations } from "@/components/session-operations"
 import { SessionRuntime } from "@/components/session-runtime"
-import { SessionStreamingMessage } from "@/components/session-streaming"
+import {
+  SessionStreamingMessage,
+  SessionStreamingProvider,
+} from "@/components/session-streaming"
 import { SessionWorkspace } from "@/components/session-workspace"
 import { SubagentsProvider } from "@/components/subagents"
 import { SessionTranscript } from "@/components/transcript"
@@ -76,127 +79,132 @@ export async function SessionScreen({
   const subagentsInstalled = hasTintinSubagentsExtension(resources)
 
   return (
-    <SessionExtensionProvider
+    <SessionStreamingProvider
       key={sessionId}
       sessionId={sessionId}
-      projectId={projectId}
-      mutationToken={mutationToken}
-      initialCatalog={webUiExtensions}
-      initialViews={initialWebUiViews}
+      initialEventCursor={eventCursor}
     >
-      <SubagentsProvider
+      <SessionExtensionProvider
         sessionId={sessionId}
+        projectId={projectId}
         mutationToken={mutationToken}
-        installed={subagentsInstalled}
+        initialCatalog={webUiExtensions}
+        initialViews={initialWebUiViews}
       >
-        <SessionWorkspace
-          key={`${sessionId}:${subagentsInstalled ? "subagents" : "base"}`}
+        <SubagentsProvider
           sessionId={sessionId}
-          projectId={projectId}
           mutationToken={mutationToken}
-          title={title}
-          contextLabel={
-            standalone ? "独立任务" : (snapshot.session.projectName ?? "项目")
-          }
-          updatedAt={formatTimestamp(snapshot.session.updatedAt)}
-          runtimeLabel={
-            snapshot.session.runtimeKind === "pi" ? "Pi" : "Pi Client"
-          }
-          workspaceAvailable={workspaceAvailable}
-          subagentsInstalled={subagentsInstalled}
-          initialGit={!standalone && workspaceAvailable ? git : null}
-          fileManagerLabel={fileManager?.label ?? null}
-          environment={
-            standalone
-              ? null
-              : {
-                  cwd: snapshot.session.cwd,
-                  projectName: snapshot.session.projectName,
-                  runtimeKind: snapshot.session.runtimeKind,
-                  runtimeStatus: runtime.status,
-                  updatedAt: snapshot.session.updatedAt,
-                  git: projectGit,
-                  workspaceAvailable,
-                  subagentsInstalled,
-                }
-          }
-          headerActions={
-            <div key="header-actions" className="contents">
-              {workspaceAvailable ? (
-                <div key="workspace-actions" className="contents">
-                  <SessionDiagnostics
-                    key={`session-diagnostics:${sessionId}`}
-                    sessionId={sessionId}
-                  />
-                  <SessionOperations
-                    key={`session-operations:${config.revision}`}
-                    sessionId={sessionId}
-                    projectId={projectId}
-                    title={title}
-                    mutationToken={mutationToken}
-                    runtimeProfileId={snapshot.session.runtimeProfileId}
-                    initialRuntimeStatus={runtime.status}
-                    runtimeProfiles={Object.entries(
-                      config.developer.runtime.profiles
-                    )
-                      .filter(([, profile]) => profile.enabled)
-                      .map(([id, profile]) => ({
-                        id,
-                        label: profile.kind === "pi" ? "Pi" : "Pi Client",
-                      }))}
-                  />
-                </div>
-              ) : null}
-              <ExtensionSlot key="session-header" name="session.header" />
-            </div>
-          }
-          toolbar={
-            <ExtensionSlot key="session-toolbar" name="session.toolbar" />
-          }
-          conversation={
-            <div key="conversation-content" className="contents">
-              <ExtensionSlot
-                key="conversation-before"
-                name="conversation.before"
-              />
-              <SessionTranscript
-                key="transcript"
-                snapshot={snapshot}
-                sessionId={sessionId}
-                mutationToken={mutationToken}
-                workspaceUnavailable={!workspaceAvailable}
-                initialRuntimeStatus={runtime.status}
-              />
-              <ExtensionSlot
-                key="conversation-after"
-                name="conversation.after"
-              />
-              <SessionStreamingMessage key="streaming-message" />
-            </div>
-          }
-          composer={
-            workspaceAvailable ? (
-              <SessionRuntime
-                key="session-runtime"
-                sessionId={sessionId}
-                mutationToken={mutationToken}
-                initialEventCursor={eventCursor}
-                initialStatus={runtime.status}
-                initialSnapshot={runtime.snapshot}
-                initialGoalState={snapshot.goalState}
-              />
-            ) : (
-              <div
-                key="read-only-composer"
-                className="shrink-0 border-t px-4 py-3 text-center text-xs text-muted-foreground"
-              >
-                只读历史 · Runtime 未启动
+          installed={subagentsInstalled}
+        >
+          <SessionWorkspace
+            key={`${sessionId}:${subagentsInstalled ? "subagents" : "base"}`}
+            sessionId={sessionId}
+            projectId={projectId}
+            mutationToken={mutationToken}
+            title={title}
+            contextLabel={
+              standalone ? "独立任务" : (snapshot.session.projectName ?? "项目")
+            }
+            updatedAt={formatTimestamp(snapshot.session.updatedAt)}
+            runtimeLabel={
+              snapshot.session.runtimeKind === "pi" ? "Pi" : "Pi Client"
+            }
+            workspaceAvailable={workspaceAvailable}
+            subagentsInstalled={subagentsInstalled}
+            initialGit={!standalone && workspaceAvailable ? git : null}
+            fileManagerLabel={fileManager?.label ?? null}
+            environment={
+              standalone
+                ? null
+                : {
+                    cwd: snapshot.session.cwd,
+                    projectName: snapshot.session.projectName,
+                    runtimeKind: snapshot.session.runtimeKind,
+                    runtimeStatus: runtime.status,
+                    updatedAt: snapshot.session.updatedAt,
+                    git: projectGit,
+                    workspaceAvailable,
+                    subagentsInstalled,
+                  }
+            }
+            headerActions={
+              <div key="header-actions" className="contents">
+                {workspaceAvailable ? (
+                  <div key="workspace-actions" className="contents">
+                    <SessionDiagnostics
+                      key={`session-diagnostics:${sessionId}`}
+                      sessionId={sessionId}
+                    />
+                    <SessionOperations
+                      key={`session-operations:${config.revision}`}
+                      sessionId={sessionId}
+                      projectId={projectId}
+                      title={title}
+                      mutationToken={mutationToken}
+                      runtimeProfileId={snapshot.session.runtimeProfileId}
+                      initialRuntimeStatus={runtime.status}
+                      runtimeProfiles={Object.entries(
+                        config.developer.runtime.profiles
+                      )
+                        .filter(([, profile]) => profile.enabled)
+                        .map(([id, profile]) => ({
+                          id,
+                          label: profile.kind === "pi" ? "Pi" : "Pi Client",
+                        }))}
+                    />
+                  </div>
+                ) : null}
+                <ExtensionSlot key="session-header" name="session.header" />
               </div>
-            )
-          }
-        />
-      </SubagentsProvider>
-      <ExtensionOverlayHosts key="extension-overlays" />
-    </SessionExtensionProvider>
+            }
+            toolbar={
+              <ExtensionSlot key="session-toolbar" name="session.toolbar" />
+            }
+            conversation={
+              <div key="conversation-content" className="contents">
+                <ExtensionSlot
+                  key="conversation-before"
+                  name="conversation.before"
+                />
+                <SessionTranscript
+                  key="transcript"
+                  snapshot={snapshot}
+                  sessionId={sessionId}
+                  mutationToken={mutationToken}
+                  workspaceUnavailable={!workspaceAvailable}
+                  initialRuntimeStatus={runtime.status}
+                />
+                <ExtensionSlot
+                  key="conversation-after"
+                  name="conversation.after"
+                />
+                <SessionStreamingMessage key="streaming-message" />
+              </div>
+            }
+            composer={
+              workspaceAvailable ? (
+                <SessionRuntime
+                  key="session-runtime"
+                  sessionId={sessionId}
+                  mutationToken={mutationToken}
+                  initialEventCursor={eventCursor}
+                  initialStatus={runtime.status}
+                  initialSnapshot={runtime.snapshot}
+                  initialGoalState={snapshot.goalState}
+                />
+              ) : (
+                <div
+                  key="read-only-composer"
+                  className="shrink-0 border-t px-4 py-3 text-center text-xs text-muted-foreground"
+                >
+                  只读历史 · Runtime 未启动
+                </div>
+              )
+            }
+          />
+        </SubagentsProvider>
+        <ExtensionOverlayHosts key="extension-overlays" />
+      </SessionExtensionProvider>
+    </SessionStreamingProvider>
   )
 }

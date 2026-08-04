@@ -17,6 +17,7 @@ import {
   type WebUiViewSnapshot,
 } from "@workspace/runtime-protocol"
 
+import { useSessionEvents } from "@/components/session-streaming-context"
 import type { WebUiExtensionCatalogView } from "@/lib/webui-extensions/types"
 
 interface SessionExtensionContextValue {
@@ -77,6 +78,7 @@ export function SessionExtensionProvider({
   initialViews: WebUiViewSnapshot[]
   children: ReactNode
 }) {
+  const sessionEvents = useSessionEvents()
   const [catalog, setCatalog] = useState(initialCatalog)
   const [views, setViews] = useState<Record<string, WebUiViewSnapshot>>(() =>
     Object.fromEntries(initialViews.map((view) => [view.instanceId, view]))
@@ -197,7 +199,6 @@ export function SessionExtensionProvider({
   })
 
   useEffect(() => {
-    const events = new EventSource(`/api/v1/events?sessionId=${sessionId}`)
     const handle = (source: Event) => {
       const event = JSON.parse(
         (source as MessageEvent<string>).data
@@ -224,19 +225,20 @@ export function SessionExtensionProvider({
         void Promise.all([loadViews(), loadCatalog()]).catch(console.error)
       }
     }
-    for (const type of [
-      "webui.view",
-      "runtime.starting",
-      "runtime.ready",
-      "runtime.stopped",
-      "runtime.crashed",
-      "resync.required",
-    ]) {
-      events.addEventListener(type, handle)
-    }
+    const unsubscribe = sessionEvents.subscribe(
+      [
+        "webui.view",
+        "runtime.starting",
+        "runtime.ready",
+        "runtime.stopped",
+        "runtime.crashed",
+        "resync.required",
+      ],
+      handle
+    )
     void loadViews().catch(console.error)
-    return () => events.close()
-  }, [sessionId])
+    return unsubscribe
+  }, [sessionEvents, sessionId])
 
   const value = useMemo(
     () => ({

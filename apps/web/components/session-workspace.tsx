@@ -1,6 +1,13 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react"
 import dynamic from "next/dynamic"
 import {
   BotIcon,
@@ -51,10 +58,10 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@workspace/ui/components/tooltip"
+import { restorePendingFocus } from "@workspace/ui/lib/focus-restoration"
 import { cn } from "@workspace/ui/lib/utils"
 
 import { ShellTerminal } from "@/components/shell-terminal"
-import { SessionStreamingProvider } from "@/components/session-streaming"
 import {
   SessionInspector,
   type SessionInspectorProps,
@@ -255,6 +262,7 @@ export function SessionWorkspace({
   const conversationContentRef = useRef<HTMLDivElement>(null)
   const bottomTerminalToggleRef = useRef<HTMLButtonElement>(null)
   const sidebarToggleRef = useRef<HTMLButtonElement>(null)
+  const restoreSidebarToggleFocusRef = useRef(false)
   const desktopLayoutRef = useRef<boolean | null>(null)
   const [isDesktop, setIsDesktop] = useState(false)
   const [sideOpen, setSideOpen] = useState(false)
@@ -350,6 +358,15 @@ export function SessionWorkspace({
     return () => observer.disconnect()
   }, [sidePanelRef])
 
+  useLayoutEffect(() => {
+    if (!sideOpen) {
+      restorePendingFocus(
+        restoreSidebarToggleFocusRef,
+        sidebarToggleRef.current
+      )
+    }
+  }, [sideOpen])
+
   function showSidebar() {
     if (isDesktop) {
       sidePanelRef.current?.resize("38%")
@@ -367,8 +384,8 @@ export function SessionWorkspace({
   }
 
   function closeSidebar() {
+    restoreSidebarToggleFocusRef.current = true
     hideSidebar()
-    requestAnimationFrame(() => sidebarToggleRef.current?.focus())
   }
 
   function selectTab(tab: WorkspaceTab) {
@@ -538,7 +555,7 @@ export function SessionWorkspace({
   )
 
   return (
-    <SessionStreamingProvider>
+    <>
       <ResizablePanelGroup
         elementRef={workspaceElementRef}
         orientation="horizontal"
@@ -771,6 +788,6 @@ export function SessionWorkspace({
           {sidebarContent}
         </SheetContent>
       </Sheet>
-    </SessionStreamingProvider>
+    </>
   )
 }

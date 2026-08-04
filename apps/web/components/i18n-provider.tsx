@@ -50,6 +50,7 @@ export function I18nProvider({
         sidebarTitle={t("ui.sidebarTitle")}
         sidebarDescription={t("ui.sidebarDescription")}
         toggleSidebar={t("ui.toggleSidebar")}
+        resizeSidebar={t("ui.resizeSidebar")}
       >
         {children}
       </UiLabelsProvider>

@@ -4,6 +4,7 @@ import test from "node:test"
 import type { ComposerImage } from "@/lib/prompt-images"
 
 import {
+  draftAfterAcceptedSend,
   NEW_CONVERSATION_DRAFT_ID,
   SessionComposerDraftStore,
 } from "./session-composer-draft-store"
@@ -63,4 +64,15 @@ test("stores and clears the shared new-conversation draft", () => {
     text: "",
     images: [],
   })
+})
+
+test("clears only the exact draft snapshot accepted by the runtime", () => {
+  assert.equal(
+    draftAfterAcceptedSend("  keep spacing  ", "  keep spacing  "),
+    ""
+  )
+  assert.equal(
+    draftAfterAcceptedSend("keep spacing\n", "keep spacing"),
+    "keep spacing\n"
+  )
 })

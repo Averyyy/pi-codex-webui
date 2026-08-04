@@ -24,6 +24,14 @@ function surface(
 
 test("empty inline TUI surfaces stay out of the layout", () => {
   assert.equal(isVisibleTuiSurface(surface()), false)
+  assert.equal(
+    isVisibleTuiSurface(
+      surface({
+        data: "\u001b[?25l\u001b[?2026h\u001b[2J\u001b[H\u001b[3J\u001b[?2026l",
+      })
+    ),
+    false
+  )
 })
 
 test("inline TUI surfaces appear when they expose visible state", () => {

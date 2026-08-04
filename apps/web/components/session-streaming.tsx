@@ -22,6 +22,7 @@ import { replacesStreamingMessage } from "@/lib/webui-message-replacements"
 
 export {
   SessionStreamingProvider,
+  useSessionEvents,
   useSessionStreaming,
 } from "@/components/session-streaming-context"
 

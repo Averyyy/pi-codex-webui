@@ -21,7 +21,10 @@ import { Field, FieldGroup, FieldLabel } from "@workspace/ui/components/field"
 import { Input } from "@workspace/ui/components/input"
 
 import { searchSessions } from "@/lib/catalog"
-import { searchEntryTypeLabel } from "@/lib/search-result-display"
+import {
+  searchEntryTypeLabel,
+  searchResultHref,
+} from "@/lib/search-result-display"
 import { displaySessionTitle, formatTimestamp } from "@/lib/session-display"
 
 export default async function SearchPage({
@@ -76,10 +79,7 @@ export default async function SearchPage({
             result.projectId === null
               ? `/tasks/${result.sessionId}`
               : `/projects/${result.projectId}/sessions/${result.sessionId}`
-          const resultHref =
-            result.entryId === null
-              ? sessionHref
-              : `${sessionHref}#entry-${result.entryId}`
+          const resultHref = searchResultHref(sessionHref, result)
           return (
             <Link
               key={`${result.sessionId}:${

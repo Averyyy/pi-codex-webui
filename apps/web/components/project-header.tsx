@@ -9,10 +9,12 @@ import type { ProjectSummary } from "@/lib/session-types"
 export function ProjectHeader({
   project,
   branch,
+  active,
   children,
 }: {
   project: ProjectSummary
   branch?: string | null
+  active: "sessions" | "files" | "git"
   children?: React.ReactNode
 }) {
   return (
@@ -42,16 +44,39 @@ export function ProjectHeader({
         {children}
       </div>
       <nav className="flex flex-wrap gap-2" aria-label="项目工具">
-        <Button asChild variant="outline" size="sm">
-          <Link href={`/projects/${project.id}`}>会话</Link>
+        <Button
+          asChild
+          variant={active === "sessions" ? "secondary" : "outline"}
+          size="sm"
+        >
+          <Link
+            href={`/projects/${project.id}`}
+            aria-current={active === "sessions" ? "page" : undefined}
+          >
+            会话
+          </Link>
         </Button>
-        <Button asChild variant="outline" size="sm">
-          <Link href={`/projects/${project.id}/files`}>
+        <Button
+          asChild
+          variant={active === "files" ? "secondary" : "outline"}
+          size="sm"
+        >
+          <Link
+            href={`/projects/${project.id}/files`}
+            aria-current={active === "files" ? "page" : undefined}
+          >
             <FileTextIcon /> 文件
           </Link>
         </Button>
-        <Button asChild variant="outline" size="sm">
-          <Link href={`/projects/${project.id}/git`}>
+        <Button
+          asChild
+          variant={active === "git" ? "secondary" : "outline"}
+          size="sm"
+        >
+          <Link
+            href={`/projects/${project.id}/git`}
+            aria-current={active === "git" ? "page" : undefined}
+          >
             <GitBranchIcon /> Git
           </Link>
         </Button>

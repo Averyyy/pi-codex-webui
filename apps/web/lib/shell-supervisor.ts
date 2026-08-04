@@ -2,6 +2,8 @@ import "server-only"
 
 import { spawn, type IPty } from "node-pty"
 
+import { RuntimeRequestError } from "./runtime-error"
+
 const MAX_SNAPSHOT_LENGTH = 2 * 1024 * 1024
 const DISCONNECT_GRACE_MS = 5_000
 const encoder = new TextEncoder()
@@ -120,7 +122,10 @@ export class ShellSupervisor {
   }
 
   resize(sessionId: string, columns: number, rows: number) {
-    this.requireProcess(sessionId).resize(columns, rows)
+    const terminal = this.sessions.get(sessionId)?.process
+    if (!terminal) return false
+    terminal.resize(columns, rows)
+    return true
   }
 
   stop(sessionId: string) {
@@ -190,7 +195,12 @@ export class ShellSupervisor {
 
   private requireProcess(sessionId: string) {
     const terminal = this.sessions.get(sessionId)?.process
-    if (!terminal) throw new Error("Shell terminal is not running.")
+    if (!terminal) {
+      throw new RuntimeRequestError(
+        "RuntimeNotActive",
+        "Shell terminal is not running."
+      )
+    }
     return terminal
   }
 
@@ -209,6 +219,12 @@ export class ShellSupervisor {
 }
 
 export function getShellSupervisor() {
-  globalThis.piWebCodexShellSupervisor ??= new ShellSupervisor()
-  return globalThis.piWebCodexShellSupervisor
+  const existing = globalThis.piWebCodexShellSupervisor
+  if (existing) {
+    Object.setPrototypeOf(existing, ShellSupervisor.prototype)
+    return existing
+  }
+  const supervisor = new ShellSupervisor()
+  globalThis.piWebCodexShellSupervisor = supervisor
+  return supervisor
 }

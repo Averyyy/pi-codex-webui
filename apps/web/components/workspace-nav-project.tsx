@@ -269,7 +269,12 @@ export function WorkspaceNavProject({
                       isActive={active}
                       className="pr-24"
                     >
-                      <Link href={projectPath}>
+                      <Link
+                        href={projectPath}
+                        aria-current={
+                          pathname === projectPath ? "page" : undefined
+                        }
+                      >
                         <FolderIcon />
                         <span className="min-w-0 flex-1 truncate">
                           {project.name}

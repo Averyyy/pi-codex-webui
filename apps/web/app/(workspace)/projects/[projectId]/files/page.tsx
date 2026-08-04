@@ -80,6 +80,7 @@ export default async function ProjectFilesPage({
         <ProjectHeader
           project={project}
           branch={git.available ? git.branch : null}
+          active="files"
         />
         <Card>
           <CardHeader>
@@ -96,6 +97,7 @@ export default async function ProjectFilesPage({
       <ProjectHeader
         project={project}
         branch={git.available ? git.branch : null}
+        active="files"
       />
 
       <Card className="min-w-0 gap-0 overflow-hidden">

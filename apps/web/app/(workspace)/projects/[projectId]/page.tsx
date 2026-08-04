@@ -32,6 +32,7 @@ export default async function ProjectPage({
       <ProjectHeader
         project={project}
         branch={git.available ? git.branch : null}
+        active="sessions"
       >
         <NewSessionButton projectId={projectId} />
       </ProjectHeader>

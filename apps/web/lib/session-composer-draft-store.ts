@@ -7,6 +7,10 @@ export interface SessionComposerDraft {
   images: ComposerImage[]
 }
 
+export function draftAfterAcceptedSend(current: string, submitted: string) {
+  return current === submitted ? "" : current
+}
+
 export class SessionComposerDraftStore {
   private readonly drafts = new Map<string, SessionComposerDraft>()
 

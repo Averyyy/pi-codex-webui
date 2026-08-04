@@ -28,6 +28,7 @@ export default async function ProjectGitPage({
       <ProjectHeader
         project={project}
         branch={git.available ? git.branch : null}
+        active="git"
       >
         <Button asChild variant="outline" size="sm">
           <a href={`/projects/${projectId}/git`}>
