@@ -60,6 +60,7 @@ import {
 
 import { SessionTreeViewer } from "@/components/session-tree-viewer"
 import { useI18n } from "@/components/i18n-provider"
+import { useShortcutAction } from "@/components/keyboard-shortcuts-provider"
 import { useStreamingRuntimeStatus } from "@/components/session-streaming-context"
 import { responseJson, validatedResponseJson } from "@/lib/api-response"
 import { sessionTreeActiveUserEntryId } from "@/lib/session-tree"
@@ -88,6 +89,7 @@ export function SessionOperations({
   sessionId,
   projectId,
   title,
+  isPinned,
   mutationToken,
   runtimeProfileId,
   runtimeProfiles,
@@ -96,6 +98,7 @@ export function SessionOperations({
   sessionId: string
   projectId: string | null
   title: string
+  isPinned: boolean
   mutationToken: string
   runtimeProfileId: string
   runtimeProfiles: Array<{ id: string; label: string }>
@@ -294,6 +297,15 @@ export function SessionOperations({
     })
   }
 
+  async function togglePin() {
+    await run(async () => {
+      await mutate(`/api/v1/sessions/${sessionId}/pin`, {
+        pinned: !isPinned,
+      })
+      router.refresh()
+    })
+  }
+
   function startNewConversation() {
     router.push(
       projectId === null
@@ -394,6 +406,19 @@ export function SessionOperations({
   }
 
   const forkEntries = tree?.entries.filter((entry) => entry.role === "user")
+
+  useShortcutAction("conversation.archive", () => void archive(), !working)
+  useShortcutAction("conversation.togglePin", () => void togglePin(), !working)
+  useShortcutAction(
+    "conversation.rename",
+    () => openDialog("rename"),
+    !working && !runtimeOperationDisabled
+  )
+  useShortcutAction(
+    "conversation.continue",
+    () => void clone(),
+    !working && !runtimeOperationDisabled
+  )
 
   return (
     <>

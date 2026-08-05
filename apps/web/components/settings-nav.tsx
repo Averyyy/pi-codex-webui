@@ -9,6 +9,7 @@ import {
   BlocksIcon,
   Code2Icon,
   CableIcon,
+  KeyboardIcon,
   PackageIcon,
   PaletteIcon,
   Settings2Icon,
@@ -43,6 +44,11 @@ const sections = [
     href: "/settings/appearance",
     key: "settings.nav.appearance",
     icon: PaletteIcon,
+  },
+  {
+    href: "/settings/shortcuts",
+    key: "settings.nav.shortcuts",
+    icon: KeyboardIcon,
   },
   { href: "/settings/archive", key: "settings.nav.archive", icon: ArchiveIcon },
   {

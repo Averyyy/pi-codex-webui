@@ -7,6 +7,7 @@ import {
 } from "@workspace/ui/components/sidebar"
 
 import { WorkspaceNav } from "@/components/workspace-nav"
+import { SidebarShortcut } from "@/components/sidebar-shortcut"
 import { SessionComposerDraftProvider } from "@/components/session-composer-draft-context"
 import { listWorkspaceProjects, listWorkspaceTasks } from "@/lib/catalog"
 import { getMutationToken } from "@/lib/request-security"
@@ -38,6 +39,7 @@ export default async function WorkspaceLayout({
           } as CSSProperties
         }
       >
+        <SidebarShortcut />
         <WorkspaceNav
           projects={projects}
           tasks={tasks}

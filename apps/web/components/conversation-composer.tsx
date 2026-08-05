@@ -43,6 +43,10 @@ import {
   type ComposerCommand,
 } from "@/components/composer-command-menu"
 import { useI18n } from "@/components/i18n-provider"
+import {
+  useKeyboardShortcuts,
+  useShortcutAction,
+} from "@/components/keyboard-shortcuts-provider"
 import type { Translator } from "@/lib/i18n"
 
 function modelValue(model: { provider: string; id: string }) {
@@ -73,6 +77,8 @@ export function ConversationComposer({
   onImagesAdd,
   onImageRemove,
   onCycleThinkingLevel,
+  onDecreaseThinkingLevel,
+  onIncreaseThinkingLevel,
   textareaRef,
   className,
   commands = [],
@@ -96,6 +102,8 @@ export function ConversationComposer({
   onImagesAdd?: (files: File[]) => void | Promise<void>
   onImageRemove?: (id: string) => void
   onCycleThinkingLevel?: () => void
+  onDecreaseThinkingLevel?: () => void
+  onIncreaseThinkingLevel?: () => void
   textareaRef?: Ref<HTMLTextAreaElement>
   className?: string
   commands?: ComposerCommand[]
@@ -104,6 +112,7 @@ export function ConversationComposer({
   const resolvedPlaceholder = placeholder ?? t("composer.placeholder")
   const resolvedAriaLabel = ariaLabel ?? t("composer.ariaLabel")
   const imageInputRef = useRef<HTMLInputElement>(null)
+  const formRef = useRef<HTMLFormElement>(null)
   const commandMenuId = useId()
   const [commandMenuOpen, setCommandMenuOpen] = useState(false)
   const [commandQuery, setCommandQuery] = useState("")
@@ -228,18 +237,6 @@ export function ConversationComposer({
       }
     }
     if (
-      event.key.toLowerCase() === "r" &&
-      event.shiftKey &&
-      event.altKey &&
-      !event.ctrlKey &&
-      !event.metaKey &&
-      onCycleThinkingLevel
-    ) {
-      event.preventDefault()
-      onCycleThinkingLevel()
-      return
-    }
-    if (
       event.key === "Enter" &&
       !event.shiftKey &&
       !event.nativeEvent.isComposing
@@ -267,8 +264,71 @@ export function ConversationComposer({
     void onImagesAdd(files)
   }
 
+  function composerHasFocus() {
+    return (
+      document.activeElement instanceof Element &&
+      formRef.current?.contains(document.activeElement) === true
+    )
+  }
+
+  useShortcutAction(
+    "composer.attachPhoto",
+    () => {
+      imageInputRef.current?.click()
+      return imageInputRef.current !== null
+    },
+    imagesSupported !== false && !imageChangesDisabled && !!onImagesAdd
+  )
+  useShortcutAction(
+    "composer.cycleReasoning",
+    () => {
+      if (!composerHasFocus()) return false
+      onCycleThinkingLevel?.()
+    },
+    !!onCycleThinkingLevel
+  )
+  useShortcutAction(
+    "composer.decreaseReasoning",
+    () => {
+      if (!composerHasFocus()) return false
+      onDecreaseThinkingLevel?.()
+    },
+    !!onDecreaseThinkingLevel
+  )
+  useShortcutAction(
+    "composer.increaseReasoning",
+    () => {
+      if (!composerHasFocus()) return false
+      onIncreaseThinkingLevel?.()
+    },
+    !!onIncreaseThinkingLevel
+  )
+  useShortcutAction("composer.openModelSelector", () => {
+    const trigger = formRef.current?.querySelector<HTMLButtonElement>(
+      "[data-shortcut-model-selector]"
+    )
+    if (!trigger || trigger.disabled) return false
+    trigger.click()
+  })
+  useShortcutAction("composer.send", () => {
+    if (!formRef.current || submissionDisabled) return false
+    formRef.current.requestSubmit()
+  })
+  useShortcutAction("composer.openCommandMenu", () => {
+    const input = formRef.current?.querySelector<HTMLTextAreaElement>(
+      "[data-composer-input]"
+    )
+    if (!input) return false
+    input.focus()
+    setCommandQuery("")
+    setOpenedWithSlash(true)
+    setActiveCommandId(null)
+    setCommandMenuOpen(true)
+  })
+
   return (
     <form
+      ref={formRef}
       onSubmit={onSubmit}
       className={cn("rounded-2xl border bg-card p-2 shadow-sm", className)}
     >
@@ -435,6 +495,7 @@ export function ComposerModelSelect<T extends RuntimeModel>({
       disabled={disabled}
     >
       <SelectTrigger
+        data-shortcut-model-selector
         size="sm"
         className="max-w-56"
         aria-label={t("composer.model.ariaLabel")}
@@ -487,6 +548,8 @@ export function ComposerThinkingSelect({
   disabled?: boolean
 }) {
   const { t } = useI18n()
+  const { ariaBindings, formattedBindings } = useKeyboardShortcuts()
+  const cycleShortcut = formattedBindings("composer.cycleReasoning")[0]
   if (levels.length === 0) return null
 
   return (
@@ -502,8 +565,12 @@ export function ComposerThinkingSelect({
       <SelectTrigger
         size="sm"
         aria-label={t("composer.reasoningEffort")}
-        aria-keyshortcuts="Alt+Shift+R"
-        title={t("composer.reasoningShortcut")}
+        aria-keyshortcuts={ariaBindings("composer.cycleReasoning") || undefined}
+        title={
+          cycleShortcut
+            ? t("composer.reasoningShortcut", { shortcut: cycleShortcut })
+            : undefined
+        }
       >
         <SelectValue>{t("composer.reasoningLevel", { level })}</SelectValue>
       </SelectTrigger>
@@ -532,4 +599,19 @@ export function nextThinkingLevel(
   const next = levels[(currentIndex + 1) % levels.length]
   if (!next) throw new Error(t("composer.reasoningNoAlternative"))
   return next
+}
+
+export function adjacentThinkingLevel(
+  level: ThinkingLevel,
+  levels: ThinkingLevel[],
+  direction: -1 | 1,
+  t: Translator
+) {
+  const currentIndex = levels.indexOf(level)
+  if (currentIndex === -1) {
+    throw new Error(t("composer.reasoningInvalid", { level }))
+  }
+  return levels[
+    Math.min(levels.length - 1, Math.max(0, currentIndex + direction))
+  ]!
 }

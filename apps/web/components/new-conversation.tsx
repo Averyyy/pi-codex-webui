@@ -46,11 +46,13 @@ import {
   useComposerImages,
 } from "@/components/composer-image-attachments"
 import {
+  adjacentThinkingLevel,
   ComposerModelSelect,
   ComposerThinkingSelect,
   ConversationComposer,
   nextThinkingLevel,
 } from "@/components/conversation-composer"
+import { useShortcutAction } from "@/components/keyboard-shortcuts-provider"
 import { useSessionComposerDraftStore } from "@/components/session-composer-draft-context"
 import { ApiError, responseJson } from "@/lib/api-response"
 import { useI18n } from "@/components/i18n-provider"
@@ -243,6 +245,19 @@ export function NewConversation({
     messageInputRef.current?.focus()
   }
 
+  function changeThinkingLevel(direction: -1 | 1) {
+    if (!model || !thinkingLevel) return
+    setModelSelection((current) => ({
+      ...current,
+      thinkingLevel: adjacentThinkingLevel(
+        thinkingLevel,
+        model.availableThinkingLevels,
+        direction,
+        t
+      ),
+    }))
+  }
+
   async function addProject() {
     setProjectSelectOpen(false)
     setAddingProject(true)
@@ -346,6 +361,15 @@ export function NewConversation({
 
   const modelUnavailable = error?.code === "ModelUnavailable"
 
+  useShortcutAction(
+    "composer.openProjectSelector",
+    () => {
+      projectSelectTriggerRef.current?.click()
+      return projectSelectTriggerRef.current !== null
+    },
+    !submitting && !addingProject && !loadingModels
+  )
+
   return (
     <div className="flex min-h-[calc(100svh-3rem)] flex-col px-4 py-6 md:min-h-svh md:px-8 md:py-8">
       <section className="mx-auto flex w-full max-w-5xl flex-1 flex-col items-center justify-center gap-8 py-8 text-center">
@@ -438,6 +462,24 @@ export function NewConversation({
                   }))
               : undefined
           }
+          onDecreaseThinkingLevel={
+            model &&
+            thinkingLevel &&
+            model.availableThinkingLevels.length > 1 &&
+            !loadingModels &&
+            !submitting
+              ? () => changeThinkingLevel(-1)
+              : undefined
+          }
+          onIncreaseThinkingLevel={
+            model &&
+            thinkingLevel &&
+            model.availableThinkingLevels.length > 1 &&
+            !loadingModels &&
+            !submitting
+              ? () => changeThinkingLevel(1)
+              : undefined
+          }
           textareaRef={messageInputRef}
           className="shadow-lg shadow-foreground/5"
           commands={[
@@ -509,6 +551,7 @@ export function NewConversation({
               >
                 <SelectTrigger
                   ref={projectSelectTriggerRef}
+                  data-shortcut-project-selector
                   size="sm"
                   className="max-w-64"
                   aria-label={t("home.project.ariaLabel")}

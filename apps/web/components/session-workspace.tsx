@@ -62,6 +62,7 @@ import { restorePendingFocus } from "@workspace/ui/lib/focus-restoration"
 import { cn } from "@workspace/ui/lib/utils"
 
 import { ShellTerminal } from "@/components/shell-terminal"
+import { useShortcutAction } from "@/components/keyboard-shortcuts-provider"
 import {
   SessionInspector,
   type SessionInspectorProps,
@@ -231,6 +232,9 @@ function PanelTabs({
 
 export function SessionWorkspace({
   sessionId,
+  conversationId,
+  conversationPath,
+  workingDirectory,
   projectId,
   mutationToken,
   title,
@@ -248,6 +252,9 @@ export function SessionWorkspace({
   composer,
 }: {
   sessionId: string
+  conversationId: string
+  conversationPath: string
+  workingDirectory: string
   projectId: string | null
   mutationToken: string
   title: string
@@ -529,6 +536,35 @@ export function SessionWorkspace({
     }
   }
 
+  useShortcutAction(
+    "workspace.openReview",
+    () => addTab("review"),
+    projectAvailable
+  )
+  useShortcutAction(
+    "workspace.toggleReview",
+    () => {
+      if (sideOpen && activeTab === "review") hideSidebar()
+      else addTab("review")
+    },
+    projectAvailable
+  )
+  useShortcutAction(
+    "workspace.toggleBottomPanel",
+    toggleBottomTerminal,
+    workspaceAvailable
+  )
+  useShortcutAction(
+    "workspace.openTerminal",
+    showTerminalBelow,
+    workspaceAvailable
+  )
+  useShortcutAction(
+    "workspace.openFileTree",
+    () => addTab("files"),
+    projectAvailable
+  )
+
   const sidebarContent = (
     <div className="flex size-full min-h-0 flex-col overflow-hidden bg-background">
       <PanelTabs
@@ -577,6 +613,9 @@ export function SessionWorkspace({
   return (
     <>
       <ResizablePanelGroup
+        data-conversation-id={conversationId}
+        data-conversation-path={conversationPath}
+        data-working-directory={workingDirectory}
         elementRef={workspaceElementRef}
         orientation="horizontal"
         style={{ height: "var(--session-workspace-height)" }}

@@ -55,8 +55,8 @@ const messages = {
     "en-US": "Reasoning: {level}",
   },
   "composer.reasoningShortcut": {
-    "zh-CN": "Alt+Shift+R 切换推理强度",
-    "en-US": "Alt+Shift+R cycles reasoning effort",
+    "zh-CN": "{shortcut} 切换推理强度",
+    "en-US": "{shortcut} cycles reasoning effort",
   },
   "composer.reasoningUnavailable": {
     "zh-CN": "选择的 thinking level 不再可用。",
@@ -1839,6 +1839,7 @@ const messages = {
 
   "settings.nav.general": { "zh-CN": "常规", "en-US": "General" },
   "settings.nav.appearance": { "zh-CN": "外观", "en-US": "Appearance" },
+  "settings.nav.shortcuts": { "zh-CN": "键盘快捷键", "en-US": "Keyboard" },
   "settings.nav.archive": { "zh-CN": "归档", "en-US": "Archive" },
   "settings.nav.models": { "zh-CN": "模型", "en-US": "Models" },
   "settings.nav.packages": { "zh-CN": "软件包", "en-US": "Packages" },
@@ -1866,6 +1867,422 @@ const messages = {
   "settings.page.appearance.description": {
     "zh-CN": "调整真实应用壳的主题、语言与尺寸。",
     "en-US": "Adjust the app shell theme, language, and dimensions.",
+  },
+  "settings.page.shortcuts.title": {
+    "zh-CN": "键盘快捷键",
+    "en-US": "Keyboard shortcuts",
+  },
+  "settings.page.shortcuts.description": {
+    "zh-CN": "查看并自定义 pi-web-codex 已支持功能的快捷键。",
+    "en-US":
+      "View and customize shortcuts for features supported by pi-web-codex.",
+  },
+
+  "shortcuts.category.conversation": {
+    "zh-CN": "对话",
+    "en-US": "Conversation",
+  },
+  "shortcuts.category.conversation.description": {
+    "zh-CN": "创建、整理和复制当前对话信息。",
+    "en-US": "Create, organize, and copy details from conversations.",
+  },
+  "shortcuts.category.navigation": {
+    "zh-CN": "导航",
+    "en-US": "Navigation",
+  },
+  "shortcuts.category.navigation.description": {
+    "zh-CN": "浏览历史记录并切换侧边栏中的对话。",
+    "en-US": "Move through history and conversations in the sidebar.",
+  },
+  "shortcuts.category.workspace": {
+    "zh-CN": "工作区",
+    "en-US": "Workspace",
+  },
+  "shortcuts.category.workspace.description": {
+    "zh-CN": "控制侧边栏、审阅、文件和终端面板。",
+    "en-US": "Control sidebar, review, file, and terminal panels.",
+  },
+  "shortcuts.category.composer": {
+    "zh-CN": "编辑器",
+    "en-US": "Composer",
+  },
+  "shortcuts.category.composer.description": {
+    "zh-CN": "控制消息编辑器、模型和推理强度。",
+    "en-US": "Control the message composer, model, and reasoning effort.",
+  },
+  "shortcuts.category.settings": {
+    "zh-CN": "设置",
+    "en-US": "Settings",
+  },
+  "shortcuts.category.settings.description": {
+    "zh-CN": "直接打开 pi-web-codex 设置页面。",
+    "en-US": "Open pi-web-codex settings pages directly.",
+  },
+  "shortcuts.search.label": {
+    "zh-CN": "搜索快捷键",
+    "en-US": "Search shortcuts",
+  },
+  "shortcuts.search.placeholder": {
+    "zh-CN": "搜索操作或说明",
+    "en-US": "Search actions or descriptions",
+  },
+  "shortcuts.search.empty": {
+    "zh-CN": "没有匹配的快捷键。",
+    "en-US": "No shortcuts match your search.",
+  },
+  "shortcuts.browserNotice": {
+    "zh-CN":
+      "快捷键保存在当前浏览器中并立即生效；浏览器或系统保留的组合键可能无法被网页接收。",
+    "en-US":
+      "Shortcuts are saved in this browser and apply immediately. Browser or system reserved combinations may not reach the page.",
+  },
+  "shortcuts.resetAll": {
+    "zh-CN": "全部恢复默认",
+    "en-US": "Reset all",
+  },
+  "shortcuts.reset": { "zh-CN": "恢复", "en-US": "Reset" },
+  "shortcuts.resetCommand": {
+    "zh-CN": "恢复“{command}”的默认快捷键",
+    "en-US": "Reset shortcuts for {command}",
+  },
+  "shortcuts.add": { "zh-CN": "添加", "en-US": "Add" },
+  "shortcuts.recording": {
+    "zh-CN": "请按快捷键…",
+    "en-US": "Press shortcut…",
+  },
+  "shortcuts.unassigned": { "zh-CN": "未分配", "en-US": "Unassigned" },
+  "shortcuts.remove": {
+    "zh-CN": "从“{command}”移除 {shortcut}",
+    "en-US": "Remove {shortcut} from {command}",
+  },
+  "shortcuts.record.invalid": {
+    "zh-CN": "请使用包含修饰键的组合键，或 F1–F12。",
+    "en-US": "Use a modified key combination or F1–F12.",
+  },
+  "shortcuts.record.conflict": {
+    "zh-CN": "该快捷键已分配给“{command}”。",
+    "en-US": "That shortcut is already assigned to {command}.",
+  },
+  "shortcuts.copied.deepLink": {
+    "zh-CN": "已复制深层链接。",
+    "en-US": "Deep link copied.",
+  },
+  "shortcuts.copied.conversationPath": {
+    "zh-CN": "已复制对话路径。",
+    "en-US": "Conversation path copied.",
+  },
+  "shortcuts.copied.id": {
+    "zh-CN": "已复制会话 ID。",
+    "en-US": "Session ID copied.",
+  },
+  "shortcuts.copied.workingDirectory": {
+    "zh-CN": "已复制工作目录。",
+    "en-US": "Working directory copied.",
+  },
+
+  "shortcuts.command.new.label": {
+    "zh-CN": "新聊天",
+    "en-US": "New conversation",
+  },
+  "shortcuts.command.new.description": {
+    "zh-CN": "在当前项目中开始聊天；没有项目上下文时创建独立聊天。",
+    "en-US":
+      "Start in the current project, or standalone without project context.",
+  },
+  "shortcuts.command.newIndependent.label": {
+    "zh-CN": "新建独立聊天",
+    "en-US": "New standalone conversation",
+  },
+  "shortcuts.command.newIndependent.description": {
+    "zh-CN": "在项目外开始新聊天。",
+    "en-US": "Start a conversation outside a project.",
+  },
+  "shortcuts.command.archive.label": {
+    "zh-CN": "归档聊天",
+    "en-US": "Archive conversation",
+  },
+  "shortcuts.command.archive.description": {
+    "zh-CN": "归档当前聊天并返回首页。",
+    "en-US": "Archive the current conversation and return home.",
+  },
+  "shortcuts.command.togglePin.label": {
+    "zh-CN": "切换置顶状态",
+    "en-US": "Toggle pin",
+  },
+  "shortcuts.command.togglePin.description": {
+    "zh-CN": "置顶或取消置顶当前聊天。",
+    "en-US": "Pin or unpin the current conversation.",
+  },
+  "shortcuts.command.rename.label": {
+    "zh-CN": "重命名聊天",
+    "en-US": "Rename conversation",
+  },
+  "shortcuts.command.rename.description": {
+    "zh-CN": "打开当前聊天的重命名对话框。",
+    "en-US": "Open the rename dialog for the current conversation.",
+  },
+  "shortcuts.command.continue.label": {
+    "zh-CN": "在新聊天中继续",
+    "en-US": "Continue in new conversation",
+  },
+  "shortcuts.command.continue.description": {
+    "zh-CN": "克隆当前聊天并在副本中继续。",
+    "en-US": "Clone the current conversation and continue in the copy.",
+  },
+  "shortcuts.command.copyPath.label": {
+    "zh-CN": "复制对话路径",
+    "en-US": "Copy conversation path",
+  },
+  "shortcuts.command.copyPath.description": {
+    "zh-CN": "复制当前 Pi JSONL 文件路径。",
+    "en-US": "Copy the current Pi JSONL file path.",
+  },
+  "shortcuts.command.copyDeepLink.label": {
+    "zh-CN": "复制深层链接",
+    "en-US": "Copy deep link",
+  },
+  "shortcuts.command.copyDeepLink.description": {
+    "zh-CN": "复制当前页面的完整链接。",
+    "en-US": "Copy the full link to the current page.",
+  },
+  "shortcuts.command.copyId.label": {
+    "zh-CN": "复制会话 ID",
+    "en-US": "Copy session ID",
+  },
+  "shortcuts.command.copyId.description": {
+    "zh-CN": "复制当前 Pi 会话 ID。",
+    "en-US": "Copy the current Pi session ID.",
+  },
+  "shortcuts.command.copyWorkingDirectory.label": {
+    "zh-CN": "复制工作目录",
+    "en-US": "Copy working directory",
+  },
+  "shortcuts.command.copyWorkingDirectory.description": {
+    "zh-CN": "复制当前聊天的工作目录。",
+    "en-US": "Copy the working directory for the current conversation.",
+  },
+  "shortcuts.command.back.label": { "zh-CN": "返回", "en-US": "Back" },
+  "shortcuts.command.back.description": {
+    "zh-CN": "在应用导航历史记录中返回。",
+    "en-US": "Go back in application navigation history.",
+  },
+  "shortcuts.command.forward.label": { "zh-CN": "前进", "en-US": "Forward" },
+  "shortcuts.command.forward.description": {
+    "zh-CN": "在应用导航历史记录中前进。",
+    "en-US": "Go forward in application navigation history.",
+  },
+  "shortcuts.command.nextConversation.label": {
+    "zh-CN": "下一个聊天",
+    "en-US": "Next conversation",
+  },
+  "shortcuts.command.nextConversation.description": {
+    "zh-CN": "循环打开侧边栏中的下一个可见聊天。",
+    "en-US": "Cycle to the next visible conversation in the sidebar.",
+  },
+  "shortcuts.command.previousConversation.label": {
+    "zh-CN": "上一个聊天",
+    "en-US": "Previous conversation",
+  },
+  "shortcuts.command.previousConversation.description": {
+    "zh-CN": "循环打开侧边栏中的上一个可见聊天。",
+    "en-US": "Cycle to the previous visible conversation in the sidebar.",
+  },
+  "shortcuts.command.switchConversation.label": {
+    "zh-CN": "切换聊天…",
+    "en-US": "Switch conversation…",
+  },
+  "shortcuts.command.switchConversation.description": {
+    "zh-CN": "打开聊天搜索。",
+    "en-US": "Open conversation search.",
+  },
+  "shortcuts.command.conversation1.label": {
+    "zh-CN": "转到聊天 1",
+    "en-US": "Go to conversation 1",
+  },
+  "shortcuts.command.conversation2.label": {
+    "zh-CN": "转到聊天 2",
+    "en-US": "Go to conversation 2",
+  },
+  "shortcuts.command.conversation3.label": {
+    "zh-CN": "转到聊天 3",
+    "en-US": "Go to conversation 3",
+  },
+  "shortcuts.command.conversation4.label": {
+    "zh-CN": "转到聊天 4",
+    "en-US": "Go to conversation 4",
+  },
+  "shortcuts.command.conversation5.label": {
+    "zh-CN": "转到聊天 5",
+    "en-US": "Go to conversation 5",
+  },
+  "shortcuts.command.conversation6.label": {
+    "zh-CN": "转到聊天 6",
+    "en-US": "Go to conversation 6",
+  },
+  "shortcuts.command.conversation7.label": {
+    "zh-CN": "转到聊天 7",
+    "en-US": "Go to conversation 7",
+  },
+  "shortcuts.command.conversation8.label": {
+    "zh-CN": "转到聊天 8",
+    "en-US": "Go to conversation 8",
+  },
+  "shortcuts.command.conversation9.label": {
+    "zh-CN": "转到聊天 9",
+    "en-US": "Go to conversation 9",
+  },
+  "shortcuts.command.conversationNumber.description": {
+    "zh-CN": "打开侧边栏当前可见位置中的聊天。",
+    "en-US": "Open the conversation at this visible sidebar position.",
+  },
+  "shortcuts.command.toggleSidebar.label": {
+    "zh-CN": "切换边栏",
+    "en-US": "Toggle sidebar",
+  },
+  "shortcuts.command.toggleSidebar.description": {
+    "zh-CN": "显示或隐藏主侧边栏。",
+    "en-US": "Show or hide the main sidebar.",
+  },
+  "shortcuts.command.openReview.label": {
+    "zh-CN": "打开审查选项卡",
+    "en-US": "Open review tab",
+  },
+  "shortcuts.command.openReview.description": {
+    "zh-CN": "在当前项目聊天中打开审阅。",
+    "en-US": "Open review in the current project conversation.",
+  },
+  "shortcuts.command.toggleReview.label": {
+    "zh-CN": "切换审阅面板",
+    "en-US": "Toggle review panel",
+  },
+  "shortcuts.command.toggleReview.description": {
+    "zh-CN": "显示或隐藏当前聊天的审阅面板。",
+    "en-US": "Show or hide review for the current conversation.",
+  },
+  "shortcuts.command.toggleBottomPanel.label": {
+    "zh-CN": "切换底部面板",
+    "en-US": "Toggle bottom panel",
+  },
+  "shortcuts.command.toggleBottomPanel.description": {
+    "zh-CN": "显示或隐藏底部终端面板。",
+    "en-US": "Show or hide the bottom terminal panel.",
+  },
+  "shortcuts.command.openTerminal.label": {
+    "zh-CN": "打开终端",
+    "en-US": "Open terminal",
+  },
+  "shortcuts.command.openTerminal.description": {
+    "zh-CN": "在当前聊天下方打开终端。",
+    "en-US": "Open a terminal below the current conversation.",
+  },
+  "shortcuts.command.openFileTree.label": {
+    "zh-CN": "切换文件树",
+    "en-US": "Open file tree",
+  },
+  "shortcuts.command.openFileTree.description": {
+    "zh-CN": "在当前项目聊天中打开文件面板。",
+    "en-US": "Open the file panel in the current project conversation.",
+  },
+  "shortcuts.command.openFolder.label": {
+    "zh-CN": "打开文件夹",
+    "en-US": "Open folder",
+  },
+  "shortcuts.command.openFolder.description": {
+    "zh-CN": "选择本地文件夹并添加为项目。",
+    "en-US": "Choose a local folder and add it as a project.",
+  },
+  "shortcuts.command.attachPhoto.label": {
+    "zh-CN": "添加照片",
+    "en-US": "Add photo",
+  },
+  "shortcuts.command.attachPhoto.description": {
+    "zh-CN": "将图片添加到当前消息。",
+    "en-US": "Add images to the current message.",
+  },
+  "shortcuts.command.cycleReasoning.label": {
+    "zh-CN": "循环切换推理强度",
+    "en-US": "Cycle reasoning effort",
+  },
+  "shortcuts.command.cycleReasoning.description": {
+    "zh-CN": "编辑消息时切换到下一个推理档位。",
+    "en-US": "Move to the next reasoning level while composing.",
+  },
+  "shortcuts.command.decreaseReasoning.label": {
+    "zh-CN": "降低推理强度",
+    "en-US": "Decrease reasoning effort",
+  },
+  "shortcuts.command.decreaseReasoning.description": {
+    "zh-CN": "编辑消息时降低一个推理档位。",
+    "en-US": "Move down one reasoning level while composing.",
+  },
+  "shortcuts.command.increaseReasoning.label": {
+    "zh-CN": "提高推理强度",
+    "en-US": "Increase reasoning effort",
+  },
+  "shortcuts.command.increaseReasoning.description": {
+    "zh-CN": "编辑消息时提高一个推理档位。",
+    "en-US": "Move up one reasoning level while composing.",
+  },
+  "shortcuts.command.openModelSelector.label": {
+    "zh-CN": "打开模型选择器",
+    "en-US": "Open model selector",
+  },
+  "shortcuts.command.openModelSelector.description": {
+    "zh-CN": "打开当前编辑器的模型选择器。",
+    "en-US": "Open the model selector for the current composer.",
+  },
+  "shortcuts.command.openProjectSelector.label": {
+    "zh-CN": "打开项目选择器",
+    "en-US": "Open project selector",
+  },
+  "shortcuts.command.openProjectSelector.description": {
+    "zh-CN": "在新聊天页面打开项目选择器。",
+    "en-US": "Open the project selector on the new conversation page.",
+  },
+  "shortcuts.command.send.label": {
+    "zh-CN": "发送消息",
+    "en-US": "Send message",
+  },
+  "shortcuts.command.send.description": {
+    "zh-CN": "发送当前编辑器中的消息；Enter 始终可用。",
+    "en-US": "Send the current message; Enter always remains available.",
+  },
+  "shortcuts.command.openCommandMenu.label": {
+    "zh-CN": "打开命令菜单",
+    "en-US": "Open command menu",
+  },
+  "shortcuts.command.openCommandMenu.description": {
+    "zh-CN": "聚焦编辑器并打开可用命令。",
+    "en-US": "Focus the composer and show available commands.",
+  },
+  "shortcuts.command.settings.label": {
+    "zh-CN": "设置",
+    "en-US": "Settings",
+  },
+  "shortcuts.command.settings.description": {
+    "zh-CN": "打开常规设置。",
+    "en-US": "Open general settings.",
+  },
+  "shortcuts.command.shortcuts.label": {
+    "zh-CN": "显示键盘快捷键",
+    "en-US": "Show keyboard shortcuts",
+  },
+  "shortcuts.command.shortcuts.description": {
+    "zh-CN": "打开键盘快捷键设置。",
+    "en-US": "Open keyboard shortcut settings.",
+  },
+  "shortcuts.command.skills.label": {
+    "zh-CN": "前往技能",
+    "en-US": "Go to skills",
+  },
+  "shortcuts.command.skills.description": {
+    "zh-CN": "打开技能设置。",
+    "en-US": "Open skill settings.",
+  },
+  "shortcuts.command.mcp.label": { "zh-CN": "MCP", "en-US": "MCP" },
+  "shortcuts.command.mcp.description": {
+    "zh-CN": "打开 MCP 服务器设置。",
+    "en-US": "Open MCP server settings.",
   },
   "settings.page.archive.title": { "zh-CN": "归档", "en-US": "Archive" },
   "settings.page.archive.description": {

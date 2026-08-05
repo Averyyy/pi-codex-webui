@@ -31,8 +31,6 @@ import type { SessionSummary } from "@/lib/session-types"
 import type { WorkspaceSessionMutationFocusRequest } from "@/lib/workspace-nav-focus"
 import { useI18n } from "@/components/i18n-provider"
 
-export type ConversationShortcutModifier = "⌘" | "Ctrl"
-
 export function WorkspaceNavSession({
   session,
   href,
@@ -40,8 +38,7 @@ export function WorkspaceNavSession({
   running,
   unread,
   nested = false,
-  shortcutNumber,
-  shortcutModifier,
+  shortcut,
   onMutationFocus,
 }: {
   session: SessionSummary
@@ -50,8 +47,7 @@ export function WorkspaceNavSession({
   running: boolean
   unread: boolean
   nested?: boolean
-  shortcutNumber?: number
-  shortcutModifier?: ConversationShortcutModifier
+  shortcut?: { label: string; aria: string }
   onMutationFocus: (request: WorkspaceSessionMutationFocusRequest) => void
 }) {
   const pathname = usePathname()
@@ -67,16 +63,6 @@ export function WorkspaceNavSession({
     task: t("workspace.nav.newTask"),
     conversation: t("workspace.nav.unnamedConversation"),
   })
-  const shortcutLabel =
-    shortcutNumber === undefined || shortcutModifier === undefined
-      ? null
-      : shortcutModifier === "⌘"
-        ? `⌘${shortcutNumber}`
-        : `Ctrl+${shortcutNumber}`
-  const ariaShortcut =
-    shortcutNumber === undefined || shortcutModifier === undefined
-      ? undefined
-      : `${shortcutModifier === "⌘" ? "Meta" : "Control"}+${shortcutNumber}`
 
   async function mutate(
     action: "pin" | "archive",
@@ -166,6 +152,7 @@ export function WorkspaceNavSession({
             size="icon-xs"
             aria-disabled={working}
             aria-busy={workingAction === "archive"}
+            data-session-archive={session.id}
             aria-label={t("workspace.nav.archiveConversation")}
             onClick={() => {
               void (async () => {
@@ -202,10 +189,10 @@ export function WorkspaceNavSession({
       </Tooltip>
     </div>
   )
-  const shortcut =
-    shortcutLabel && !running && !unread ? (
+  const shortcutHint =
+    shortcut?.label && !running && !unread ? (
       <kbd className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 rounded-md bg-sidebar-accent px-1.5 py-1 font-sans text-[11px] leading-none text-muted-foreground shadow-xs group-focus-within/session:hidden group-hover/session:hidden [@media(hover:none)]:hidden">
-        {shortcutLabel}
+        {shortcut.label}
       </kbd>
     ) : null
   const indicator = running ? (
@@ -241,7 +228,7 @@ export function WorkspaceNavSession({
             prefetch={false}
             title={title}
             data-conversation-shortcut={href}
-            aria-keyshortcuts={ariaShortcut}
+            aria-keyshortcuts={shortcut?.aria || undefined}
             aria-describedby={
               running || unread ? statusDescriptionId : undefined
             }
@@ -250,7 +237,7 @@ export function WorkspaceNavSession({
             <span className="min-w-0 truncate">{title}</span>
           </Link>
         </SidebarMenuSubButton>
-        {shortcut}
+        {shortcutHint}
         {indicator}
         {actions}
       </SidebarMenuSubItem>
@@ -269,7 +256,7 @@ export function WorkspaceNavSession({
           href={href}
           prefetch={false}
           data-conversation-shortcut={href}
-          aria-keyshortcuts={ariaShortcut}
+          aria-keyshortcuts={shortcut?.aria || undefined}
           aria-describedby={running || unread ? statusDescriptionId : undefined}
           aria-current={pathname === href ? "page" : undefined}
         >
@@ -277,7 +264,7 @@ export function WorkspaceNavSession({
           <span className="min-w-0 flex-1 truncate">{title}</span>
         </Link>
       </SidebarMenuButton>
-      {shortcut}
+      {shortcutHint}
       {indicator}
       {actions}
     </SidebarMenuItem>

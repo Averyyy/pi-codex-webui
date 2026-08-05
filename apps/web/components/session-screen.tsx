@@ -106,6 +106,9 @@ export async function SessionScreen({
           <SessionWorkspace
             key={`${sessionId}:${subagentsInstalled ? "subagents" : "base"}`}
             sessionId={sessionId}
+            conversationId={snapshot.session.nativeSessionId}
+            conversationPath={snapshot.session.nativeSessionFile}
+            workingDirectory={snapshot.session.cwd}
             projectId={projectId}
             mutationToken={mutationToken}
             title={title}
@@ -157,6 +160,7 @@ export async function SessionScreen({
                       sessionId={sessionId}
                       projectId={projectId}
                       title={title}
+                      isPinned={snapshot.session.isPinned}
                       mutationToken={mutationToken}
                       runtimeProfileId={snapshot.session.runtimeProfileId}
                       initialRuntimeStatus={runtime.status}

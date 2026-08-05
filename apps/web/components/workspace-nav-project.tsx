@@ -70,10 +70,7 @@ import {
 import type { WorkspaceProject } from "@/lib/session-types"
 import type { WorkspaceSessionMutationFocusRequest } from "@/lib/workspace-nav-focus"
 import { responseJson } from "@/lib/api-response"
-import {
-  WorkspaceNavSession,
-  type ConversationShortcutModifier,
-} from "@/components/workspace-nav-session"
+import { WorkspaceNavSession } from "@/components/workspace-nav-session"
 import { useI18n } from "@/components/i18n-provider"
 
 const VISIBLE_PROJECT_SESSIONS = 5
@@ -97,7 +94,6 @@ export function WorkspaceNavProject({
   unreadSessionIds,
   activeSessionId,
   conversationShortcuts,
-  shortcutModifier,
   onSessionMutationFocus,
 }: {
   project: WorkspaceProject
@@ -105,8 +101,7 @@ export function WorkspaceNavProject({
   runningSessionIds: ReadonlySet<string>
   unreadSessionIds: ReadonlySet<string>
   activeSessionId: string | null
-  conversationShortcuts: ReadonlyMap<string, number>
-  shortcutModifier?: ConversationShortcutModifier
+  conversationShortcuts: ReadonlyMap<string, { label: string; aria: string }>
   onSessionMutationFocus: (
     request: WorkspaceSessionMutationFocusRequest
   ) => void
@@ -434,10 +429,9 @@ export function WorkspaceNavProject({
                     session.id !== activeSessionId &&
                     unreadSessionIds.has(session.id)
                   }
-                  shortcutNumber={conversationShortcuts.get(
+                  shortcut={conversationShortcuts.get(
                     `${projectPath}/sessions/${session.id}`
                   )}
-                  shortcutModifier={shortcutModifier}
                   onMutationFocus={onSessionMutationFocus}
                   nested
                 />

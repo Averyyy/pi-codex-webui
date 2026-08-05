@@ -75,6 +75,7 @@ import {
   useComposerImages,
 } from "@/components/composer-image-attachments"
 import {
+  adjacentThinkingLevel,
   ComposerModelSelect,
   ComposerThinkingSelect,
   ConversationComposer,
@@ -1478,6 +1479,36 @@ export function SessionRuntime({
                     nextThinkingLevel(
                       snapshot.thinkingLevel,
                       snapshot.availableThinkingLevels,
+                      t
+                    )
+                  )
+              : undefined
+          }
+          onDecreaseThinkingLevel={
+            snapshot &&
+            snapshot.availableThinkingLevels.length > 1 &&
+            !settingsDisabled
+              ? () =>
+                  void setThinkingLevel(
+                    adjacentThinkingLevel(
+                      snapshot.thinkingLevel,
+                      snapshot.availableThinkingLevels,
+                      -1,
+                      t
+                    )
+                  )
+              : undefined
+          }
+          onIncreaseThinkingLevel={
+            snapshot &&
+            snapshot.availableThinkingLevels.length > 1 &&
+            !settingsDisabled
+              ? () =>
+                  void setThinkingLevel(
+                    adjacentThinkingLevel(
+                      snapshot.thinkingLevel,
+                      snapshot.availableThinkingLevels,
+                      1,
                       t
                     )
                   )

@@ -44,7 +44,9 @@ import {
 import { WorkspaceNavProject } from "@/components/workspace-nav-project"
 import { WorkspaceNavSession } from "@/components/workspace-nav-session"
 import { useI18n } from "@/components/i18n-provider"
+import { useKeyboardShortcuts } from "@/components/keyboard-shortcuts-provider"
 import { useSessionIndicators } from "@/hooks/use-session-indicators"
+import type { ShortcutCommandId } from "@/lib/keyboard-shortcuts"
 import { pickWorkspaceProject } from "@/lib/project-picker-client"
 import type { SessionSummary, WorkspaceProject } from "@/lib/session-types"
 import {
@@ -57,10 +59,7 @@ import {
 const COLLAPSED_PROJECT_COUNT = 4
 const MAX_CONVERSATION_SHORTCUTS = 9
 
-type ShortcutModifier = "Meta" | "Control"
-
 interface ConversationShortcutState {
-  modifier: ShortcutModifier
   hrefs: string[]
 }
 
@@ -84,6 +83,7 @@ export function WorkspaceNav({
   const pathname = usePathname()
   const router = useRouter()
   const { t } = useI18n()
+  const { ariaBindings, formattedBindings } = useKeyboardShortcuts()
   const { isMobile, setOpenMobile, state } = useSidebar()
   const navigationHidden = !isMobile && state === "collapsed"
   const sidebarContentRef = useRef<HTMLDivElement>(null)
@@ -133,16 +133,20 @@ export function WorkspaceNav({
   const conversationShortcuts = useMemo(
     () =>
       new Map(
-        shortcutState?.hrefs.map((href, index) => [href, index + 1]) ?? []
+        shortcutState?.hrefs.map((href, index) => {
+          const commandId =
+            `navigation.conversation${index + 1}` as ShortcutCommandId
+          return [
+            href,
+            {
+              label: formattedBindings(commandId)[0] ?? "",
+              aria: ariaBindings(commandId),
+            },
+          ] as const
+        }) ?? []
       ),
-    [shortcutState]
+    [ariaBindings, formattedBindings, shortcutState]
   )
-  const shortcutModifier =
-    shortcutState?.modifier === "Meta"
-      ? "⌘"
-      : shortcutState?.modifier === "Control"
-        ? "Ctrl"
-        : undefined
 
   const visibleConversationHrefs = useCallback(
     () =>
@@ -251,44 +255,24 @@ export function WorkspaceNav({
   }, [isMobile, pathname, setOpenMobile])
 
   useEffect(() => {
-    function showShortcuts(modifier: ShortcutModifier) {
+    function showShortcuts() {
       setShortcutState({
-        modifier,
         hrefs: visibleConversationHrefs().slice(0, MAX_CONVERSATION_SHORTCUTS),
       })
     }
 
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Meta" || event.key === "Control") {
-        if (!event.repeat) showShortcuts(event.key)
-        return
+        if (!event.repeat) showShortcuts()
       }
-
-      if (
-        (!event.metaKey && !event.ctrlKey) ||
-        event.altKey ||
-        event.shiftKey ||
-        !/^[1-9]$/.test(event.key)
-      ) {
-        return
-      }
-
-      const href = visibleConversationHrefs().slice(
-        0,
-        MAX_CONVERSATION_SHORTCUTS
-      )[Number(event.key) - 1]
-      if (!href) return
-
-      event.preventDefault()
-      router.push(href)
     }
 
     function handleKeyUp(event: KeyboardEvent) {
       if (event.key === "Meta") {
-        if (event.ctrlKey) showShortcuts("Control")
+        if (event.ctrlKey) showShortcuts()
         else setShortcutState(null)
       } else if (event.key === "Control") {
-        if (event.metaKey) showShortcuts("Meta")
+        if (event.metaKey) showShortcuts()
         else setShortcutState(null)
       }
     }
@@ -305,7 +289,7 @@ export function WorkspaceNav({
       window.removeEventListener("keyup", handleKeyUp)
       window.removeEventListener("blur", hideShortcuts)
     }
-  }, [router, visibleConversationHrefs])
+  }, [visibleConversationHrefs])
 
   async function addProject() {
     if (addingProjectRef.current) return
@@ -411,10 +395,9 @@ export function WorkspaceNav({
                           session.id !== activeSessionId &&
                           unreadSessionIds.has(session.id)
                         }
-                        shortcutNumber={conversationShortcuts.get(
+                        shortcut={conversationShortcuts.get(
                           sessionHref(session)
                         )}
-                        shortcutModifier={shortcutModifier}
                         onMutationFocus={requestSessionMutationFocus}
                       />
                     ))}
@@ -428,6 +411,7 @@ export function WorkspaceNav({
                 {t("workspace.nav.projects")}
               </SidebarGroupLabel>
               <SidebarGroupAction
+                data-shortcut-open-folder
                 type="button"
                 aria-label={
                   addingProject
@@ -455,7 +439,6 @@ export function WorkspaceNav({
                       unreadSessionIds={unreadSessionIds}
                       activeSessionId={activeSessionId}
                       conversationShortcuts={conversationShortcuts}
-                      shortcutModifier={shortcutModifier}
                       onSessionMutationFocus={requestSessionMutationFocus}
                     />
                   ))}
@@ -515,10 +498,9 @@ export function WorkspaceNav({
                               task.id !== activeSessionId &&
                               unreadSessionIds.has(task.id)
                             }
-                            shortcutNumber={conversationShortcuts.get(
+                            shortcut={conversationShortcuts.get(
                               `/tasks/${task.id}`
                             )}
-                            shortcutModifier={shortcutModifier}
                             onMutationFocus={requestSessionMutationFocus}
                           />
                         ))}

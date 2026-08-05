@@ -9,6 +9,7 @@ import {
 import { SettingsBackButton } from "@/components/settings-back-button"
 import { SettingsHeaderTitle } from "@/components/settings-header-title"
 import { SettingsNav } from "@/components/settings-nav"
+import { SidebarShortcut } from "@/components/sidebar-shortcut"
 export default function SettingsLayout({
   children,
 }: {
@@ -22,6 +23,7 @@ export default function SettingsLayout({
         } as CSSProperties
       }
     >
+      <SidebarShortcut />
       <SettingsNav />
       <SidebarInset id="main-content" tabIndex={-1}>
         <header className="flex h-12 shrink-0 items-center gap-2 border-b px-3">

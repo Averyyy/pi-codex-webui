@@ -37,7 +37,6 @@ const SIDEBAR_WIDTH_ICON = "3rem"
 const SIDEBAR_MIN_WIDTH = 240
 const SIDEBAR_MAX_WIDTH = 360
 const SIDEBAR_DEFAULT_WIDTH = 296
-const SIDEBAR_KEYBOARD_SHORTCUT = "b"
 
 function clampSidebarWidth(value: number) {
   return Math.min(
@@ -142,26 +141,6 @@ function SidebarProvider({
     () => restoreFocusTarget(mobileTriggerRef),
     []
   )
-
-  // Adds a keyboard shortcut to toggle the sidebar.
-  React.useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (
-        event.key === SIDEBAR_KEYBOARD_SHORTCUT &&
-        (event.metaKey || event.ctrlKey)
-      ) {
-        event.preventDefault()
-        toggleSidebar(
-          document.activeElement instanceof HTMLElement
-            ? document.activeElement
-            : undefined
-        )
-      }
-    }
-
-    window.addEventListener("keydown", handleKeyDown)
-    return () => window.removeEventListener("keydown", handleKeyDown)
-  }, [toggleSidebar])
 
   // We add a state so that we can do data-state="expanded" or "collapsed".
   // This makes it easier to style the sidebar with Tailwind classes.

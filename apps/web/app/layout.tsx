@@ -8,8 +8,10 @@ import { TooltipProvider } from "@workspace/ui/components/tooltip"
 
 import { ThemeProvider } from "@/components/theme-provider"
 import { I18nProvider } from "@/components/i18n-provider"
+import { KeyboardShortcutsProvider } from "@/components/keyboard-shortcuts-provider"
 import { PwaRegistration } from "@/components/pwa-registration"
 import { getLocalizedConfig } from "@/lib/i18n-server"
+import { getMutationToken } from "@/lib/request-security"
 
 export const metadata = {
   title: "pi-web-codex",
@@ -38,15 +40,20 @@ export default async function RootLayout({
       <body>
         <I18nProvider initialLocale={config.appearance.language}>
           <ThemeProvider defaultTheme={config.appearance.theme}>
-            <a
-              href="#main-content"
-              className="sr-only z-50 rounded-md bg-background px-3 py-2 text-sm font-medium shadow-md focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:ring-2 focus:ring-ring"
+            <KeyboardShortcutsProvider
+              platform={process.platform}
+              mutationToken={getMutationToken()}
             >
-              {t("ui.skipToMain")}
-            </a>
-            <TooltipProvider>{children}</TooltipProvider>
-            <Toaster />
-            <PwaRegistration />
+              <a
+                href="#main-content"
+                className="sr-only z-50 rounded-md bg-background px-3 py-2 text-sm font-medium shadow-md focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:ring-2 focus:ring-ring"
+              >
+                {t("ui.skipToMain")}
+              </a>
+              <TooltipProvider>{children}</TooltipProvider>
+              <Toaster />
+              <PwaRegistration />
+            </KeyboardShortcutsProvider>
           </ThemeProvider>
         </I18nProvider>
       </body>
