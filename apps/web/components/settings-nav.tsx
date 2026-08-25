@@ -15,6 +15,7 @@ import {
   Settings2Icon,
   SlidersHorizontalIcon,
   SparklesIcon,
+  PuzzleIcon,
 } from "lucide-react"
 
 import {
@@ -65,6 +66,11 @@ const sections = [
     href: "/settings/extensions",
     key: "settings.nav.extensions",
     icon: BlocksIcon,
+  },
+  {
+    href: "/settings/pi-extensions",
+    key: "settings.nav.piExtensions",
+    icon: PuzzleIcon,
   },
   {
     href: "/settings/webui-extensions",

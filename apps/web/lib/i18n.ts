@@ -1844,6 +1844,10 @@ const messages = {
   "settings.nav.models": { "zh-CN": "模型", "en-US": "Models" },
   "settings.nav.packages": { "zh-CN": "软件包", "en-US": "Packages" },
   "settings.nav.extensions": { "zh-CN": "扩展", "en-US": "Extensions" },
+  "settings.nav.piExtensions": {
+    "zh-CN": "Pi 扩展",
+    "en-US": "Pi Extensions",
+  },
   "settings.nav.webuiExtensions": {
     "zh-CN": "WebUI 扩展",
     "en-US": "WebUI Extensions",
@@ -2789,6 +2793,92 @@ const messages = {
   "settings.packages.empty": {
     "zh-CN": "Pi 设置中还没有配置软件包。",
     "en-US": "No package is configured in Pi settings.",
+  },
+
+  "settings.piExtensions.installTitle": {
+    "zh-CN": "安装 Pi 扩展",
+    "en-US": "Install Pi extension",
+  },
+  "settings.piExtensions.installDescription": {
+    "zh-CN":
+      "支持从 npm、git 或本地路径安装已适配的 Pi runtime 扩展。",
+    "en-US":
+      "Install adapted Pi runtime extensions from npm, git, or local paths.",
+  },
+  "settings.piExtensions.source": {
+    "zh-CN": "扩展来源",
+    "en-US": "Extension source",
+  },
+  "settings.piExtensions.sourcePlaceholder": {
+    "zh-CN": "@tintinweb/pi-subagents 或 git:https://…",
+    "en-US": "@tintinweb/pi-subagents or git:https://…",
+  },
+  "settings.piExtensions.scope": {
+    "zh-CN": "安装范围",
+    "en-US": "Installation scope",
+  },
+  "settings.piExtensions.global": { "zh-CN": "全局", "en-US": "Global" },
+  "settings.piExtensions.currentProject": {
+    "zh-CN": "当前项目",
+    "en-US": "Current project",
+  },
+  "settings.piExtensions.install": { "zh-CN": "安装", "en-US": "Install" },
+  "settings.piExtensions.configured": {
+    "zh-CN": "已安装的扩展",
+    "en-US": "Installed extensions",
+  },
+  "settings.piExtensions.itemCountOne": {
+    "zh-CN": "{count} 个扩展",
+    "en-US": "{count} extension",
+  },
+  "settings.piExtensions.itemCountMany": {
+    "zh-CN": "{count} 个扩展",
+    "en-US": "{count} extensions",
+  },
+  "settings.piExtensions.kind": { "zh-CN": "扩展", "en-US": "extensions" },
+  "settings.piExtensions.active": { "zh-CN": "运行中", "en-US": "Active" },
+  "settings.piExtensions.inactive": { "zh-CN": "未激活", "en-US": "Inactive" },
+  "settings.piExtensions.error": { "zh-CN": "错误", "en-US": "Error" },
+  "settings.piExtensions.updateAvailable": {
+    "zh-CN": "可更新",
+    "en-US": "Update available",
+  },
+  "settings.piExtensions.update": {
+    "zh-CN": "更新 {name}",
+    "en-US": "Update {name}",
+  },
+  "settings.piExtensions.remove": {
+    "zh-CN": "卸载 {name}",
+    "en-US": "Uninstall {name}",
+  },
+  "settings.piExtensions.cancel": { "zh-CN": "取消", "en-US": "Cancel" },
+  "settings.piExtensions.confirmRemoveTitle": {
+    "zh-CN": "卸载扩展？",
+    "en-US": "Uninstall extension?",
+  },
+  "settings.piExtensions.confirmRemoveDescription": {
+    "zh-CN": "确定要从 Pi runtime 中卸载 {name} 吗？",
+    "en-US": "Uninstall {name} from Pi runtime?",
+  },
+  "settings.piExtensions.confirmRemove": {
+    "zh-CN": "卸载",
+    "en-US": "Uninstall",
+  },
+  "settings.piExtensions.empty": {
+    "zh-CN": "还没有安装任何 Pi 扩展。",
+    "en-US": "No Pi extensions installed yet.",
+  },
+  "settings.page.piExtensions.title": {
+    "zh-CN": "Pi 扩展",
+    "en-US": "Pi Extensions",
+  },
+  "settings.page.piExtensions.description": {
+    "zh-CN": "管理 Pi runtime 中的扩展，如 subagent、coding-agent 等。",
+    "en-US": "Manage Pi runtime extensions like subagent, coding-agent, etc.",
+  },
+  "settings.page.noProject.piExtensions": {
+    "zh-CN": "添加工作区项目后才能管理 Pi 扩展。",
+    "en-US": "Add a workspace project before managing Pi extensions.",
   },
 
   "settings.resources.context": {

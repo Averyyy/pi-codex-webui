@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "playwright": {
+      "command": "node",
+      "args": [
+        "/Users/qhk/.npm-global/lib/node_modules/@playwright/mcp/dist/index.js"
+      ],
+      "env": {}
+    }
+  }
+}
