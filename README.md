@@ -1,6 +1,23 @@
 # pi-web-codex
 
-A local, single-port Web Host for Pi coding-agent workflows.
+## Installation
+
+```bash
+npm install --global pi-web-codex
+```
+
+Requires Node.js 22.19+ or Node.js 24+. Node.js 23 is not supported.
+
+## Usage
+
+```bash
+pi-web-codex
+```
+
+Opens <http://127.0.0.1:1816> after the server starts. Use `pi-web-codex --help` for options.
+
+## About
+
 
 The current milestone provides the production host lifecycle, health and settings
 APIs, atomic local configuration, functional General and Appearance pages, a
@@ -41,20 +58,6 @@ and extension notifications while the page is hidden. Runtime diagnostics show
 the managed worker, MCP/tool activity, and recent domain events, with explicit
 crash recovery that preserves readable JSONL history. No UI is shown without a
 backing operation.
-
-## Run the packaged app
-
-Requires Node.js 22.19 or Node.js 24 and newer. Node.js 23 is unsupported
-because its bundled SQLite does not include FTS5.
-
-```bash
-npm install --global pi-web-codex
-pi-web-codex
-```
-
-The CLI binds only to `127.0.0.1`, waits for `/api/v1/health`, and opens
-<http://127.0.0.1:1816> after the server is ready. Use `pi-web-codex --help` for
-host, port, browser, and config-directory options.
 
 ## Development
 
