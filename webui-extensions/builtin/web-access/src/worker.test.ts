@@ -23,7 +23,7 @@ function fixture(viewResult: unknown) {
           origin: "package",
         },
         packageName: "pi-web-access",
-        packageVersion: "0.15.0",
+        packageVersion: "0.25.0",
       },
       commands: new Set(["websearch", "curator"]),
       tools: new Set(["web_search", "fetch_content", "get_search_content"]),
@@ -91,4 +91,10 @@ test("curator workflow selection is delegated to pi-web-access", async () => {
     args: "auto-summary",
   })
   assert.equal(opened()?.viewId, "web-access.workflow")
+
+  const disabled = fixture({ workflow: "none" })
+  assert.deepEqual(
+    await adapter.handle(disabled.request("curator"), disabled.context),
+    { handled: false, args: "none" }
+  )
 })

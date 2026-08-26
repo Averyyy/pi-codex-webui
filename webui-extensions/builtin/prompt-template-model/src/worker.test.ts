@@ -23,7 +23,7 @@ const owner: ExtensionOwner = {
     origin: "package",
   },
   packageName: "pi-prompt-template-model",
-  packageVersion: "0.10.0",
+  packageVersion: "0.12.1",
 }
 
 const messageTypes = [

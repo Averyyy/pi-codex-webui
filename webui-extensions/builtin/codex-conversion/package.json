@@ -34,8 +34,8 @@
         "target": {
           "packageName": "@howaboua/pi-codex-conversion",
           "extensionPath": "**/dist/index.js",
-          "version": ">=2.1.7 <3.0.0",
-          "testedVersions": ["2.1.7"],
+          "version": ">=3.0.23 <3.1.0",
+          "testedVersions": ["3.0.23"],
           "compatibility": {
             "mode": "probe",
             "onUntestedVersion": "allow-if-probe-passes"

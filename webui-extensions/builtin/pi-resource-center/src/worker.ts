@@ -1,22 +1,31 @@
 import { defineWorkerExtension } from "@pi-web-codex/extension-sdk"
-import { extractResourceCenterState } from "./contract.js"
+
+import {
+  RESOURCE_CATEGORIES,
+  parseResourceCenterResult,
+} from "./contract.js"
 
 export default defineWorkerExtension((web) => {
-  web.registerRendererAdapter({
-    id: "resource-center.render",
+  web.registerCommandAdapter({
+    id: "resource-center.open",
     probe: (target) =>
-      target.commands.has("resource_center")
+      target.commands.has("resource")
         ? { compatible: true }
-        : { compatible: false, reason: "Missing resource_center command." },
-    render(request) {
-      if (request.payload?.customType !== "resource_center") return undefined
-      const state = extractResourceCenterState(request.payload.details)
-      if (!state) return undefined
-      return {
-        viewId: "resource-center.view",
-        placement: "message.replace",
-        state,
-      }
+        : { compatible: false, reason: "Missing resource command." },
+    async handle(request, context) {
+      if (request.args.trim()) return { handled: false }
+      const result = parseResourceCenterResult(
+        await context.openView({
+          viewId: "resource-center.browser",
+          placement: "session.dialog",
+          blocking: true,
+          title: "Resource Center",
+          state: { categories: RESOURCE_CATEGORIES },
+        })
+      )
+      return "commandArgs" in result
+        ? { handled: false, args: result.commandArgs }
+        : { handled: true }
     },
   })
 })

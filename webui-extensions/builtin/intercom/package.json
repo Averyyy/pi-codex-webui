@@ -34,9 +34,9 @@
         "target": {
           "packageName": "pi-intercom",
           "extensionPath": "**/index.ts",
-          "version": ">=0.9.0 <0.10.0",
+          "version": ">=0.12.0 <0.13.0",
           "testedVersions": [
-            "0.9.0"
+            "0.12.0"
           ],
           "compatibility": {
             "mode": "probe",

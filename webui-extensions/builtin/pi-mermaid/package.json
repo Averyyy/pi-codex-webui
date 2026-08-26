@@ -5,7 +5,8 @@
   "private": true,
   "scripts": {
     "build": "tsup",
-    "dev": "tsup --watch"
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@pi-web-codex/extension-sdk": "workspace:*",
@@ -29,7 +30,7 @@
         "target": {
           "packageName": "pi-mermaid",
           "extensionPath": "**/index.ts",
-          "version": ">=0.3.0 <1.0.0",
+          "version": ">=0.3.0 <0.4.0",
           "testedVersions": ["0.3.0"],
           "compatibility": {
             "mode": "probe",

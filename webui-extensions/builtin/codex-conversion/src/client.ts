@@ -8,12 +8,7 @@ export default defineClientExtension((web) => {
     mount({ container, state, close }) {
       const settings = parseCodexQuickSettingsState(state)
       const root = document.createElement("section")
-      root.style.cssText = "display:grid;gap:16px;font:14px system-ui"
-      const intro = document.createElement("p")
-      intro.textContent =
-        "Choose a shortcut. The installed Pi Extension still applies and saves the setting."
-      intro.style.cssText =
-        "margin:0;color:color-mix(in srgb,currentColor 70%,transparent)"
+      root.style.cssText = "display:grid;gap:12px;font:14px system-ui"
       const actions = document.createElement("div")
       actions.style.cssText =
         "display:grid;gap:8px;grid-template-columns:repeat(auto-fit,minmax(180px,1fr))"
@@ -39,7 +34,7 @@ export default defineClientExtension((web) => {
       cancel.style.cssText =
         "justify-self:end;border:0;background:transparent;color:inherit;padding:8px;cursor:pointer"
       cancel.addEventListener("click", () => close({ cancelled: true }))
-      root.append(intro, actions, cancel)
+      root.append(actions, cancel)
       container.append(root)
       return { dispose: () => root.remove() }
     },

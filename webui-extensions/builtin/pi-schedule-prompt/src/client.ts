@@ -45,16 +45,19 @@ export default defineClientExtension((web) => {
       const render = () => {
         root.replaceChildren()
 
+        const started =
+          state.mode === "prompt" || state.mode === "subagent_start"
+
         const header = document.createElement("div")
         header.className = "header"
 
         const icon = document.createElement("span")
-        icon.className = `icon ${state.mode === "subagent_start" ? "start" : state.mode === "subagent_done" ? "done" : "error"}`
-        icon.textContent = state.mode === "subagent_start" ? "🕐" : state.mode === "subagent_done" ? "✓" : "✗"
+        icon.className = `icon ${started ? "start" : state.mode === "subagent_done" ? "done" : "error"}`
+        icon.textContent = started ? "Scheduled" : state.mode === "subagent_done" ? "Done" : "Error"
 
         const title = document.createElement("span")
-        title.className = `title ${state.mode === "subagent_start" ? "start" : state.mode === "subagent_done" ? "done" : "error"}`
-        const modeLabel = state.mode === "subagent_start" ? "Scheduled" : state.mode === "subagent_done" ? "Scheduled finished" : "Scheduled failed"
+        title.className = `title ${started ? "start" : state.mode === "subagent_done" ? "done" : "error"}`
+        const modeLabel = started ? "Scheduled" : state.mode === "subagent_done" ? "Scheduled finished" : "Scheduled failed"
         const tag = state.model ? ` (subagent: ${state.model})` : ""
         title.textContent = `${modeLabel}${tag}: ${state.jobName}`
 

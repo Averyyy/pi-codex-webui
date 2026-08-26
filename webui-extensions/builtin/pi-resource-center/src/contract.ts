@@ -1,46 +1,82 @@
-export interface ResourceItem {
-  id: string
-  type: "search" | "fetch" | "source_check" | "other"
-  title: string
-  url?: string
-  timestamp: number
-  status?: "pending" | "complete" | "error"
+export const RESOURCE_CATEGORIES = [
+  {
+    value: "packages",
+    label: "Packages",
+    description: "Installed Pi packages and their resources.",
+  },
+  {
+    value: "skills",
+    label: "Skills",
+    description: "Global and project skills.",
+  },
+  {
+    value: "extensions",
+    label: "Extensions",
+    description: "Loaded Pi extensions.",
+  },
+  {
+    value: "prompts",
+    label: "Prompts",
+    description: "Available prompt templates.",
+  },
+  {
+    value: "themes",
+    label: "Themes",
+    description: "Installed terminal themes.",
+  },
+] as const
+
+export type ResourceCategory = (typeof RESOURCE_CATEGORIES)[number]["value"]
+
+export interface ResourceCenterState {
+  categories: typeof RESOURCE_CATEGORIES
 }
 
-export interface ResourceCenterViewState {
-  resources: ResourceItem[]
-  totalCount: number
-}
+export type ResourceCenterResult =
+  | { commandArgs: ResourceCategory }
+  | { cancelled: true }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
-function isResourceItem(value: unknown): value is ResourceItem {
-  if (!isRecord(value)) return false
-  if (typeof value.id !== "string") return false
-  if (value.type !== "search" && value.type !== "fetch" && value.type !== "source_check" && value.type !== "other") return false
-  if (typeof value.title !== "string") return false
-  if (value.url !== undefined && typeof value.url !== "string") return false
-  if (typeof value.timestamp !== "number") return false
-  if (value.status !== undefined && value.status !== "pending" && value.status !== "complete" && value.status !== "error") return false
-  return true
+export function parseResourceCenterState(
+  value: unknown
+): ResourceCenterState {
+  if (
+    !isRecord(value) ||
+    !Array.isArray(value.categories) ||
+    value.categories.length !== RESOURCE_CATEGORIES.length ||
+    value.categories.some((category, index) => {
+      const expected = RESOURCE_CATEGORIES[index]
+      return (
+        !expected ||
+        !isRecord(category) ||
+        category.value !== expected.value ||
+        category.label !== expected.label ||
+        category.description !== expected.description
+      )
+    })
+  ) {
+    throw new TypeError("Invalid resource-center state.")
+  }
+  return value as unknown as ResourceCenterState
 }
 
-export function isResourceCenterViewState(value: unknown): value is ResourceCenterViewState {
-  if (!isRecord(value)) return false
-  if (!Array.isArray(value.resources)) return false
-  if (!value.resources.every(isResourceItem)) return false
-  if (typeof value.totalCount !== "number") return false
-  return true
-}
-
-export function extractResourceCenterState(details: unknown): ResourceCenterViewState | undefined {
-  if (!isRecord(details)) return undefined
-  if (!Array.isArray(details.resources)) return undefined
-  
-  const resources = details.resources.filter(isResourceItem)
-  const totalCount = typeof details.totalCount === "number" ? details.totalCount : resources.length
-  
-  return { resources, totalCount }
+export function parseResourceCenterResult(
+  value: unknown
+): ResourceCenterResult {
+  if (!isRecord(value)) {
+    throw new TypeError("Invalid resource-center result.")
+  }
+  if (value.cancelled === true) return { cancelled: true }
+  if (
+    typeof value.commandArgs === "string" &&
+    RESOURCE_CATEGORIES.some(
+      (category) => category.value === value.commandArgs
+    )
+  ) {
+    return { commandArgs: value.commandArgs as ResourceCategory }
+  }
+  throw new TypeError("Invalid resource-center result.")
 }

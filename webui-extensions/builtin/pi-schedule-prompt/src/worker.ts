@@ -5,16 +5,15 @@ export default defineWorkerExtension((web) => {
   web.registerRendererAdapter({
     id: "scheduled-prompt.render",
     probe: (target) =>
-      target.commands.has("schedule_prompt")
+      target.messageRenderers.has("scheduled_prompt")
         ? { compatible: true }
-        : { compatible: false, reason: "Missing schedule_prompt command." },
+        : { compatible: false, reason: "Missing scheduled_prompt renderer." },
     render(request) {
-      if (request.payload?.customType !== "scheduled_prompt") return undefined
-      const state = extractScheduledPromptState(request.payload.details)
+      const state = extractScheduledPromptState(request.payload)
       if (!state) return undefined
       return {
         viewId: "scheduled-prompt.view",
-        placement: "message.replace",
+        placement: "conversation.after",
         state,
       }
     },

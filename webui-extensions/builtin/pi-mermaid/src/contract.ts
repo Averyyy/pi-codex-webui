@@ -27,8 +27,12 @@ export function isMermaidViewState(value: unknown): value is MermaidViewState {
 }
 
 export function extractMermaidState(
-  details: unknown
+  payload: unknown
 ): MermaidViewState | undefined {
+  const container = isRecord(payload) ? payload : undefined
+  const message = isRecord(container?.message) ? container.message : undefined
+  if (message?.customType !== "pi-mermaid") return undefined
+  const details = isRecord(message.details) ? message.details : undefined
   if (!isRecord(details) || typeof details.source !== "string") return undefined
   const state: MermaidViewState = { source: details.source }
   if (Array.isArray(details.issues)) {

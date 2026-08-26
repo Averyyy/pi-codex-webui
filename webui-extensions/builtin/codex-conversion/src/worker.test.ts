@@ -26,7 +26,7 @@ test("Codex quick settings hand the selected option to the original command", as
           origin: "package",
         },
         packageName: "@howaboua/pi-codex-conversion",
-        packageVersion: "2.1.7",
+        packageVersion: "3.0.23",
       },
       commands: new Set(["codex"]),
       tools: new Set<string>(),
@@ -41,7 +41,7 @@ test("Codex quick settings hand the selected option to the original command", as
     signal: new AbortController().signal,
     openView: async (view) => {
       opened = view
-      return { command: "fast" }
+      return { command: "openai" }
     },
     updateView: () => {},
     closeView: () => {},
@@ -60,7 +60,7 @@ test("Codex quick settings hand the selected option to the original command", as
 
   assert.deepEqual(await adapter.handle(request, context), {
     handled: false,
-    args: "fast",
+    args: "openai",
   })
   assert.equal(opened?.viewId, "codex.quick-settings")
   assert.deepEqual(

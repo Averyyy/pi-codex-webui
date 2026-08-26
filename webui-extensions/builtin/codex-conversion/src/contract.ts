@@ -1,33 +1,33 @@
 export const CODEX_QUICK_ACTIONS = [
   {
-    command: "fast",
-    label: "Toggle fast mode",
-    description: "Use the Extension's original fast-mode command.",
+    command: "tools",
+    label: "Tools",
+    description: "Codex-compatible tools and execution modes.",
   },
   {
-    command: "all",
-    label: "Cycle provider scope",
-    description: "Cycle off, all providers, and extra providers only.",
+    command: "openai",
+    label: "OpenAI",
+    description: "OpenAI provider and response settings.",
   },
   {
-    command: "status",
-    label: "Toggle status line",
-    description: "Show or hide Codex state in Pi's status line.",
+    command: "display",
+    label: "Display",
+    description: "Status and tool rendering preferences.",
   },
   {
-    command: "low",
-    label: "Low verbosity",
-    description: "Set OpenAI response verbosity to low.",
+    command: "voice",
+    label: "Voice",
+    description: "Realtime voice and dictation settings.",
   },
   {
-    command: "medium",
-    label: "Medium verbosity",
-    description: "Set OpenAI response verbosity to medium.",
+    command: "usage",
+    label: "Usage",
+    description: "Current Codex usage details.",
   },
   {
-    command: "high",
-    label: "High verbosity",
-    description: "Set OpenAI response verbosity to high.",
+    command: "about",
+    label: "About",
+    description: "Extension version and diagnostics.",
   },
 ] as const
 

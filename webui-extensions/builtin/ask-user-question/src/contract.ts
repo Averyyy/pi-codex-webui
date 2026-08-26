@@ -65,6 +65,7 @@ export type QuestionnaireError =
 export interface QuestionnaireResult {
   answers: QuestionAnswer[]
   cancelled: boolean
+  globalNote?: string
   error?: QuestionnaireError
 }
 
@@ -95,6 +96,7 @@ export type AskUserDialogResponse =
 export interface AskUserDialogResult {
   cancelled: boolean
   responses?: AskUserDialogResponse[]
+  globalNote?: string
 }
 
 export interface AskUserPromptEventPayload {
@@ -414,7 +416,12 @@ export function parseAskUserDialogResult(
     seen.add(answer.questionIndex)
   }
   answers.sort((a, b) => a.questionIndex - b.questionIndex)
-  return { answers, cancelled: result.cancelled }
+  const globalNote = notes(result.globalNote, "dialog globalNote")
+  return {
+    answers,
+    cancelled: result.cancelled,
+    ...(globalNote ? { globalNote } : {}),
+  }
 }
 
 export function askUserPromptPayload(
@@ -475,6 +482,7 @@ export function buildQuestionnaireResponse(
     return buildToolResult(DECLINE_MESSAGE, {
       answers: result?.answers ?? [],
       cancelled: true,
+      ...(result?.globalNote ? { globalNote: result.globalNote } : {}),
     })
   }
   const segments: string[] = []
@@ -483,6 +491,9 @@ export function buildQuestionnaireResponse(
       (candidate) => candidate.questionIndex === index
     )
     if (answer) segments.push(buildAnswerSegment(answer))
+  }
+  if (result.globalNote) {
+    segments.push(`global note: ${result.globalNote}.`)
   }
   if (segments.length === 0) {
     return buildToolResult(DECLINE_MESSAGE, {

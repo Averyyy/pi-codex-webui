@@ -34,9 +34,9 @@
         "target": {
           "packageName": "@juicesharp/rpiv-todo",
           "extensionPath": "**/index.ts",
-          "version": ">=2.2.0 <2.3.0",
+          "version": ">=2.7.1 <2.8.0",
           "testedVersions": [
-            "2.2.0"
+            "2.7.1"
           ],
           "compatibility": {
             "mode": "probe",

@@ -11,11 +11,11 @@ import { loadWorkerExtensionForTest } from "@pi-web-codex/extension-sdk/testing"
 import initialize from "./worker.js"
 
 const owner: ExtensionOwner = {
-  extensionPath: "/pi-goal/src/index.ts",
-  resolvedPath: "/pi-goal/src/index.ts",
+  extensionPath: "/pi-goal/dist/index.ts",
+  resolvedPath: "/pi-goal/dist/index.ts",
   sourceInfo: { source: "pi-goal", scope: "user", origin: "package" },
   packageName: "@narumitw/pi-goal",
-  packageVersion: "0.39.0",
+  packageVersion: "0.54.1",
 }
 
 const goal = {

@@ -208,8 +208,7 @@ function and mounts an isolated React root.
 `loadWorkerExtensionForTest` and `loadClientExtensionForTest` for registration
 tests. A complete copyable package lives in
 [`examples/minimal-adapter`](examples/minimal-adapter), while
-[`builtin/conversation`](builtin/conversation) and
-[`builtin/codex-conversion`](builtin/codex-conversion) exercise the exact same
+[`builtin/codex-conversion`](builtin/codex-conversion) exercises the exact same
 manifest, worker, client, discovery, and fallback path.
 
 See [`docs/webui-extensions/architecture.md`](../docs/webui-extensions/architecture.md)

@@ -42,7 +42,7 @@ function params() {
   })
 }
 
-test("validates the complete 2.2.0 parameter limits", () => {
+test("validates the complete 2.7.1 parameter limits", () => {
   assert.doesNotThrow(() =>
     parseQuestionParams({
       questions: [
@@ -227,6 +227,7 @@ test("canonicalizes dialog selections against the authored questions", () => {
     parseAskUserDialogResult(
       {
         cancelled: false,
+        globalNote: "  Prefer the smallest change  ",
         responses: [
           {
             questionIndex: 1,
@@ -262,6 +263,7 @@ test("canonicalizes dialog selections against the authored questions", () => {
         },
       ],
       cancelled: false,
+      globalNote: "Prefer the smallest change",
     }
   )
 })
@@ -303,6 +305,7 @@ test("builds the exact upstream response envelope and canonical decline", () => 
   const result = parseAskUserDialogResult(
     {
       cancelled: false,
+      globalNote: "Keep the rollout reversible",
       responses: [
         {
           questionIndex: 0,
@@ -328,6 +331,7 @@ test("builds the exact upstream response envelope and canonical decline", () => 
           '"Which implementation?"="Native". ' +
           "selected preview: const mode = 'native'. user notes: ship it. " +
           '"Which checks?"="Tests, Types". ' +
+          "global note: Keep the rollout reversible. " +
           "You can now continue with the user's answers in mind.",
       },
     ],
