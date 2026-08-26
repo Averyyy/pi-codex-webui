@@ -6,6 +6,8 @@ settings:
   injectWorkspacePackages: true
 
 patchedDependencies:
+  '@averyyy/pi-tui@0.80.6-piclient.7': a218476db812f0677c296541f380fc76f053a7e38dce89607c9ce6558a434322
+  '@earendil-works/pi-tui@0.80.6': a218476db812f0677c296541f380fc76f053a7e38dce89607c9ce6558a434322
   next-themes@0.4.6: d5d3f6fccf19abc9f9510e0cb05b04476717842b72830eba0b1ee95507014317
 
 importers:
@@ -317,7 +319,7 @@ importers:
         version: 0.80.6(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)
       '@earendil-works/pi-tui':
         specifier: 0.80.6
-        version: 0.80.6
+        version: 0.80.6(patch_hash=a218476db812f0677c296541f380fc76f053a7e38dce89607c9ce6558a434322)
       '@types/node':
         specifier: ^26.1.1
         version: 26.1.1
@@ -359,7 +361,7 @@ importers:
         version: 0.80.6(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)
       '@earendil-works/pi-tui':
         specifier: 0.80.6
-        version: 0.80.6
+        version: 0.80.6(patch_hash=a218476db812f0677c296541f380fc76f053a7e38dce89607c9ce6558a434322)
       proper-lockfile:
         specifier: ^4.1.2
         version: 4.1.2
@@ -402,7 +404,7 @@ importers:
         version: '@averyyy/pi-coding-agent@0.80.6-piclient.7(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)'
       '@earendil-works/pi-tui':
         specifier: npm:@averyyy/pi-tui@0.80.6-piclient.7
-        version: '@averyyy/pi-tui@0.80.6-piclient.7'
+        version: '@averyyy/pi-tui@0.80.6-piclient.7(patch_hash=a218476db812f0677c296541f380fc76f053a7e38dce89607c9ce6558a434322)'
       proper-lockfile:
         specifier: ^4.1.2
         version: 4.1.2
@@ -6249,7 +6251,7 @@ snapshots:
     dependencies:
       '@earendil-works/pi-agent-core': '@averyyy/pi-agent-core@0.80.6-piclient.7(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)'
       '@earendil-works/pi-ai': '@averyyy/pi-ai@0.80.6-piclient.7(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)'
-      '@earendil-works/pi-tui': '@averyyy/pi-tui@0.80.6-piclient.7'
+      '@earendil-works/pi-tui': '@averyyy/pi-tui@0.80.6-piclient.7(patch_hash=a218476db812f0677c296541f380fc76f053a7e38dce89607c9ce6558a434322)'
       '@silvia-odwyer/photon-node': 0.3.4
       chalk: 5.6.2
       cross-spawn: 7.0.6
@@ -6275,7 +6277,7 @@ snapshots:
       - ws
       - zod
 
-  '@averyyy/pi-tui@0.80.6-piclient.7':
+  '@averyyy/pi-tui@0.80.6-piclient.7(patch_hash=a218476db812f0677c296541f380fc76f053a7e38dce89607c9ce6558a434322)':
     dependencies:
       get-east-asian-width: 1.6.0
       marked: 18.0.5
@@ -6746,7 +6748,7 @@ snapshots:
     dependencies:
       '@earendil-works/pi-agent-core': 0.80.6(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)
       '@earendil-works/pi-ai': 0.80.6(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)
-      '@earendil-works/pi-tui': 0.80.6
+      '@earendil-works/pi-tui': 0.80.6(patch_hash=a218476db812f0677c296541f380fc76f053a7e38dce89607c9ce6558a434322)
       '@silvia-odwyer/photon-node': 0.3.4
       chalk: 5.6.2
       cross-spawn: 7.0.6
@@ -6772,7 +6774,7 @@ snapshots:
       - ws
       - zod
 
-  '@earendil-works/pi-tui@0.80.6':
+  '@earendil-works/pi-tui@0.80.6(patch_hash=a218476db812f0677c296541f380fc76f053a7e38dce89607c9ce6558a434322)':
     dependencies:
       get-east-asian-width: 1.6.0
       marked: 18.0.5

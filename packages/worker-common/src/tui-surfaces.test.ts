@@ -6,9 +6,14 @@ import type {
   KeybindingsManager,
 } from "@earendil-works/pi-coding-agent"
 import * as tui from "@earendil-works/pi-tui"
+import { stripTerminalSequences } from "@earendil-works/pi-tui"
 import type { TuiSurfaceEvent } from "@workspace/runtime-protocol"
 
 import { TuiSurfaceManager } from "./tui-surfaces.js"
+
+test("the bundled TUI exposes the terminal sanitizer used by pi-goal", () => {
+  assert.equal(stripTerminalSequences("\x1b[31mred\x1b[0m"), "red")
+})
 
 test("a real Pi TUI surface renders, accepts input, and closes", async () => {
   const events: TuiSurfaceEvent[] = []
