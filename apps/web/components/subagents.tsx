@@ -10,6 +10,7 @@ import {
   useState,
   type ReactNode,
 } from "react"
+import Link from "next/link"
 import {
   BotIcon,
   CircleCheckIcon,
@@ -49,6 +50,7 @@ const EMPTY_SNAPSHOT: SubagentsSnapshot = {
   revision: 0,
   available: false,
   agents: [],
+  sessions: [],
 }
 
 const ACTIVE_STATUSES = new Set<SubagentStatus>(["queued", "running"])
@@ -151,12 +153,16 @@ export function SubagentsProvider({
       ? snapshotState.snapshot
       : EMPTY_SNAPSHOT
   const acceptSnapshot = useCallback(
-    (next: SubagentsSnapshot) => {
+    (next: SubagentsSnapshot, preserveSessions = false) => {
       setSnapshotState((current) => {
         const currentRevision =
           current.sessionId === sessionId ? current.snapshot.revision : 0
+        const sessions =
+          preserveSessions && next.sessions.length === 0
+            ? current.snapshot.sessions
+            : next.sessions
         return next.revision >= currentRevision
-          ? { sessionId, snapshot: next }
+          ? { sessionId, snapshot: { ...next, sessions } }
           : current
       })
     },
@@ -184,11 +190,13 @@ export function SubagentsProvider({
       const event = JSON.parse((source as MessageEvent<string>).data) as {
         payload: unknown
       }
-      acceptSnapshot(subagentsSnapshotSchema.parse(event.payload))
+      acceptSnapshot(subagentsSnapshotSchema.parse(event.payload), true)
+      refresh()
     }
     const clear = () => {
       generation += 1
       setSnapshotState({ sessionId, snapshot: EMPTY_SNAPSHOT })
+      refresh()
     }
 
     const unsubscribeUpdates = sessionEvents.subscribe(
@@ -387,7 +395,7 @@ export function SubagentsPanel() {
       })
   }
 
-  if (!snapshot.available) {
+  if (!snapshot.available && !snapshot.sessions.length) {
     return (
       <Empty>
         <EmptyHeader>
@@ -404,6 +412,13 @@ export function SubagentsPanel() {
   }
 
   if (!snapshot.agents.length) {
+    if (snapshot.sessions.length) {
+      return (
+        <div className="size-full overflow-auto">
+          <SubagentSessions sessions={snapshot.sessions} />
+        </div>
+      )
+    }
     return (
       <Empty>
         <EmptyHeader>
@@ -459,6 +474,44 @@ export function SubagentsPanel() {
         </ul>
       </ScrollArea>
     </div>
+  )
+}
+
+function SubagentSessions({
+  sessions,
+}: {
+  sessions: SubagentsSnapshot["sessions"]
+}) {
+  const { t } = useI18n()
+  return (
+    <section className="border-t p-3">
+      <h3 className="mb-2 text-xs font-medium text-muted-foreground">
+        {t("session.subagents.title")}
+      </h3>
+      <ul className="grid gap-1.5">
+        {sessions.map((session) => (
+          <li key={session.id} className="rounded-md border px-3 py-2">
+            <Link
+              href={
+                session.projectId === null
+                  ? `/tasks/${session.id}`
+                  : `/projects/${session.projectId}/sessions/${session.id}`
+              }
+              className="block min-w-0 hover:underline"
+            >
+              <span className="block truncate text-sm font-medium">
+                {session.title || session.firstMessage || session.id}
+              </span>
+              <span className="mt-0.5 block text-xs text-muted-foreground">
+                {t("project.sessions.messageCount", {
+                  count: session.messageCount.toLocaleString(),
+                })}
+              </span>
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </section>
   )
 }
 

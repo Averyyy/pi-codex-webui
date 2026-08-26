@@ -172,10 +172,14 @@ async function canonicalizeCwd(cwd: string) {
 }
 
 async function sessionFileCwd(file: string) {
+  return canonicalizeCwd((await sessionFileHeader(file)).cwd)
+}
+
+async function sessionFileHeader(file: string) {
   const handle = await open(file, "r")
   try {
     for await (const line of handle.readLines()) {
-      return canonicalizeCwd(parsePiSessionHeader(file, line).cwd)
+      return parsePiSessionHeader(file, line)
     }
   } finally {
     await handle.close()
@@ -401,12 +405,16 @@ async function performSync() {
     ).map(({ canonical_path }) => canonical_path)
   )
   for (const file of files) {
-    if (
-      !indexedSession(database, file) &&
-      !registeredPaths.has(await sessionFileCwd(file))
-    ) {
+    if (indexedSession(database, file)) {
+      await indexSessionFile(database, file)
       continue
     }
+    const header = await sessionFileHeader(file)
+    if (
+      !registeredPaths.has(await canonicalizeCwd(header.cwd)) &&
+      !header.parentSession
+    )
+      continue
     await indexSessionFile(database, file)
   }
   removeMissingSessions(database, new Set(files))

@@ -60,6 +60,7 @@ import {
   isSessionArchived,
   markSessionCompleted as markStoredSessionCompleted,
   markSessionStandalone,
+  listSubagentSessions,
   restoreArchivedSession as restoreStoredArchivedSession,
 } from "@/lib/catalog"
 import { getEventHub, type EventHub } from "@/lib/event-hub"
@@ -858,15 +859,25 @@ export class RuntimeSupervisor {
   async subagents(sessionId: string): Promise<SubagentsSnapshot> {
     const runtime = this.runtimes.get(sessionId)
     if (!runtime || runtime.cleaned) {
-      return { version: 1, revision: 0, available: false, agents: [] }
+      return {
+        version: 1,
+        revision: 0,
+        available: false,
+        agents: [],
+        sessions: await listSubagentSessions(sessionId),
+      }
     }
-    return subagentsSnapshotSchema.parse(
+    const snapshot = subagentsSnapshotSchema.parse(
       await this.request(runtime, {
         type: "subagents.snapshot",
         requestId: requestId(),
         sessionId,
       })
     )
+    return subagentsSnapshotSchema.parse({
+      ...snapshot,
+      sessions: await listSubagentSessions(sessionId),
+    })
   }
 
   async stopSubagent(sessionId: string, agentId: string) {

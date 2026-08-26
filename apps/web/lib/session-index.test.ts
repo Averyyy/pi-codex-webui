@@ -25,6 +25,8 @@ import {
   isProjectDirectoryAvailable,
   isSessionArchived,
   listArchivedSessions,
+  listProjectSessions,
+  listSubagentSessions,
   listWorkspaceProjects,
   listWorkspaceTasks,
   markSessionCompleted,
@@ -60,10 +62,23 @@ test("project availability treats missing and invalidated paths as unavailable",
   }
 })
 
-function sessionJsonl(id: string, cwd: string, text: string, title?: string) {
+function sessionJsonl(
+  id: string,
+  cwd: string,
+  text: string,
+  title?: string,
+  parentSession?: string
+) {
   const timestamp = "2026-07-14T00:00:00.000Z"
   const entries = [
-    { type: "session", version: 3, id, timestamp, cwd },
+    {
+      type: "session",
+      version: 3,
+      id,
+      timestamp,
+      cwd,
+      ...(parentSession ? { parentSession } : {}),
+    },
     ...(title
       ? [
           {
@@ -89,6 +104,89 @@ function sessionJsonl(id: string, cwd: string, text: string, title?: string) {
   ]
   return `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`
 }
+
+test("keeps tintinweb child sessions out of user-facing catalogs", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "pi-web-codex-subagents-"))
+  const configRoot = path.join(root, "config")
+  const sessionRoot = path.join(root, "sessions")
+  const projectCwd = path.join(root, "project")
+  const previous = {
+    config: process.env.PI_WEB_CODEX_CONFIG_DIR,
+    sessions: process.env.PI_CODING_AGENT_SESSION_DIR,
+  }
+  process.env.PI_WEB_CODEX_CONFIG_DIR = configRoot
+  process.env.PI_CODING_AGENT_SESSION_DIR = sessionRoot
+  globalThis.piWebCodexDatabase = undefined
+  globalThis.piWebCodexIndexSync = undefined
+
+  try {
+    await Promise.all([
+      mkdir(sessionRoot, { recursive: true }),
+      mkdir(projectCwd, { recursive: true }),
+    ])
+    const parentFile = path.join(sessionRoot, "parent.jsonl")
+    const childFile = path.join(sessionRoot, "child.jsonl")
+    await Promise.all([
+      writeFile(
+        parentFile,
+        sessionJsonl("native-parent", projectCwd, "parent message", "Parent")
+      ),
+      writeFile(
+        childFile,
+        sessionJsonl(
+          "native-child",
+          projectCwd,
+          "child-only needle",
+          "general-purpose#child",
+          parentFile
+        )
+      ),
+    ])
+
+    const project = await addWorkspaceProject(projectCwd)
+    const parent = await getSessionIdentityByNativeFile(parentFile)
+    const child = await getSessionIdentityByNativeFile(childFile)
+    assert.ok(parent)
+    assert.ok(child)
+
+    const projects = await listWorkspaceProjects()
+    assert.equal(projects[0]?.sessionCount, 1)
+    assert.deepEqual(
+      projects[0]?.sessions.map((session) => session.id),
+      [parent.id]
+    )
+    assert.deepEqual(
+      (await listProjectSessions(project.id)).map((session) => session.id),
+      [parent.id]
+    )
+    assert.deepEqual(await searchSessions("child-only needle"), [])
+
+    const childSnapshot = await getSessionSnapshot(child.id)
+    assert.equal(childSnapshot?.session.parentSessionFile, parentFile)
+    assert.deepEqual(
+      (await listSubagentSessions(parent.id)).map((session) => session.id),
+      [child.id]
+    )
+    await archiveSession(child.id)
+    assert.equal(
+      (await listArchivedSessions()).some((session) => session.id === child.id),
+      false
+    )
+  } finally {
+    const database = await getDatabase()
+    database.close()
+    globalThis.piWebCodexDatabase = undefined
+    globalThis.piWebCodexIndexSync = undefined
+    globalThis.piWebCodexProjectRegistrations = undefined
+    if (previous.config === undefined)
+      delete process.env.PI_WEB_CODEX_CONFIG_DIR
+    else process.env.PI_WEB_CODEX_CONFIG_DIR = previous.config
+    if (previous.sessions === undefined)
+      delete process.env.PI_CODING_AGENT_SESSION_DIR
+    else process.env.PI_CODING_AGENT_SESSION_DIR = previous.sessions
+    await rm(root, { recursive: true, force: true })
+  }
+})
 
 function branchedSessionJsonl(id: string, cwd: string) {
   const timestamp = "2026-07-14T00:00:00.000Z"

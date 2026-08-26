@@ -151,11 +151,13 @@ function refreshProject(
     .prepare(
       `UPDATE projects SET
          created_at = coalesce(
-           (SELECT min(created_at) FROM sessions WHERE project_id = ?),
+           (SELECT min(created_at) FROM sessions
+            WHERE project_id = ? AND parent_session_file IS NULL),
            created_at
          ),
          updated_at = coalesce(
-           (SELECT max(updated_at) FROM sessions WHERE project_id = ?),
+           (SELECT max(updated_at) FROM sessions
+            WHERE project_id = ? AND parent_session_file IS NULL),
            updated_at
          )
        WHERE id = ?`
@@ -323,6 +325,7 @@ export async function listWorkspaceProjects(): Promise<WorkspaceProject[]> {
        LEFT JOIN sessions
          ON sessions.project_id = projects.id
         AND sessions.archived_at IS NULL
+        AND sessions.parent_session_file IS NULL
        GROUP BY projects.id
        ORDER BY projects.pinned_at IS NULL, projects.pinned_at DESC,
                 projects.updated_at DESC, display_name COLLATE NOCASE`
@@ -337,6 +340,7 @@ export async function listWorkspaceProjects(): Promise<WorkspaceProject[]> {
               runtime_profile_id, migrated_from_session_id
        FROM sessions
        WHERE archived_at IS NULL
+         AND parent_session_file IS NULL
        ORDER BY updated_at DESC`
     )
     .all() as unknown as SessionRow[]
@@ -376,6 +380,7 @@ export async function getProject(projectId: string) {
        LEFT JOIN sessions
          ON sessions.project_id = projects.id
         AND sessions.archived_at IS NULL
+        AND sessions.parent_session_file IS NULL
        WHERE projects.id = ?
        GROUP BY projects.id`
     )
@@ -395,11 +400,44 @@ export async function listProjectSessions(projectId: string) {
                 completion_unread, runtime_kind,
                 runtime_profile_id, migrated_from_session_id
          FROM sessions
-         WHERE project_id = ? AND archived_at IS NULL
+         WHERE project_id = ?
+           AND archived_at IS NULL
+           AND parent_session_file IS NULL
          ORDER BY pinned_at IS NULL, pinned_at DESC, updated_at DESC`
       )
       .all(projectId) as unknown as SessionRow[]
   ).map(sessionSummary)
+}
+
+export async function listSubagentSessions(sessionId: string) {
+  await syncPiSessionIndex()
+  const database = await getDatabase()
+  const rows = database
+    .prepare(
+      `SELECT id, project_id, title, first_message, updated_at, message_count
+       FROM sessions
+       WHERE parent_session_file = (
+         SELECT native_session_file FROM sessions WHERE id = ?
+       )
+         AND archived_at IS NULL
+       ORDER BY updated_at DESC`
+    )
+    .all(sessionId) as {
+    id: string
+    project_id: string | null
+    title: string | null
+    first_message: string
+    updated_at: string
+    message_count: number
+  }[]
+  return rows.map((row) => ({
+    id: row.id,
+    projectId: row.project_id,
+    title: row.title,
+    firstMessage: row.first_message,
+    updatedAt: row.updated_at,
+    messageCount: row.message_count,
+  }))
 }
 
 export async function listWorkspaceTasks(): Promise<SessionSummary[]> {
@@ -414,7 +452,9 @@ export async function listWorkspaceTasks(): Promise<SessionSummary[]> {
                 completion_unread, runtime_kind,
                 runtime_profile_id, migrated_from_session_id
          FROM sessions
-         WHERE project_id IS NULL AND archived_at IS NULL
+         WHERE project_id IS NULL
+           AND archived_at IS NULL
+           AND parent_session_file IS NULL
          ORDER BY pinned_at IS NULL, pinned_at DESC, updated_at DESC`
       )
       .all() as unknown as SessionRow[]
@@ -438,6 +478,7 @@ export async function listArchivedSessions(): Promise<ArchivedSession[]> {
        FROM sessions
        LEFT JOIN projects ON projects.id = sessions.project_id
        WHERE sessions.archived_at IS NOT NULL
+         AND sessions.parent_session_file IS NULL
        ORDER BY sessions.archived_at DESC, sessions.updated_at DESC`
     )
     .all() as unknown as ArchivedSessionRow[]
@@ -778,6 +819,7 @@ export async function searchSessions(query: string) {
        LEFT JOIN projects ON projects.id = sessions.project_id
        CROSS JOIN search_query
        WHERE sessions.archived_at IS NULL
+         AND sessions.parent_session_file IS NULL
          AND ${searchFilters}
          AND (
            (session_search.entry_id = ''

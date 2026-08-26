@@ -246,11 +246,21 @@ export const subagentRecordSchema = z.object({
   lastSteer: z.string().optional(),
 })
 
+export const subagentSessionSchema = z.object({
+  id: z.string().min(1),
+  projectId: z.string().nullable(),
+  title: z.string().nullable(),
+  firstMessage: z.string(),
+  updatedAt: z.iso.datetime(),
+  messageCount: z.number().int().nonnegative(),
+})
+
 export const subagentsSnapshotSchema = z.object({
   version: z.literal(1),
   revision: z.number().int().nonnegative(),
   available: z.boolean(),
   agents: z.array(subagentRecordSchema),
+  sessions: z.array(subagentSessionSchema).default([]),
 })
 
 const subagentEventBaseSchema = z.object({
@@ -1196,6 +1206,7 @@ export type QueueState = z.infer<typeof queueStateSchema>
 export type SessionStats = z.infer<typeof sessionStatsSchema>
 export type SubagentStatus = z.infer<typeof subagentStatusSchema>
 export type SubagentRecord = z.infer<typeof subagentRecordSchema>
+export type SubagentSession = z.infer<typeof subagentSessionSchema>
 export type SubagentsSnapshot = z.infer<typeof subagentsSnapshotSchema>
 export type SessionReplacement = z.infer<typeof sessionReplacementSchema>
 export type SessionTree = z.infer<typeof sessionTreeSchema>

@@ -71,15 +71,14 @@ test("runtime initialization declares resume, new, or duplicate explicitly", () 
 })
 
 test("subagent snapshots and stop requests remain protocol validated", () => {
-  assert.equal(
-    subagentsSnapshotSchema.parse({
+  const subagents = subagentsSnapshotSchema.parse({
       version: 1,
       revision: 2,
       available: true,
       agents: [],
-    }).revision,
-    2
-  )
+    })
+  assert.equal(subagents.revision, 2)
+  assert.deepEqual(subagents.sessions, [])
   assert.equal(
     hostToWorkerMessageSchema.parse({
       type: "subagents.stop",
