@@ -214,6 +214,14 @@ const messages = {
     "zh-CN": "切换底部终端",
     "en-US": "Toggle the bottom terminal",
   },
+  "session.workspace.gitSummary": {
+    "zh-CN": "打开 {branch} 的 Git 工作区审阅",
+    "en-US": "Open Git working tree review for {branch}",
+  },
+  "session.workspace.gitFilesShort": {
+    "zh-CN": "文件",
+    "en-US": "files",
+  },
   "session.workspace.toggleSidebar": {
     "zh-CN": "切换会话侧栏",
     "en-US": "Toggle the conversation sidebar",
@@ -638,6 +646,17 @@ const messages = {
   },
   "session.tool.result": { "zh-CN": "结果", "en-US": "Result" },
   "session.tool.arguments": { "zh-CN": "参数", "en-US": "Arguments" },
+  "session.fileMutation.write": { "zh-CN": "write", "en-US": "write" },
+  "session.fileMutation.edit": { "zh-CN": "edit", "en-US": "edit" },
+  "session.fileMutation.insert": { "zh-CN": "insert", "en-US": "insert" },
+  "session.fileMutation.replace": {
+    "zh-CN": "replace",
+    "en-US": "replace",
+  },
+  "session.fileMutation.noPath": {
+    "zh-CN": "未提供文件路径",
+    "en-US": "No file path provided",
+  },
   "session.streaming.reply": {
     "zh-CN": "正在生成的回复",
     "en-US": "Response in progress",
@@ -1464,6 +1483,10 @@ const messages = {
   "project.git.error.divergenceFailed": {
     "zh-CN": "读取 Git 分支差异失败。",
     "en-US": "Git divergence check failed.",
+  },
+  "project.git.error.statsFailed": {
+    "zh-CN": "读取 Git 增删行统计失败。",
+    "en-US": "Git line statistics failed.",
   },
   "project.git.error.pathNoChanges": {
     "zh-CN": "请求的路径没有工作区变更。",

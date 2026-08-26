@@ -18,8 +18,10 @@ import {
   type ConversationDisclosureTone,
 } from "@/components/conversation-disclosure"
 import { ConversationTextParts } from "@/components/conversation-text-parts"
+import { FileMutationToolCard } from "@/components/file-mutation-tool-card"
 import { HashlineEditToolCard } from "@/components/hashline-edit-tool-card"
 import { useStreamingTool } from "@/components/session-streaming-context"
+import { fileMutationToolKind } from "@/lib/file-mutation-tool"
 import { hashlineEditToolKind } from "@/lib/hashline-edit-tool"
 import { translate, type Locale } from "@/lib/i18n"
 import type { ToolResultView } from "@/lib/message-content"
@@ -125,7 +127,7 @@ function WebAccessToolCard({
   const hasFailed = failed || presentation.error !== undefined
   return (
     <ConversationDisclosure
-      defaultOpen={hasFailed}
+      defaultOpen={false}
       label={presentation.label}
       preview={presentation.preview}
       icon={WEB_ACCESS_ICONS[name]}
@@ -245,12 +247,27 @@ export function ToolCallCard({
       </ToolResultAnchor>
     )
   }
+  const mutationKind = fileMutationToolKind(effectivePart.name)
+  if (mutationKind) {
+    return (
+      <ToolResultAnchor entryId={persistedResult?.entryId}>
+        <FileMutationToolCard
+          kind={mutationKind}
+          part={effectivePart}
+          result={result}
+          running={running}
+          failed={failed}
+          locale={locale}
+        />
+      </ToolResultAnchor>
+    )
+  }
   const summary = toolSummary(effectivePart.name, effectivePart.arguments)
   const appearance = toolAppearance(effectivePart.name)
   return (
     <ToolResultAnchor entryId={persistedResult?.entryId}>
       <ConversationDisclosure
-        defaultOpen={failed}
+        defaultOpen={false}
         label={<code className="font-mono text-xs">{effectivePart.name}</code>}
         preview={summary}
         icon={appearance.icon}

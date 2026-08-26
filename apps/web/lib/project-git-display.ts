@@ -23,6 +23,7 @@ const knownGitErrors = new Map<string, MessageKey>([
   ],
   ["Git status failed.", "project.git.error.statusFailed"],
   ["Git divergence check failed.", "project.git.error.divergenceFailed"],
+  ["Git line statistics failed.", "project.git.error.statsFailed"],
   [
     "The requested path has no working tree changes.",
     "project.git.error.pathNoChanges",

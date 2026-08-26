@@ -173,6 +173,8 @@ test("project Git integration reports the real branch and working tree", async (
   if (status.available) {
     assert.ok(status.branch)
     assert.ok(status.commit)
+    assert.equal(status.additions, 2)
+    assert.equal(status.deletions, 1)
     assert.deepEqual(
       status.files
         .filter((file) => file.originalPath === null)
@@ -241,6 +243,8 @@ test("project Git paths and diffs stay relative to a registered subdirectory", a
   const status = await readProjectGitStatus(project)
   assert.equal(status.available, true)
   if (status.available) {
+    assert.equal(status.additions, 2)
+    assert.equal(status.deletions, 1)
     assert.deepEqual(
       status.files.map((file) => file.path),
       ["tracked.txt", "untracked.txt"]
@@ -255,6 +259,25 @@ test("project Git paths and diffs stay relative to a registered subdirectory", a
     /\+new/
   )
   await rm(repository, { recursive: true, force: true })
+})
+
+test("project Git line statistics include files before the first commit", async () => {
+  const project = await mkdtemp(path.join(tmpdir(), "pi-web-git-empty-"))
+  await run("git", ["init", project])
+  await writeFile(path.join(project, "first.txt"), "one\ntwo\n")
+
+  const status = await readProjectGitStatus(project)
+  assert.equal(status.available, true)
+  if (status.available) {
+    assert.equal(status.commit, null)
+    assert.equal(status.additions, 2)
+    assert.equal(status.deletions, 0)
+    assert.deepEqual(
+      status.files.map((file) => file.path),
+      ["first.txt"]
+    )
+  }
+  await rm(project, { recursive: true, force: true })
 })
 
 test("desktop integrations select native macOS and Windows commands", () => {

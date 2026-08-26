@@ -30,7 +30,13 @@ function lineClassName(kind: ProjectGitDiffLine["kind"]) {
   return undefined
 }
 
-export function GitDiffSurface({ diff }: { diff: ProjectGitDiff }) {
+export function GitDiffSurface({
+  diff,
+  className,
+}: {
+  diff: ProjectGitDiff
+  className?: string
+}) {
   const { locale, t } = useI18n()
   const lines = useMemo(() => parseProjectGitDiff(diff.hunks), [diff.hunks])
   const [visibleLineCount, setVisibleLineCount] = useState(
@@ -41,7 +47,7 @@ export function GitDiffSurface({ diff }: { diff: ProjectGitDiff }) {
   const nextCount = Math.min(PROJECT_DIFF_LINE_INCREMENT, remaining)
 
   return (
-    <div className="min-w-0 overflow-hidden border-b">
+    <div className={cn("min-w-0 overflow-hidden border-b", className)}>
       <div className="overflow-x-auto">
         <table
           className="w-full table-fixed border-collapse font-mono text-xs leading-5"

@@ -105,7 +105,7 @@ export function HashlineEditToolCard({
   const noChange = !running && presentation.classification === "noop"
   return (
     <ConversationDisclosure
-      defaultOpen={failed}
+      defaultOpen={false}
       label={presentation.label}
       preview={presentation.preview}
       icon={kind === "replace" ? <FilePenLineIcon /> : <Undo2Icon />}

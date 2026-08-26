@@ -25,6 +25,8 @@ export type ProjectGitStatus =
       upstream: string | null
       ahead: number
       behind: number
+      additions: number
+      deletions: number
       files: GitFileStatus[]
     }
 
@@ -174,6 +176,83 @@ function parseStatus(
   return files
 }
 
+function parseLineStats(output: string) {
+  let additions = 0
+  let deletions = 0
+  for (const line of output.split("\n")) {
+    if (!line) continue
+    const [added, deleted] = line.split("\t", 2)
+    if (added !== "-") additions += Number(added) || 0
+    if (deleted !== "-") deletions += Number(deleted) || 0
+  }
+  return { additions, deletions }
+}
+
+async function readLineStats(
+  projectPath: string,
+  files: GitFileStatus[],
+  hasHead: boolean
+) {
+  const directory = await mkdtemp(path.join(tmpdir(), "pi-web-codex-stats-"))
+  const environment = { GIT_INDEX_FILE: path.join(directory, "index") }
+  try {
+    const initialize = await runGit(
+      projectPath,
+      hasHead ? ["read-tree", "HEAD"] : ["read-tree", "--empty"],
+      environment
+    )
+    if (initialize.code !== 0) {
+      throw new ProjectGitError(
+        initialize.stderr.trim() || "Git line statistics failed."
+      )
+    }
+
+    const newPaths = files
+      .filter(
+        (file) =>
+          file.index === "?" ||
+          file.index === "A" ||
+          file.index === "R" ||
+          file.index === "C" ||
+          file.workingTree === "A"
+      )
+      .map((file) => file.path)
+    if (newPaths.length) {
+      const add = await runGit(
+        projectPath,
+        ["add", "--intent-to-add", "--", ...newPaths],
+        environment
+      )
+      if (add.code !== 0) {
+        throw new ProjectGitError(
+          add.stderr.trim() || "Git line statistics failed."
+        )
+      }
+    }
+
+    const result = await runGit(
+      projectPath,
+      [
+        "diff",
+        "--numstat",
+        "--no-ext-diff",
+        ...(hasHead ? ["HEAD"] : []),
+        "--",
+        ".",
+      ],
+      environment
+    )
+    if (result.code !== 0) {
+      throw new ProjectGitError(
+        result.stderr.trim() || "Git line statistics failed."
+      )
+    }
+    return parseLineStats(result.stdout)
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+}
+
 export async function readProjectGitStatus(
   projectPath: string
 ): Promise<ProjectGitStatus> {
@@ -253,6 +332,25 @@ export async function readProjectGitStatus(
     behind = counts[1] ?? 0
   }
 
+  const files = parseStatus(
+    status.stdout,
+    root.stdout.trim(),
+    canonicalProjectPath
+  )
+  let lineStats: { additions: number; deletions: number }
+  try {
+    lineStats = await readLineStats(
+      projectPath,
+      files,
+      Boolean(commandValue(commit))
+    )
+  } catch (error) {
+    if (error instanceof ProjectGitError) {
+      return { available: false, error: error.message }
+    }
+    throw error
+  }
+
   return {
     available: true,
     root: root.stdout.trim(),
@@ -261,7 +359,8 @@ export async function readProjectGitStatus(
     upstream: upstreamName,
     ahead,
     behind,
-    files: parseStatus(status.stdout, root.stdout.trim(), canonicalProjectPath),
+    ...lineStats,
+    files,
   }
 }
 

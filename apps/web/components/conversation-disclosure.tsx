@@ -56,6 +56,7 @@ export function ConversationDisclosure({
   tone = "neutral",
   status,
   statusTone = "muted",
+  meta,
   children,
   defaultOpen = false,
   ariaLabel,
@@ -68,6 +69,7 @@ export function ConversationDisclosure({
   tone?: ConversationDisclosureTone
   status?: string
   statusTone?: "muted" | "destructive" | "success" | "running"
+  meta?: ReactNode
   children: ReactNode
   defaultOpen?: boolean
   ariaLabel: string
@@ -109,6 +111,7 @@ export function ConversationDisclosure({
         ) : (
           <span className="min-w-0 flex-1" />
         )}
+        {meta}
         {status ? (
           <span
             className={cn(

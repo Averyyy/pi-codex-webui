@@ -14,6 +14,7 @@ import {
   FileDiffIcon,
   FilesIcon,
   FolderOpenIcon,
+  GitBranchIcon,
   PanelBottomIcon,
   PanelRightIcon,
   PlusIcon,
@@ -69,6 +70,7 @@ import {
 } from "@/components/session-inspector"
 import { SubagentsPanel } from "@/components/subagents"
 import { useI18n } from "@/components/i18n-provider"
+import { responseJson } from "@/lib/api-response"
 import type { ProjectGitStatus } from "@/lib/project-git"
 import { shouldScrollToSessionTail } from "@/lib/session-scroll"
 import type { Translator } from "@/lib/i18n"
@@ -119,6 +121,104 @@ function IconTooltip({
     <Tooltip>
       <TooltipTrigger asChild>{children}</TooltipTrigger>
       <TooltipContent side="bottom">{label}</TooltipContent>
+    </Tooltip>
+  )
+}
+
+function GitHeaderStatus({
+  projectId,
+  initialGit,
+  onOpenReview,
+}: {
+  projectId: string
+  initialGit: ProjectGitStatus
+  onOpenReview: () => void
+}) {
+  const { t } = useI18n()
+  const [git, setGit] = useState(initialGit)
+
+  useEffect(() => {
+    let disposed = false
+    const showFailure = (failure: unknown) => {
+      if (disposed) return
+      setGit({
+        available: false,
+        error: failure instanceof Error ? failure.message : String(failure),
+      })
+    }
+    const refresh = async () => {
+      const next = await responseJson<ProjectGitStatus>(
+        await fetch(`/api/v1/projects/${projectId}/git`)
+      )
+      if (!disposed) setGit(next)
+    }
+    const changes = new EventSource(`/api/v1/projects/${projectId}/changes`)
+    const update = () => void refresh().catch(showFailure)
+    changes.addEventListener("project.change", update)
+    void refresh().catch(showFailure)
+    return () => {
+      disposed = true
+      changes.close()
+    }
+  }, [projectId])
+
+  if (!git.available) {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            className="flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-xs text-destructive transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+            aria-label={t("project.git.unavailable")}
+            onClick={onOpenReview}
+          >
+            <GitBranchIcon className="size-3.5" />
+            <span className="hidden sm:inline">Git</span>
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="bottom">{git.error}</TooltipContent>
+      </Tooltip>
+    )
+  }
+  const branch = git.branch ?? t("project.git.detachedHead")
+  const changed = git.files.length
+  const divergence = git.upstream ? `${git.ahead}↑ ${git.behind}↓` : null
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          aria-label={t("session.workspace.gitSummary", { branch })}
+          className="flex max-w-[min(42vw,28rem)] min-w-0 items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          onClick={onOpenReview}
+        >
+          <GitBranchIcon className="size-3.5 shrink-0 text-muted-foreground" />
+          <code className="min-w-0 truncate font-mono text-foreground">
+            {branch}
+          </code>
+          <span className="flex shrink-0 items-center gap-1 font-mono tabular-nums">
+            <span className="text-emerald-700 dark:text-emerald-300">
+              +{git.additions}
+            </span>
+            <span className="text-red-700 dark:text-red-300">
+              -{git.deletions}
+            </span>
+          </span>
+          <span className="hidden shrink-0 text-muted-foreground sm:inline">
+            {changed} {t("session.workspace.gitFilesShort")}
+          </span>
+          {divergence ? (
+            <span className="hidden shrink-0 font-mono text-muted-foreground lg:inline">
+              {divergence}
+            </span>
+          ) : null}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">
+        <span className="font-mono">{git.commit ?? "HEAD"}</span>
+        {git.upstream ? ` · ${git.upstream} · ${divergence}` : ""}
+      </TooltipContent>
     </Tooltip>
   )
 }
@@ -642,12 +742,22 @@ export function SessionWorkspace({
                         {title}
                       </h1>
                       <div className="mt-0.5 flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
-                        <span className="truncate">
+                        <span className="hidden min-w-0 truncate sm:inline">
                           {contextLabel} · {updatedAt}
                         </span>
-                        <Badge variant="outline" className="shrink-0">
+                        <Badge
+                          variant="outline"
+                          className="hidden shrink-0 sm:inline-flex"
+                        >
                           {runtimeLabel}
                         </Badge>
+                        {projectId && initialGit ? (
+                          <GitHeaderStatus
+                            projectId={projectId}
+                            initialGit={initialGit}
+                            onOpenReview={() => addTab("review")}
+                          />
+                        ) : null}
                       </div>
                     </div>
                     <div className="flex shrink-0 items-center gap-0.5">
