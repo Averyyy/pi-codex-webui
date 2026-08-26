@@ -16,6 +16,7 @@ import {
   SessionStreamStore,
 } from "@/lib/session-stream-store"
 import { SessionEventStream } from "@/lib/session-event-stream"
+import type { RuntimeStatus } from "@workspace/runtime-protocol"
 
 interface SessionStreamingContextValue {
   events: SessionEventStream
@@ -25,27 +26,60 @@ interface SessionStreamingContextValue {
 const SessionStreamingContext =
   createContext<SessionStreamingContextValue | null>(null)
 
+interface CachedSessionStreamingValue {
+  events: SessionEventStream
+  store: SessionStreamStore
+}
+
+const cachedSessions = new Map<string, CachedSessionStreamingValue>()
+
+function cachedSession(sessionId: string, initialEventCursor: string) {
+  const existing = cachedSessions.get(sessionId)
+  if (existing) return existing
+  const value = {
+    events: new SessionEventStream(
+      sessionId,
+      initialEventCursor,
+      undefined,
+      true
+    ),
+    store: new SessionStreamStore(),
+  }
+  cachedSessions.set(sessionId, value)
+  return value
+}
+
 export function SessionStreamingProvider({
   sessionId,
   initialEventCursor,
+  initialStatus,
   children,
 }: {
   sessionId: string
   initialEventCursor: string
+  initialStatus: RuntimeStatus
   children: ReactNode
 }) {
-  const [value] = useState(() => ({
-    events: new SessionEventStream(sessionId, initialEventCursor),
-    store: new SessionStreamStore(),
-  }))
+  const [value] = useState(() => cachedSession(sessionId, initialEventCursor))
 
   useEffect(() => {
     value.events.open()
     return () => {
+      if (value.store.getRuntimeStatus() === "busy") return
       value.events.close()
       value.store.dispose()
+      if (cachedSessions.get(sessionId) === value)
+        cachedSessions.delete(sessionId)
     }
-  }, [value])
+  }, [sessionId, value])
+
+  useEffect(() => {
+    value.store.setRuntimeStatus(initialStatus)
+    if (initialStatus !== "busy") {
+      value.events.clearPending()
+      value.store.clear(true)
+    }
+  }, [initialStatus, value])
 
   return (
     <SessionStreamingContext value={value}>{children}</SessionStreamingContext>

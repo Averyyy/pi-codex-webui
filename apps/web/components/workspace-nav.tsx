@@ -89,7 +89,8 @@ export function WorkspaceNav({
   const sidebarContentRef = useRef<HTMLDivElement>(null)
   const addingProjectRef = useRef(false)
   const [projectsExpanded, setProjectsExpanded] = useState(false)
-  const [tasksOpen, setTasksOpen] = useState(pathname.startsWith("/tasks/"))
+  const [projectOpen, setProjectOpen] = useState<Record<string, boolean>>({})
+  const [tasksOpen, setTasksOpen] = useState(true)
   const [addingProject, setAddingProject] = useState(false)
   const [shortcutState, setShortcutState] =
     useState<ConversationShortcutState | null>(null)
@@ -129,7 +130,6 @@ export function WorkspaceNav({
         !collapsedProjects.some((project) => project.id === activeProject.id)
       ? [...collapsedProjects, activeProject]
       : collapsedProjects
-  const tasksVisible = tasksOpen || pathname.startsWith("/tasks/")
   const conversationShortcuts = useMemo(
     () =>
       new Map(
@@ -432,13 +432,23 @@ export function WorkspaceNav({
                 <SidebarMenu>
                   {visibleProjects.map((project) => (
                     <WorkspaceNavProject
-                      key={`${project.id}:${pathname.startsWith(`/projects/${project.id}`) ? "active" : "inactive"}`}
+                      key={project.id}
                       project={project}
                       mutationToken={mutationToken}
                       runningSessionIds={runningSessionIds}
                       unreadSessionIds={unreadSessionIds}
                       activeSessionId={activeSessionId}
                       conversationShortcuts={conversationShortcuts}
+                      open={
+                        projectOpen[project.id] ??
+                        activeProject?.id === project.id
+                      }
+                      onOpenChange={(open) =>
+                        setProjectOpen((current) => ({
+                          ...current,
+                          [project.id]: open,
+                        }))
+                      }
                       onSessionMutationFocus={requestSessionMutationFocus}
                     />
                   ))}
@@ -469,11 +479,7 @@ export function WorkspaceNav({
             </SidebarGroup>
 
             {unpinnedTasks.length > 0 ? (
-              <Collapsible
-                open={tasksVisible}
-                onOpenChange={setTasksOpen}
-                asChild
-              >
+              <Collapsible open={tasksOpen} onOpenChange={setTasksOpen} asChild>
                 <SidebarGroup className="py-1">
                   <SidebarGroupLabel asChild>
                     <CollapsibleTrigger

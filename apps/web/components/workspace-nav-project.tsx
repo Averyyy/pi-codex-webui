@@ -94,6 +94,8 @@ export function WorkspaceNavProject({
   unreadSessionIds,
   activeSessionId,
   conversationShortcuts,
+  open,
+  onOpenChange,
   onSessionMutationFocus,
 }: {
   project: WorkspaceProject
@@ -102,6 +104,8 @@ export function WorkspaceNavProject({
   unreadSessionIds: ReadonlySet<string>
   activeSessionId: string | null
   conversationShortcuts: ReadonlyMap<string, { label: string; aria: string }>
+  open: boolean
+  onOpenChange: (open: boolean) => void
   onSessionMutationFocus: (
     request: WorkspaceSessionMutationFocusRequest
   ) => void
@@ -285,7 +289,12 @@ export function WorkspaceNavProject({
 
   return (
     <>
-      <Collapsible asChild defaultOpen={active} className="group/collapsible">
+      <Collapsible
+        asChild
+        open={open}
+        onOpenChange={onOpenChange}
+        className="group/collapsible"
+      >
         <SidebarMenuItem>
           <ContextMenu>
             <ContextMenuTrigger asChild>

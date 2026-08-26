@@ -10,6 +10,7 @@ interface EventSourceLike {
 type EventSourceFactory = (url: string) => EventSourceLike
 
 const browserEventSource: EventSourceFactory = (url) => new EventSource(url)
+const MAX_PENDING_EVENTS = 4096
 
 export class SessionEventStream {
   private source: EventSourceLike | null = null
@@ -19,12 +20,14 @@ export class SessionEventStream {
   private readonly connectionListeners = new Set<
     (state: SessionConnectionState) => void
   >()
+  private readonly pendingEvents: Event[] = []
   private readonly url: string
 
   constructor(
     sessionId: string,
     initialEventCursor: string,
-    private readonly createEventSource: EventSourceFactory = browserEventSource
+    private readonly createEventSource: EventSourceFactory = browserEventSource,
+    private readonly bufferUnsubscribed = false
   ) {
     const search = new URLSearchParams({
       sessionId,
@@ -51,6 +54,21 @@ export class SessionEventStream {
       this.listeners.set(type, listeners)
       if (first && this.source) this.attach(type)
     }
+    if (this.pendingEvents.length > 0) {
+      const subscribed = new Set(subscribedTypes)
+      const replay = this.pendingEvents.filter((event) =>
+        subscribed.has(event.type)
+      )
+      for (const event of replay) {
+        const index = this.pendingEvents.indexOf(event)
+        if (index >= 0) this.pendingEvents.splice(index, 1)
+        try {
+          listener(event)
+        } catch (error) {
+          console.error("Could not replay a session event:", error)
+        }
+      }
+    }
     return () => {
       for (const type of subscribedTypes) {
         const listeners = this.listeners.get(type)
@@ -73,13 +91,30 @@ export class SessionEventStream {
     this.connectionState = null
     this.listeners.clear()
     this.forwarders.clear()
+    this.pendingEvents.length = 0
     this.connectionListeners.clear()
+  }
+
+  clearPending() {
+    this.pendingEvents.length = 0
   }
 
   private attach(type: string) {
     if (!this.source || this.forwarders.has(type)) return
     const forward: EventListener = (event) => {
-      for (const listener of this.listeners.get(type) ?? []) {
+      const listeners = this.listeners.get(type)
+      if (!listeners || listeners.size === 0) {
+        if (!this.bufferUnsubscribed) return
+        this.pendingEvents.push(event)
+        if (this.pendingEvents.length > MAX_PENDING_EVENTS) {
+          this.pendingEvents.splice(
+            0,
+            this.pendingEvents.length - MAX_PENDING_EVENTS
+          )
+        }
+        return
+      }
+      for (const listener of listeners) {
         try {
           listener(event)
         } catch (error) {
@@ -93,6 +128,7 @@ export class SessionEventStream {
 
   private detach(type: string) {
     this.listeners.delete(type)
+    if (this.bufferUnsubscribed) return
     const forward = this.forwarders.get(type)
     if (forward && this.source) this.source.removeEventListener(type, forward)
     this.forwarders.delete(type)

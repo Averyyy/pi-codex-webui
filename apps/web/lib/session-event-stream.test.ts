@@ -65,3 +65,26 @@ test("shares one EventSource across session event subscribers", () => {
   stream.close()
   assert.equal(source.closed, true)
 })
+
+test("buffers named events while the session view is unmounted", () => {
+  let source: FakeEventSource | undefined
+  const stream = new SessionEventStream(
+    "session-a",
+    "event-1",
+    () => {
+      source = new FakeEventSource()
+      return source
+    },
+    true
+  )
+  const unsubscribe = stream.subscribe(["runtime.busy"], () => {})
+  stream.open()
+  unsubscribe()
+  source!.emit("runtime.busy")
+
+  const received: string[] = []
+  stream.subscribe(["runtime.busy"], (event) => received.push(event.type))
+  source!.emit("runtime.busy")
+
+  assert.deepEqual(received, ["runtime.busy", "runtime.busy"])
+})

@@ -45,8 +45,10 @@ export async function SessionScreen({
   const eventCursor = getEventHub().cursor()
   const supervisor = getRuntimeSupervisor()
   const runtime = supervisor.state(sessionId)
+  const activeLeafId =
+    runtime.status === "busy" ? undefined : runtime.snapshot?.leafId
   const [snapshot, config, initialWebUiViews] = await Promise.all([
-    getSessionSnapshot(sessionId, runtime.snapshot?.leafId),
+    getSessionSnapshot(sessionId, activeLeafId),
     loadConfig(),
     runtime.snapshot ? supervisor.webUiViews(sessionId) : Promise.resolve([]),
   ])
@@ -90,6 +92,7 @@ export async function SessionScreen({
       key={sessionId}
       sessionId={sessionId}
       initialEventCursor={eventCursor}
+      initialStatus={runtime.status}
     >
       <SessionExtensionProvider
         sessionId={sessionId}
