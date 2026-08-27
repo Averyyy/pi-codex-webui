@@ -32,7 +32,10 @@ import type {
   TuiModule,
 } from "./coding-agent.js"
 import { createMcpToolDefinitions } from "./mcp.js"
-import { resolveConfiguredScopedModels } from "./model-settings.js"
+import {
+  refreshOpencodeModelRegistry,
+  resolveConfiguredScopedModels,
+} from "./model-settings.js"
 import { sessionTreeEntryText } from "./session-tree.js"
 import { SubagentBridge } from "./subagents.js"
 import { createFooterData, TuiSurfaceManager } from "./tui-surfaces.js"
@@ -707,6 +710,11 @@ async function initialize(
         ),
       },
     })
+    await refreshOpencodeModelRegistry(
+      services.authStorage,
+      services.modelRegistry,
+      { required: false }
+    )
     const scopedModels = await resolveConfiguredScopedModels(
       codingAgent,
       settingsManager,
@@ -951,8 +959,11 @@ async function replacePromptQueue(
 async function reloadModelSettings(session: AgentSession) {
   const services = currentRuntime().services
   await services.settingsManager.reload()
-  services.authStorage.reload()
-  services.modelRegistry.refresh()
+  await refreshOpencodeModelRegistry(
+    services.authStorage,
+    services.modelRegistry,
+    { required: false }
+  )
   session.setScopedModels(
     await resolveConfiguredScopedModels(
       codingAgent,

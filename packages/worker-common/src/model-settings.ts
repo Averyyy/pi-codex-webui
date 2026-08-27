@@ -44,6 +44,10 @@ type ModelSettingsMessage = Extract<
 >
 
 type JsonObject = Record<string, unknown>
+type RegistryModel = ReturnType<ModelRegistry["getAll"]>[number]
+type ProviderModelConfig = NonNullable<
+  Parameters<ModelRegistry["registerProvider"]>[1]["models"]
+>[number]
 
 interface ModelsConfig {
   providers: Record<string, JsonObject>
@@ -65,12 +69,124 @@ const supportedApis = new Set<ModelProviderApi>([
   "google-generative-ai",
 ])
 
+const OPENCODE_PROVIDER = "opencode"
+const OPENCODE_MODELS_URL = "https://opencode.ai/zen/v1/models"
+const OPENCODE_REFRESH_TIMEOUT_MS = 15_000
+
 function isJsonObject(value: unknown): value is JsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
 function modelKey(model: { provider: string; id: string }) {
   return `${model.provider}/${model.id}`
+}
+
+function inferredOpencodeApi(modelId: string): ModelProviderApi {
+  if (modelId.startsWith("claude-")) return "anthropic-messages"
+  if (modelId.startsWith("gemini-")) return "google-generative-ai"
+  return "openai-completions"
+}
+
+function fallbackModelName(modelId: string) {
+  return modelId
+    .split(/[-_.]+/)
+    .filter(Boolean)
+    .map((part) => part[0]?.toUpperCase() + part.slice(1))
+    .join(" ")
+}
+
+function opencodeModelConfig(
+  modelId: string,
+  known: RegistryModel | undefined
+): ProviderModelConfig {
+  const api = known?.api ?? inferredOpencodeApi(modelId)
+  return {
+    id: modelId,
+    name: known?.name ?? fallbackModelName(modelId),
+    api,
+    baseUrl:
+      known?.baseUrl ??
+      (api === "anthropic-messages"
+        ? "https://opencode.ai/zen"
+        : "https://opencode.ai/zen/v1"),
+    reasoning: known?.reasoning ?? true,
+    thinkingLevelMap: known?.thinkingLevelMap,
+    input:
+      known?.input ??
+      (api === "anthropic-messages" || api === "google-generative-ai"
+        ? ["text", "image"]
+        : ["text"]),
+    cost: known?.cost ?? {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+    },
+    contextWindow: known?.contextWindow ?? 1_000_000,
+    maxTokens: known?.maxTokens ?? 128_000,
+    compat: known?.compat,
+  }
+}
+
+async function fetchOpencodeModelIds(
+  apiKey: string,
+  fetcher: typeof fetch = fetch
+) {
+  const response = await fetcher(OPENCODE_MODELS_URL, {
+    headers: {
+      Accept: "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    signal: AbortSignal.timeout(OPENCODE_REFRESH_TIMEOUT_MS),
+  })
+  if (!response.ok) {
+    throw new Error(
+      `OpenCode model catalog request failed (HTTP ${response.status}).`
+    )
+  }
+
+  const payload: unknown = await response.json()
+  if (!isJsonObject(payload) || !Array.isArray(payload.data)) {
+    throw new Error("OpenCode model catalog response is invalid.")
+  }
+
+  const ids = payload.data.map((entry) => {
+    if (!isJsonObject(entry) || typeof entry.id !== "string" || !entry.id) {
+      throw new Error("OpenCode model catalog contains an invalid model.")
+    }
+    return entry.id
+  })
+  return [...new Set(ids)]
+}
+
+export async function refreshOpencodeModelRegistry(
+  authStorage: AuthStorage,
+  modelRegistry: ModelRegistry,
+  options: { required?: boolean; fetcher?: typeof fetch } = {}
+) {
+  authStorage.reload()
+  modelRegistry.refresh()
+  const apiKey = await authStorage.getApiKey(OPENCODE_PROVIDER)
+  if (!apiKey) return false
+
+  try {
+    const ids = await fetchOpencodeModelIds(apiKey, options.fetcher)
+    const knownModels = new Map(
+      modelRegistry
+        .getAll()
+        .filter((model) => model.provider === OPENCODE_PROVIDER)
+        .map((model) => [model.id, model])
+    )
+    modelRegistry.registerProvider(OPENCODE_PROVIDER, {
+      baseUrl: "https://opencode.ai/zen/v1",
+      apiKey,
+      models: ids.map((id) => opencodeModelConfig(id, knownModels.get(id))),
+    })
+    return true
+  } catch (error) {
+    if (options.required) throw error
+    return false
+  }
 }
 
 function readModelsConfig(modelsPath: string): ModelsConfig {
@@ -279,8 +395,12 @@ function toRuntimeModel(model: {
 }
 
 async function readModelSettings(
-  state: ModelSettingsState
+  state: ModelSettingsState,
+  refreshLive = true
 ): Promise<ModelSettings> {
+  if (refreshLive) {
+    await refreshOpencodeModelRegistry(state.authStorage, state.modelRegistry)
+  }
   const config = readModelsConfig(state.modelsPath)
   const availableModels = state.modelRegistry.getAvailable()
   const patterns = state.settingsManager.getEnabledModels()
@@ -383,9 +503,10 @@ async function readModelSettings(
 
 async function refreshModelSettings(state: ModelSettingsState) {
   await state.settingsManager.reload()
-  state.authStorage.reload()
-  state.modelRegistry.refresh()
-  return readModelSettings(state)
+  await refreshOpencodeModelRegistry(state.authStorage, state.modelRegistry, {
+    required: true,
+  })
+  return readModelSettings(state, false)
 }
 
 async function setModelScope(
