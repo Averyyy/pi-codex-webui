@@ -3,7 +3,7 @@ import "server-only"
 import { randomBytes, timingSafeEqual } from "node:crypto"
 
 const MUTATION_TOKEN_ENV = "PI_WEB_CODEX_MUTATION_TOKEN"
-const LOCAL_HOST_PATTERN = /^127\.0\.0\.1:\d+$/
+const LOCAL_HOST_PATTERN = /^(?:127\.0\.0\.1|localhost):\d+$/
 
 export function getMutationToken() {
   const existing = process.env[MUTATION_TOKEN_ENV]
