@@ -413,7 +413,7 @@ export function NewConversation({
         </div>
       </section>
 
-      <div className="mx-auto flex w-full max-w-[46rem] flex-col gap-3">
+      <div className="mx-auto flex w-full max-w-[52rem] min-w-0 flex-col gap-3">
         {error ? (
           <div
             role="alert"
@@ -481,7 +481,6 @@ export function NewConversation({
               : undefined
           }
           textareaRef={messageInputRef}
-          className="shadow-lg shadow-foreground/5"
           commands={[
             {
               id: "goal",

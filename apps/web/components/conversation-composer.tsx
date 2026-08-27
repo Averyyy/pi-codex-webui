@@ -28,7 +28,6 @@ import {
 } from "@workspace/ui/components/select"
 import { Textarea } from "@workspace/ui/components/textarea"
 import type { RuntimeModel, ThinkingLevel } from "@workspace/runtime-protocol"
-import { cn } from "@workspace/ui/lib/utils"
 
 import {
   ComposerImagePreviews,
@@ -80,7 +79,6 @@ export function ConversationComposer({
   onDecreaseThinkingLevel,
   onIncreaseThinkingLevel,
   textareaRef,
-  className,
   commands = [],
 }: {
   value: string
@@ -105,7 +103,6 @@ export function ConversationComposer({
   onDecreaseThinkingLevel?: () => void
   onIncreaseThinkingLevel?: () => void
   textareaRef?: Ref<HTMLTextAreaElement>
-  className?: string
   commands?: ComposerCommand[]
 }) {
   const { t } = useI18n()
@@ -330,7 +327,7 @@ export function ConversationComposer({
     <form
       ref={formRef}
       onSubmit={onSubmit}
-      className={cn("rounded-2xl border bg-card p-2 shadow-sm", className)}
+      className="rounded-2xl border bg-card p-2 shadow-sm"
     >
       {settings || editor === undefined ? (
         <div className="flex flex-wrap items-center gap-2 border-b px-1 pb-2">
