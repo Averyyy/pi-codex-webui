@@ -1381,7 +1381,8 @@ export function SessionRuntime({
   const runtimeStatusLabel = t(
     runtimeActive ? "session.runtime.active" : "session.runtime.inactive"
   )
-  const settingsDisabled = status !== "ready" || updating || compacting
+  const settingsDisabled =
+    !["ready", "busy"].includes(status) || updating || compacting
   const reloadDisabled =
     ["starting", "busy", "stopping", "crashed"].includes(status) ||
     updating ||
