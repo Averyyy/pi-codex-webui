@@ -263,6 +263,14 @@ test("live OpenCode refresh includes models added after the bundled catalog", as
       modelRegistry.find("opencode", "claude-opus-5")?.api,
       "anthropic-messages"
     )
+    assert.equal(
+      modelRegistry.find("opencode", "gpt-5.6-sol")?.api,
+      "openai-responses"
+    )
+    assert.deepEqual(modelRegistry.find("opencode", "gpt-5.6-sol")?.input, [
+      "text",
+      "image",
+    ])
   } finally {
     await rm(root, { recursive: true, force: true })
   }

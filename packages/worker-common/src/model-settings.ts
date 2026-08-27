@@ -82,16 +82,30 @@ function modelKey(model: { provider: string; id: string }) {
 }
 
 function inferredOpencodeApi(modelId: string): ModelProviderApi {
-  if (modelId.startsWith("claude-")) return "anthropic-messages"
+  if (modelId.startsWith("claude-") || modelId.startsWith("qwen")) {
+    return "anthropic-messages"
+  }
   if (modelId.startsWith("gemini-")) return "google-generative-ai"
+  if (
+    modelId.startsWith("gpt-") ||
+    modelId.startsWith("grok-") ||
+    modelId.startsWith("muse-")
+  ) {
+    return "openai-responses"
+  }
   return "openai-completions"
 }
 
 function fallbackModelName(modelId: string) {
   return modelId
-    .split(/[-_.]+/)
+    .split(/[-_]+/)
     .filter(Boolean)
-    .map((part) => part[0]?.toUpperCase() + part.slice(1))
+    .map((part) => {
+      const normalized = part.toLowerCase()
+      if (normalized === "gpt") return "GPT"
+      if (normalized === "glm") return "GLM"
+      return part[0]?.toUpperCase() + part.slice(1)
+    })
     .join(" ")
 }
 
@@ -113,7 +127,9 @@ function opencodeModelConfig(
     thinkingLevelMap: known?.thinkingLevelMap,
     input:
       known?.input ??
-      (api === "anthropic-messages" || api === "google-generative-ai"
+      (api === "anthropic-messages" ||
+      api === "google-generative-ai" ||
+      api === "openai-responses"
         ? ["text", "image"]
         : ["text"]),
     cost: known?.cost ?? {
