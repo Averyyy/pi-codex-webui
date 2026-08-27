@@ -42,7 +42,7 @@ interface RuntimeSupervisorInternals {
   reloadModelSettings(): Promise<void>
   resourceQueue: Promise<void>
   resourceRequest(message: {
-    type: "models.catalog"
+    type: "models.catalog" | "models.refresh"
     requestId: string
     payload: { cwd: string; agentDir: string }
   }): Promise<unknown>
@@ -96,6 +96,28 @@ function runtime(
 function internals(supervisor: RuntimeSupervisor) {
   return supervisor as unknown as RuntimeSupervisorInternals
 }
+
+test("model refresh invokes Pi refresh before reloading active runtimes", async () => {
+  const supervisor = new RuntimeSupervisor(new EventHub())
+  const state = internals(supervisor)
+  const calls: string[] = []
+  state.resourceRequest = async (message) => {
+    calls.push(message.type)
+    return {
+      models: [],
+      providers: [],
+      enabledModels: null,
+      defaultModel: null,
+    }
+  }
+  state.reloadModelSettings = async () => {
+    calls.push("runtime.reload-model-settings")
+  }
+
+  await supervisor.refreshModelSettings("/workspace")
+
+  assert.deepEqual(calls, ["models.refresh", "runtime.reload-model-settings"])
+})
 
 test("activate waits for the registered activation instead of returning its starting runtime", async () => {
   const supervisor = new RuntimeSupervisor(new EventHub())

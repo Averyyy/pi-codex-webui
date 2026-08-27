@@ -36,6 +36,7 @@ type ModelSettingsMessage = Extract<
   {
     type:
       | "models.catalog"
+      | "models.refresh"
       | "models.set-scope"
       | "providers.remove"
       | "providers.save"
@@ -380,6 +381,13 @@ async function readModelSettings(
   }
 }
 
+async function refreshModelSettings(state: ModelSettingsState) {
+  await state.settingsManager.reload()
+  state.authStorage.reload()
+  state.modelRegistry.refresh()
+  return readModelSettings(state)
+}
+
 async function setModelScope(
   state: ModelSettingsState,
   enabledModelIds: string[] | null,
@@ -532,6 +540,7 @@ export function handleModelSettingsMessage(
     agentDir
   )
   if (message.type === "models.catalog") return readModelSettings(state)
+  if (message.type === "models.refresh") return refreshModelSettings(state)
   if (message.type === "models.set-scope") {
     return setModelScope(
       state,

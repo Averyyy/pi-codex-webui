@@ -1020,6 +1020,10 @@ const modelSettingsCatalogMessageSchema = resourceRequestBaseSchema.extend({
   type: z.literal("models.catalog"),
 })
 
+const modelSettingsRefreshMessageSchema = resourceRequestBaseSchema.extend({
+  type: z.literal("models.refresh"),
+})
+
 const modelScopeSetMessageSchema = resourceRequestBaseSchema.extend({
   type: z.literal("models.set-scope"),
   payload: resourceRequestBaseSchema.shape.payload.extend({
@@ -1076,6 +1080,7 @@ export const hostToWorkerMessageSchema = z.discriminatedUnion("type", [
   packageUpdateMessageSchema,
   projectTrustMessageSchema,
   modelSettingsCatalogMessageSchema,
+  modelSettingsRefreshMessageSchema,
   modelScopeSetMessageSchema,
   providerRemoveMessageSchema,
   providerSaveMessageSchema,

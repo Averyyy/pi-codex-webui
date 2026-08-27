@@ -2623,6 +2623,22 @@ const messages = {
     "zh-CN": "添加自定义 provider",
     "en-US": "Add custom provider",
   },
+  "settings.models.refresh": {
+    "zh-CN": "刷新 Provider 和模型",
+    "en-US": "Refresh providers and models",
+  },
+  "settings.models.refreshSuccess": {
+    "zh-CN": "Provider 和模型列表已刷新。",
+    "en-US": "Provider and model lists refreshed.",
+  },
+  "settings.models.enableProviderModels": {
+    "zh-CN": "启用 {provider} 的所有模型",
+    "en-US": "Enable all models from {provider}",
+  },
+  "settings.models.disableProviderModels": {
+    "zh-CN": "禁用 {provider} 的所有模型",
+    "en-US": "Disable all models from {provider}",
+  },
   "settings.models.scopeEnabled": {
     "zh-CN": "已启用 scope",
     "en-US": "Scope enabled",

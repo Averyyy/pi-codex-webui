@@ -31,6 +31,7 @@ type ResourceMessage = Extract<
       | "packages.update"
       | "project.trust.set"
       | "models.catalog"
+      | "models.refresh"
       | "models.set-scope"
       | "providers.remove"
       | "providers.save"
@@ -481,6 +482,7 @@ export async function handleResourceMessage(
   const { cwd, agentDir } = message.payload
   if (
     message.type === "models.catalog" ||
+    message.type === "models.refresh" ||
     message.type === "models.set-scope" ||
     message.type === "providers.remove" ||
     message.type === "providers.save"
@@ -515,6 +517,7 @@ export function isResourceMessage(
     message.type === "packages.update" ||
     message.type === "project.trust.set" ||
     message.type === "models.catalog" ||
+    message.type === "models.refresh" ||
     message.type === "models.set-scope" ||
     message.type === "providers.remove" ||
     message.type === "providers.save"

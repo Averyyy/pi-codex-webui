@@ -3,12 +3,16 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react"
 import {
   ChevronDownIcon,
+  ListChecksIcon,
+  ListXIcon,
   LoaderCircleIcon,
   PencilIcon,
   PlusIcon,
+  RefreshCwIcon,
   SearchIcon,
   Trash2Icon,
 } from "lucide-react"
+import { toast } from "sonner"
 
 import {
   modelSettingsSchema,
@@ -43,6 +47,11 @@ import {
 } from "@workspace/ui/components/field"
 import { Input } from "@workspace/ui/components/input"
 import { Switch } from "@workspace/ui/components/switch"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@workspace/ui/components/tooltip"
 
 import { CustomProviderForm } from "@/components/custom-provider-form"
 import { ConfirmDialog } from "@/components/confirm-dialog"
@@ -163,14 +172,10 @@ export function ModelSettings({
     setWorking(null)
   }
 
-  async function setModelEnabled(model: ModelSettingsModel, enabled: boolean) {
+  async function setEnabledModels(key: string, enabledModelIds: string[]) {
     const expectedEnabledModelIds = settings.models
       .filter((entry) => entry.enabled)
       .map(modelKey)
-    const enabledIds = new Set(expectedEnabledModelIds)
-    const key = modelKey(model)
-    if (enabled) enabledIds.add(key)
-    else enabledIds.delete(key)
 
     if (!beginWorking(key)) return
     setError(null)
@@ -183,7 +188,7 @@ export function ModelSettings({
             "X-Pi-Web-Codex-Mutation-Token": mutationToken,
           },
           body: JSON.stringify({
-            enabledModelIds: [...enabledIds],
+            enabledModelIds,
             expectedEnabledModelIds,
           }),
         })
@@ -206,6 +211,56 @@ export function ModelSettings({
         }
       }
       setError(operationError(failure, t))
+    } finally {
+      finishWorking()
+    }
+  }
+
+  async function setModelEnabled(model: ModelSettingsModel, enabled: boolean) {
+    const enabledIds = new Set(
+      settings.models.filter((entry) => entry.enabled).map(modelKey)
+    )
+    const key = modelKey(model)
+    if (enabled) enabledIds.add(key)
+    else enabledIds.delete(key)
+    await setEnabledModels(key, [...enabledIds])
+  }
+
+  async function setProviderModelsEnabled(
+    provider: string,
+    providerModels: ModelSettingsModel[],
+    enabled: boolean
+  ) {
+    const enabledIds = new Set(
+      settings.models.filter((entry) => entry.enabled).map(modelKey)
+    )
+    for (const model of providerModels) {
+      const key = modelKey(model)
+      if (enabled) enabledIds.add(key)
+      else enabledIds.delete(key)
+    }
+    await setEnabledModels(
+      `provider-scope:${provider}:${enabled ? "enable" : "disable"}`,
+      [...enabledIds]
+    )
+  }
+
+  async function refreshSettings() {
+    if (!beginWorking("refresh")) return
+    setError(null)
+    try {
+      const next = await readSettings(
+        await fetch(`/api/v1/model-settings/refresh${query(sessionId)}`, {
+          method: "POST",
+          headers: {
+            "X-Pi-Web-Codex-Mutation-Token": mutationToken,
+          },
+        })
+      )
+      setSettings(next)
+      toast.success(t("settings.models.refreshSuccess"))
+    } catch (failure) {
+      toast.error(operationError(failure, t))
     } finally {
       finishWorking()
     }
@@ -349,6 +404,28 @@ export function ModelSettings({
             {t("settings.models.cardDescription")}
           </CardDescription>
           <CardAction className="flex w-full flex-wrap items-center justify-start gap-2 sm:w-auto sm:justify-end">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  aria-label={t("settings.models.refresh")}
+                  aria-busy={working === "refresh"}
+                  disabled={working !== null}
+                  onClick={() => void refreshSettings()}
+                >
+                  <RefreshCwIcon
+                    className={
+                      working === "refresh" ? "animate-spin" : undefined
+                    }
+                  />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                {t("settings.models.refresh")}
+              </TooltipContent>
+            </Tooltip>
             <Button
               ref={addProviderButtonRef}
               type="button"
@@ -412,6 +489,14 @@ export function ModelSettings({
 
       {visibleProviders.length ? (
         visibleProviders.map(({ provider, models }) => {
+          const providerModels = settings.models.filter(
+            (model) => model.provider === provider.provider
+          )
+          const providerEnabledCount = providerModels.filter(
+            (model) => model.enabled
+          ).length
+          const enableProviderKey = `provider-scope:${provider.provider}:enable`
+          const disableProviderKey = `provider-scope:${provider.provider}:disable`
           return (
             <Card key={provider.provider} className="overflow-hidden">
               <details
@@ -468,6 +553,82 @@ export function ModelSettings({
                     <Badge variant="outline">
                       {authLabel(provider.auth, t)}
                     </Badge>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          aria-label={t(
+                            "settings.models.enableProviderModels",
+                            {
+                              provider: provider.name ?? provider.provider,
+                            }
+                          )}
+                          disabled={
+                            working !== null ||
+                            providerModels.length === 0 ||
+                            providerEnabledCount === providerModels.length
+                          }
+                          onClick={(event) => {
+                            event.preventDefault()
+                            void setProviderModelsEnabled(
+                              provider.provider,
+                              providerModels,
+                              true
+                            )
+                          }}
+                        >
+                          {working === enableProviderKey ? (
+                            <LoaderCircleIcon className="animate-spin" />
+                          ) : (
+                            <ListChecksIcon />
+                          )}
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom">
+                        {t("settings.models.enableProviderModels", {
+                          provider: provider.name ?? provider.provider,
+                        })}
+                      </TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          aria-label={t(
+                            "settings.models.disableProviderModels",
+                            {
+                              provider: provider.name ?? provider.provider,
+                            }
+                          )}
+                          disabled={
+                            working !== null || providerEnabledCount === 0
+                          }
+                          onClick={(event) => {
+                            event.preventDefault()
+                            void setProviderModelsEnabled(
+                              provider.provider,
+                              providerModels,
+                              false
+                            )
+                          }}
+                        >
+                          {working === disableProviderKey ? (
+                            <LoaderCircleIcon className="animate-spin" />
+                          ) : (
+                            <ListXIcon />
+                          )}
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom">
+                        {t("settings.models.disableProviderModels", {
+                          provider: provider.name ?? provider.provider,
+                        })}
+                      </TooltipContent>
+                    </Tooltip>
                     {provider.custom ? (
                       <Button
                         type="button"

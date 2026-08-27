@@ -156,6 +156,61 @@ test("custom provider settings persist, edit, and remove through Pi files", asyn
   }
 })
 
+test("model catalog refresh reads external provider and model changes", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "pi-model-refresh-"))
+  const message = (type: "models.catalog" | "models.refresh") =>
+    ({
+      requestId: type,
+      type,
+      payload: { cwd: root, agentDir: root },
+    }) as Extract<HostToWorkerMessage, { type: typeof type }>
+
+  try {
+    await writeFile(path.join(root, "models.json"), '{"providers":{}}\n')
+    const initial = await handleModelSettingsMessage(
+      codingAgent,
+      modelThinking,
+      message("models.catalog")
+    )
+    assert.equal(
+      initial.providers.some(({ provider }) => provider === "external"),
+      false
+    )
+
+    await writeFile(
+      path.join(root, "models.json"),
+      `${JSON.stringify({
+        providers: {
+          external: {
+            api: "openai-completions",
+            baseUrl: "http://127.0.0.1:9000/v1",
+            apiKey: "test-key",
+            models: [{ id: "fresh-model", name: "Fresh model" }],
+          },
+        },
+      })}\n`
+    )
+
+    const refreshed = await handleModelSettingsMessage(
+      codingAgent,
+      modelThinking,
+      message("models.refresh")
+    )
+    assert.equal(
+      refreshed.providers.some(({ provider }) => provider === "external"),
+      true
+    )
+    assert.equal(
+      refreshed.models.some(
+        ({ provider, id }) => provider === "external" && id === "fresh-model"
+      ),
+      true
+    )
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 test("stale model scope mutations cannot overwrite a newer scope", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "pi-model-scope-"))
   const resourceMessage = <T extends ModelScopeMessage["type"]>(

@@ -189,6 +189,7 @@ type ResourceRequestMessage = Extract<
       | "packages.update"
       | "project.trust.set"
       | "models.catalog"
+      | "models.refresh"
       | "models.set-scope"
       | "providers.remove"
       | "providers.save"
@@ -1010,6 +1011,18 @@ export class RuntimeSupervisor {
         payload: { cwd, agentDir: getPiAgentDir() },
       })
     )
+  }
+
+  async refreshModelSettings(cwd: string) {
+    const settings = modelSettingsSchema.parse(
+      await this.resourceRequest({
+        type: "models.refresh",
+        requestId: requestId(),
+        payload: { cwd, agentDir: getPiAgentDir() },
+      })
+    )
+    await this.reloadModelSettings()
+    return settings
   }
 
   async setModelScope(
