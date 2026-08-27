@@ -1,24 +1,15 @@
 "use client"
 
 import Link from "next/link"
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  useTransition,
-  type FormEvent,
-} from "react"
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import { useRouter } from "next/navigation"
 import {
   BugIcon,
   CircleAlertIcon,
-  FolderIcon,
   GitPullRequestIcon,
   HammerIcon,
   LoaderCircleIcon,
   Minimize2Icon,
-  PlusIcon,
   RefreshCwIcon,
   SearchCodeIcon,
   SparklesIcon,
@@ -26,14 +17,6 @@ import {
 } from "lucide-react"
 
 import { Button } from "@workspace/ui/components/button"
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@workspace/ui/components/select"
 import {
   type ModelSettings,
   type ModelSettingsModel,
@@ -52,18 +35,14 @@ import {
   ConversationComposer,
   nextThinkingLevel,
 } from "@/components/conversation-composer"
-import { useShortcutAction } from "@/components/keyboard-shortcuts-provider"
 import { useSessionComposerDraftStore } from "@/components/session-composer-draft-context"
 import { ApiError, responseJson } from "@/lib/api-response"
 import { useI18n } from "@/components/i18n-provider"
-import { pickWorkspaceProject } from "@/lib/project-picker-client"
 import type { ComposerImage } from "@/lib/prompt-images"
 import {
   draftAfterAcceptedSend,
   NEW_CONVERSATION_DRAFT_ID,
 } from "@/lib/session-composer-draft-store"
-
-const NO_PROJECT = "__none__"
 
 function noop() {}
 
@@ -195,17 +174,10 @@ export function NewConversation({
     },
     [composerDraftStore]
   )
-  const [projectSelectOpen, setProjectSelectOpen] = useState(false)
-  const [addingProject, setAddingProject] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const submittingRef = useRef(false)
-  const [loadingModels, startProjectTransition] = useTransition()
   const [error, setError] = useState<ApiError | null>(null)
   const messageInputRef = useRef<HTMLTextAreaElement>(null)
-  const projectSelectTriggerRef = useRef<HTMLButtonElement>(null)
-  const pendingProjectChangeRef = useRef<{ projectId: string | null } | null>(
-    null
-  )
   const updateStoredComposerImages = useCallback(
     (images: ComposerImage[]) =>
       composerDraftStore.setImages(NEW_CONVERSATION_DRAFT_ID, images),
@@ -228,18 +200,6 @@ export function NewConversation({
     }
   }, [])
 
-  useEffect(() => {
-    if (loadingModels) return
-    const pending = pendingProjectChangeRef.current
-    if (!pending) return
-    pendingProjectChangeRef.current = null
-    if (pending.projectId === projectId) {
-      projectSelectTriggerRef.current?.focus()
-      return
-    }
-    setError(new ApiError(t("home.projectSwitchFailed")))
-  }, [loadingModels, projectId, t])
-
   function chooseStarter(message: string) {
     setMessage(message)
     messageInputRef.current?.focus()
@@ -258,56 +218,12 @@ export function NewConversation({
     }))
   }
 
-  async function addProject() {
-    setProjectSelectOpen(false)
-    setAddingProject(true)
-    setError(null)
-    try {
-      const project = await pickWorkspaceProject(mutationToken)
-      if (project) {
-        pendingProjectChangeRef.current = { projectId: project.id }
-        startProjectTransition(() =>
-          router.replace(`/new?projectId=${encodeURIComponent(project.id)}`)
-        )
-      }
-    } catch (failure) {
-      setError(
-        failure instanceof ApiError
-          ? failure
-          : new ApiError(
-              failure instanceof Error ? failure.message : String(failure)
-            )
-      )
-    } finally {
-      setAddingProject(false)
-    }
-  }
-
-  function selectProject(value: string) {
-    const nextProjectId = value === NO_PROJECT ? null : value
-    if (nextProjectId === projectId) return
-    setError(null)
-    pendingProjectChangeRef.current = { projectId: nextProjectId }
-    startProjectTransition(() =>
-      router.replace(
-        nextProjectId
-          ? `/new?projectId=${encodeURIComponent(nextProjectId)}`
-          : "/new"
-      )
-    )
-  }
-
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const text = message.trim()
     const submittedMessage = message
     const submittedImages = composerImages.images
-    if (
-      (!text && submittedImages.length === 0) ||
-      submittingRef.current ||
-      pendingProjectChangeRef.current !== null ||
-      loadingModels
-    ) {
+    if ((!text && submittedImages.length === 0) || submittingRef.current) {
       return
     }
 
@@ -360,15 +276,6 @@ export function NewConversation({
   }
 
   const modelUnavailable = error?.code === "ModelUnavailable"
-
-  useShortcutAction(
-    "composer.openProjectSelector",
-    () => {
-      projectSelectTriggerRef.current?.click()
-      return projectSelectTriggerRef.current !== null
-    },
-    !submitting && !addingProject && !loadingModels
-  )
 
   return (
     <div className="flex min-h-[calc(100svh-3rem)] flex-col px-4 py-6 md:min-h-svh md:px-8 md:py-8">
@@ -438,7 +345,7 @@ export function NewConversation({
           placeholder={t("home.composer.placeholder")}
           ariaLabel={t("home.composer.ariaLabel")}
           submitting={submitting}
-          sendDisabled={loadingModels || composerImages.loading}
+          sendDisabled={composerImages.loading}
           images={composerImages.images}
           imageError={composerImages.error}
           imagesSupported={model?.input.includes("image") ?? false}
@@ -449,7 +356,6 @@ export function NewConversation({
             model &&
             thinkingLevel &&
             model.availableThinkingLevels.length > 1 &&
-            !loadingModels &&
             !submitting
               ? () =>
                   setModelSelection((current) => ({
@@ -466,7 +372,6 @@ export function NewConversation({
             model &&
             thinkingLevel &&
             model.availableThinkingLevels.length > 1 &&
-            !loadingModels &&
             !submitting
               ? () => changeThinkingLevel(-1)
               : undefined
@@ -475,7 +380,6 @@ export function NewConversation({
             model &&
             thinkingLevel &&
             model.availableThinkingLevels.length > 1 &&
-            !loadingModels &&
             !submitting
               ? () => changeThinkingLevel(1)
               : undefined
@@ -507,6 +411,14 @@ export function NewConversation({
               onSelect: noop,
             },
           ]}
+          sessionControls={{
+            goal: { disabled: true },
+            runtime: {
+              active: false,
+              label: t("session.runtime.inactive"),
+            },
+            compact: { disabled: true },
+          }}
           actions={
             <>
               {submitting ? (
@@ -517,15 +429,6 @@ export function NewConversation({
                 >
                   <LoaderCircleIcon className="size-3 animate-spin motion-reduce:animate-none" />
                   {t("home.status.creatingTask")}
-                </span>
-              ) : loadingModels ? (
-                <span
-                  role="status"
-                  aria-live="polite"
-                  className="flex items-center gap-1.5 text-xs text-muted-foreground"
-                >
-                  <LoaderCircleIcon className="size-3 animate-spin motion-reduce:animate-none" />
-                  {t("home.status.loadingModels")}
                 </span>
               ) : composerImages.loading ? (
                 <span
@@ -541,57 +444,6 @@ export function NewConversation({
           }
           settings={
             <>
-              <Select
-                open={projectSelectOpen}
-                onOpenChange={setProjectSelectOpen}
-                value={projectId ?? NO_PROJECT}
-                onValueChange={selectProject}
-                disabled={submitting || addingProject || loadingModels}
-              >
-                <SelectTrigger
-                  ref={projectSelectTriggerRef}
-                  data-shortcut-project-selector
-                  size="sm"
-                  className="max-w-64"
-                  aria-label={t("home.project.ariaLabel")}
-                >
-                  <FolderIcon />
-                  <SelectValue>
-                    {selectedProject?.name ?? t("home.project.standalone")}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent
-                  position="popper"
-                  side="top"
-                  className="max-w-[min(32rem,calc(100vw-2rem))]"
-                  footer={
-                    <Button
-                      type="button"
-                      className="w-full justify-start"
-                      size="sm"
-                      variant="ghost"
-                      disabled={addingProject}
-                      onClick={() => void addProject()}
-                    >
-                      <PlusIcon />
-                      {addingProject
-                        ? t("home.project.choosing")
-                        : t("home.project.add")}
-                    </Button>
-                  }
-                >
-                  <SelectGroup>
-                    <SelectItem value={NO_PROJECT}>
-                      {t("home.project.standalone")}
-                    </SelectItem>
-                    {projects.map((project) => (
-                      <SelectItem key={project.id} value={project.id}>
-                        {project.name} · {project.path}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
               <ComposerModelSelect
                 model={model}
                 models={models}
@@ -603,7 +455,7 @@ export function NewConversation({
                     thinkingLevel: nextModel.defaultThinkingLevel,
                   }))
                 }}
-                disabled={loadingModels || submitting}
+                disabled={submitting}
                 settingsHref="/settings/models"
               />
               {model && thinkingLevel ? (
@@ -616,7 +468,7 @@ export function NewConversation({
                       thinkingLevel: level,
                     }))
                   }
-                  disabled={loadingModels || submitting}
+                  disabled={submitting}
                 />
               ) : null}
             </>

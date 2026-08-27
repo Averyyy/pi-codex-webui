@@ -23,7 +23,6 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 
-import { Badge } from "@workspace/ui/components/badge"
 import { Button } from "@workspace/ui/components/button"
 import {
   Dialog,
@@ -139,16 +138,12 @@ function activeExtensionRequest(
   }
 }
 
-function statusLabel(t: Translator, status: RuntimeStatus) {
-  const keys = {
-    stopped: "session.status.stopped",
-    starting: "session.status.starting",
-    ready: "session.status.ready",
-    busy: "session.status.busy",
-    stopping: "session.status.stopping",
-    crashed: "session.status.crashed",
-  } as const
-  return t(keys[status])
+const PONYTAIL_MODES = ["lite", "full", "ultra"] as const
+type PonytailMode = (typeof PONYTAIL_MODES)[number]
+
+function ponytailMode(statusText: string): PonytailMode {
+  const mode = stripAnsi(statusText).match(/\b(lite|full|ultra)\b/i)?.[1]
+  return (mode?.toLowerCase() as PonytailMode | undefined) ?? "full"
 }
 
 const EVENT_TYPES = [
@@ -409,7 +404,7 @@ export function SessionRuntime({
   const respondingExtensionRequestIds = useRef(new Set<string>())
   const [extensionStatuses, setExtensionStatuses] = useState<
     Record<string, string>
-  >({})
+  >(initialSnapshot?.extensionStatuses ?? {})
   const [extensionWidgets, setExtensionWidgets] = useState<
     Record<
       string,
@@ -759,6 +754,7 @@ export function SessionRuntime({
         updateRuntimeStatus("ready")
         setSnapshot(nextSnapshot)
         updateQueuedMessages(nextSnapshot.queuedPrompts)
+        setExtensionStatuses(nextSnapshot.extensionStatuses)
         setCompacting(nextSnapshot.isCompacting)
         setCompactionNotice(nextSnapshot.isCompacting ? "running" : null)
         setError(null)
@@ -1161,6 +1157,13 @@ export function SessionRuntime({
     }
   }
 
+  function setPonytailMode(mode: string) {
+    if (!PONYTAIL_MODES.includes(mode as PonytailMode)) {
+      throw new Error("Ponytail returned an invalid mode.")
+    }
+    void sendMessage(`/ponytail ${mode}`)
+  }
+
   async function setModel(model: RuntimeSnapshot["availableModels"][number]) {
     if (updatingRef.current) return
     updatingRef.current = true
@@ -1372,6 +1375,12 @@ export function SessionRuntime({
   }
 
   const isBusy = status === "busy"
+  const runtimeActive = ["starting", "ready", "busy", "stopping"].includes(
+    status
+  )
+  const runtimeStatusLabel = t(
+    runtimeActive ? "session.runtime.active" : "session.runtime.inactive"
+  )
   const settingsDisabled = status !== "ready" || updating || compacting
   const reloadDisabled =
     ["starting", "busy", "stopping", "crashed"].includes(status) ||
@@ -1555,6 +1564,23 @@ export function SessionRuntime({
               onSelect: () => setTreeOpen(true),
             },
           ]}
+          sessionControls={{
+            goal: goalAvailable
+              ? {
+                  disabled: settingsDisabled,
+                  onClick: () => openGoalDialog(composerTextareaRef.current),
+                }
+              : undefined,
+            runtime: {
+              active: runtimeActive,
+              label: runtimeStatusLabel,
+            },
+            compact: {
+              disabled: settingsDisabled,
+              pending: compacting,
+              onClick: compact,
+            },
+          }}
           editor={
             editorSurface ? (
               <div className="max-h-[30svh] overflow-y-auto overscroll-contain">
@@ -1570,23 +1596,6 @@ export function SessionRuntime({
           }
           actions={
             <>
-              {goalAvailable ? (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={(event) => openGoalDialog(event.currentTarget)}
-                  disabled={settingsDisabled}
-                >
-                  <TargetIcon />
-                  {t("session.command.goal")}
-                </Button>
-              ) : null}
-              <Badge
-                variant={status === "crashed" ? "destructive" : "secondary"}
-              >
-                {statusLabel(t, status)}
-              </Badge>
               <SessionStreamingToolStatus />
               {composerImages.loading ? (
                 <span
@@ -1603,11 +1612,38 @@ export function SessionRuntime({
                   {retrying}
                 </span>
               ) : null}
-              {Object.entries(extensionStatuses).map(([key, text]) => (
-                <span key={key} className="text-xs text-muted-foreground">
-                  {stripAnsi(text)}
-                </span>
-              ))}
+              {Object.entries(extensionStatuses).map(([key, text]) =>
+                key === "ponytail" ? (
+                  <Select
+                    key={key}
+                    value={ponytailMode(text)}
+                    onValueChange={setPonytailMode}
+                    disabled={settingsDisabled || submitting}
+                  >
+                    <SelectTrigger
+                      size="sm"
+                      aria-label={t("session.runtime.ponytailMode")}
+                    >
+                      <SelectValue>
+                        {t("session.runtime.ponytailLevel", {
+                          level: ponytailMode(text),
+                        })}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent position="popper" side="top">
+                      {PONYTAIL_MODES.map((mode) => (
+                        <SelectItem key={mode} value={mode}>
+                          {t("session.runtime.ponytailLevel", { level: mode })}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <span key={key} className="text-xs text-muted-foreground">
+                    {stripAnsi(text)}
+                  </span>
+                )
+              )}
               <ExtensionSlot name="composer.actions" />
             </>
           }
@@ -1671,20 +1707,6 @@ export function SessionRuntime({
                   onLevelChange={(level) => void setThinkingLevel(level)}
                   disabled={settingsDisabled}
                 />
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={compact}
-                  disabled={settingsDisabled}
-                >
-                  {compacting ? (
-                    <LoaderCircleIcon className="animate-spin" />
-                  ) : (
-                    <Minimize2Icon />
-                  )}
-                  {t("session.runtime.compactContext")}
-                </Button>
               </>
             ) : null
           }
@@ -1910,6 +1932,7 @@ export function SessionRuntime({
       >
         <DialogContent
           className="sm:max-w-4xl"
+          onOpenAutoFocus={(event) => event.preventDefault()}
           onCloseAutoFocus={(event) => {
             event.preventDefault()
             composerTextareaRef.current?.focus()

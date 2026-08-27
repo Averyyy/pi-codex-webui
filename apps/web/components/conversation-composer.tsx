@@ -13,7 +13,9 @@ import {
   ArrowUpIcon,
   ImagePlusIcon,
   LoaderCircleIcon,
+  Minimize2Icon,
   Settings2Icon,
+  TargetIcon,
 } from "lucide-react"
 import { toast } from "sonner"
 
@@ -69,6 +71,7 @@ export function ConversationComposer({
   actions,
   endActions,
   settings,
+  sessionControls,
   images = [],
   imageError,
   imagesSupported = false,
@@ -93,6 +96,21 @@ export function ConversationComposer({
   actions?: ReactNode
   endActions?: ReactNode
   settings?: ReactNode
+  sessionControls?: {
+    goal?: {
+      disabled?: boolean
+      onClick?: () => void
+    }
+    runtime: {
+      active: boolean
+      label: string
+    }
+    compact?: {
+      disabled?: boolean
+      pending?: boolean
+      onClick?: () => void
+    }
+  }
   images?: ComposerImage[]
   imageError?: string | null
   imagesSupported?: boolean | null
@@ -380,6 +398,22 @@ export function ConversationComposer({
             </>
           ) : null}
           {settings}
+          {sessionControls?.compact ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={sessionControls.compact.onClick}
+              disabled={sessionControls.compact.disabled}
+            >
+              {sessionControls.compact.pending ? (
+                <LoaderCircleIcon className="animate-spin" />
+              ) : (
+                <Minimize2Icon />
+              )}
+              {t("session.runtime.compactContext")}
+            </Button>
+          ) : null}
         </div>
       ) : null}
       <ComposerImagePreviews
@@ -420,6 +454,28 @@ export function ConversationComposer({
         />
       )}
       <div className="flex flex-wrap items-center gap-2 px-1 pb-1">
+        {sessionControls?.goal ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={sessionControls.goal.onClick}
+            disabled={sessionControls.goal.disabled}
+          >
+            <TargetIcon />
+            {t("session.command.goal")}
+          </Button>
+        ) : null}
+        {sessionControls ? (
+          <span
+            role="status"
+            aria-label={sessionControls.runtime.label}
+            title={sessionControls.runtime.label}
+            className={`size-2 shrink-0 rounded-full ${
+              sessionControls.runtime.active ? "bg-emerald-500" : "bg-red-500"
+            }`}
+          />
+        ) : null}
         {actions}
         <div className="ml-auto flex items-center gap-2">
           {endActions}
