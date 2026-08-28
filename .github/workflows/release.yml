@@ -54,6 +54,6 @@ jobs:
         run: pnpm release:verify
       
       - name: Publish package
-        run: pnpm publish --no-git-checks --access public --provenance
+        run: npm publish --access public --provenance=false
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
