@@ -95,3 +95,24 @@ test("queue replacement cannot drop a prompt that is still being admitted", () =
   assert.equal(reconciled.length, 2)
   assert.equal(reconciled[1]?.text, "second")
 })
+
+test("control queue entries are visible and same controls replace in place", () => {
+  const queue = new PromptQueue()
+  queue.upsertControl("followUp", "/model openai/gpt-4o", {
+    type: "model",
+    value: "openai/gpt-4o",
+  })
+  const first = queue.snapshot()
+  assert.equal(first.length, 1)
+  assert.equal(first[0]?.kind, "control")
+  const firstId = first[0]?.id
+
+  queue.upsertControl("followUp", "/model openai/gpt-4.1", {
+    type: "model",
+    value: "openai/gpt-4.1",
+  })
+  const replaced = queue.snapshot()
+  assert.equal(replaced.length, 1)
+  assert.equal(replaced[0]?.id, firstId)
+  assert.equal(replaced[0]?.control?.value, "openai/gpt-4.1")
+})

@@ -14,12 +14,15 @@ import {
 } from "react"
 import { useRouter } from "next/navigation"
 import {
+  FileTextIcon,
   GitMergeIcon,
   LoaderCircleIcon,
   Minimize2Icon,
   RefreshCwIcon,
+  SparklesIcon,
   SquareIcon,
   TargetIcon,
+  TerminalIcon,
 } from "lucide-react"
 import { toast } from "sonner"
 
@@ -379,6 +382,7 @@ export function SessionRuntime({
     "running" | "complete" | null
   >(initialSnapshot?.isCompacting ? "running" : null)
   const compactRequestRef = useRef(false)
+  const [compactQueuedOptimistic, setCompactQueuedOptimistic] = useState(false)
   const [treeOpen, setTreeOpen] = useState(false)
   const [goalDialogOpen, setGoalDialogOpen] = useState(false)
   const [goalObjective, setGoalObjective] = useState("")
@@ -428,6 +432,16 @@ export function SessionRuntime({
   const completedStreamRevision = useRef<number | null>(null)
   const committedEventCursor = useRef(initialEventCursor)
   const selectedModel = snapshot?.model
+  const queuedControl = (
+    type: NonNullable<QueuedPromptItem["control"]>["type"]
+  ) =>
+    queuedMessages.find(
+      (item) => item.kind === "control" && item.control?.type === type
+    )?.control
+  const queuedModel = queuedControl("model")?.value
+  const queuedThinking = queuedControl("thinking")?.value
+  const compactQueued =
+    Boolean(queuedControl("compact")) || compactQueuedOptimistic
   const extensionRequest = extensionRequests[0] ?? null
   const extensionValue = extensionRequest?.value ?? ""
   const imagesSupported = snapshot
@@ -452,6 +466,13 @@ export function SessionRuntime({
   const updateQueuedMessages = useCallback((items: QueuedPromptItem[]) => {
     queuedMessagesRevision.current += 1
     setQueuedMessages(items)
+    if (
+      !items.some(
+        (item) => item.kind === "control" && item.control?.type === "compact"
+      )
+    ) {
+      setCompactQueuedOptimistic(false)
+    }
   }, [])
 
   useLayoutEffect(() => {
@@ -1165,6 +1186,10 @@ export function SessionRuntime({
   }
 
   async function setModel(model: RuntimeSnapshot["availableModels"][number]) {
+    if (status === "busy") {
+      await sendMessage(`/model ${model.provider}/${model.id}`)
+      return
+    }
     if (updatingRef.current) return
     updatingRef.current = true
     setUpdating(true)
@@ -1187,6 +1212,10 @@ export function SessionRuntime({
   }
 
   async function setThinkingLevel(level: RuntimeSnapshot["thinkingLevel"]) {
+    if (status === "busy") {
+      await sendMessage(`/thinking ${level}`)
+      return
+    }
     if (updatingRef.current) return
     updatingRef.current = true
     setUpdating(true)
@@ -1251,6 +1280,11 @@ export function SessionRuntime({
           queuedMessagesRevision.current
         )
       )
+      setCompactQueuedOptimistic(
+        state.items.some(
+          (item) => item.kind === "control" && item.control?.type === "compact"
+        )
+      )
     } catch (failure) {
       const error =
         failure instanceof ApiError && failure.code === "QueueConflict"
@@ -1272,7 +1306,12 @@ export function SessionRuntime({
   }
 
   async function compact() {
-    if (compacting || compactRequestRef.current) return
+    if (compacting || compactRequestRef.current || compactQueued) return
+    if (status === "busy") {
+      setCompactQueuedOptimistic(true)
+      if (!(await sendMessage("/compact"))) setCompactQueuedOptimistic(false)
+      return
+    }
     compactRequestRef.current = true
     setCompacting(true)
     setCompactionNotice("running")
@@ -1432,6 +1471,26 @@ export function SessionRuntime({
     </section>
   )
 
+  const slashCommands = (snapshot?.slashCommands ?? [])
+    .filter(
+      (command) => !["goal", "compact", "reload", "tree"].includes(command.name)
+    )
+    .map((command) => ({
+      id: `slash:${command.name}`,
+      label: `/${command.name}`,
+      description: command.description ?? `/${command.name}`,
+      icon:
+        command.source === "skill"
+          ? SparklesIcon
+          : command.source === "prompt"
+            ? FileTextIcon
+            : TerminalIcon,
+      disabled:
+        submitting || aborting || status === "crashed" || status === "stopping",
+      onSelect: () =>
+        void sendMessage(`/${command.name}`, { clearDraft: true }),
+    }))
+
   return (
     <div className="z-10 shrink-0 border-t bg-background/95 px-4 py-3 backdrop-blur sm:px-6 sm:py-4">
       <div className="mx-auto flex w-full max-w-[52rem] min-w-0 flex-col gap-3">
@@ -1454,6 +1513,7 @@ export function SessionRuntime({
           <GoalStatusBar
             initialState={initialGoalState}
             disabled={status === "starting" || status === "crashed"}
+            queueCommands={isBusy}
             onCommand={(args) => sendMessage(`/goal ${args}`)}
           />
           <ExtensionSlot name="composer.above" excludeViewIds={["goal.card"]} />
@@ -1543,7 +1603,7 @@ export function SessionRuntime({
               label: t("session.command.compact"),
               description: t("session.command.compactDescription"),
               icon: Minimize2Icon,
-              disabled: settingsDisabled,
+              disabled: settingsDisabled || compactQueued,
               onSelect: () => void compact(),
             },
             {
@@ -1564,6 +1624,7 @@ export function SessionRuntime({
               ),
               onSelect: () => setTreeOpen(true),
             },
+            ...slashCommands,
           ]}
           sessionControls={{
             goal: goalAvailable
@@ -1577,8 +1638,8 @@ export function SessionRuntime({
               label: runtimeStatusLabel,
             },
             compact: {
-              disabled: settingsDisabled,
-              pending: compacting,
+              disabled: settingsDisabled || compactQueued,
+              pending: compacting || compactQueued,
               onClick: compact,
             },
           }}
@@ -1695,7 +1756,14 @@ export function SessionRuntime({
               <>
                 {snapshot.model && snapshot.availableModels.length ? (
                   <ComposerModelSelect
-                    model={snapshot.model}
+                    model={
+                      queuedModel
+                        ? (snapshot.availableModels.find(
+                            (model) =>
+                              `${model.provider}/${model.id}` === queuedModel
+                          ) ?? snapshot.model)
+                        : snapshot.model
+                    }
                     models={snapshot.availableModels}
                     onModelChange={(model) => void setModel(model)}
                     disabled={settingsDisabled}
@@ -1703,7 +1771,10 @@ export function SessionRuntime({
                   />
                 ) : null}
                 <ComposerThinkingSelect
-                  level={snapshot.thinkingLevel}
+                  level={
+                    (queuedThinking as RuntimeSnapshot["thinkingLevel"]) ??
+                    snapshot.thinkingLevel
+                  }
                   levels={snapshot.availableThinkingLevels}
                   onLevelChange={(level) => void setThinkingLevel(level)}
                   disabled={settingsDisabled}

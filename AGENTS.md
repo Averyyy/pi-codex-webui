@@ -4,3 +4,5 @@
 
 Read the relevant guide in `node_modules/next/dist/docs/` before changing Next.js routes, rendering, caching, or configuration. Follow current deprecation notices.
 <!-- END:nextjs-agent-rules -->
+
+Do not stop dev server after your job is done. Other agents may still be running.

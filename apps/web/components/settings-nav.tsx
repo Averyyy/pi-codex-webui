@@ -10,12 +10,10 @@ import {
   Code2Icon,
   CableIcon,
   KeyboardIcon,
-  PackageIcon,
   PaletteIcon,
   Settings2Icon,
   SlidersHorizontalIcon,
   SparklesIcon,
-  PuzzleIcon,
 } from "lucide-react"
 
 import {
@@ -34,6 +32,7 @@ import {
 } from "@workspace/ui/components/sidebar"
 
 import { useI18n } from "@/components/i18n-provider"
+import { PiBrand } from "@/components/pi-brand"
 
 const sections = [
   {
@@ -58,23 +57,8 @@ const sections = [
     icon: SlidersHorizontalIcon,
   },
   {
-    href: "/settings/packages",
-    key: "settings.nav.packages",
-    icon: PackageIcon,
-  },
-  {
     href: "/settings/extensions",
     key: "settings.nav.extensions",
-    icon: BlocksIcon,
-  },
-  {
-    href: "/settings/pi-extensions",
-    key: "settings.nav.piExtensions",
-    icon: PuzzleIcon,
-  },
-  {
-    href: "/settings/webui-extensions",
-    key: "settings.nav.webuiExtensions",
     icon: BlocksIcon,
   },
   { href: "/settings/skills", key: "settings.nav.skills", icon: SparklesIcon },
@@ -100,8 +84,8 @@ export function SettingsNav() {
   return (
     <Sidebar collapsible="offcanvas">
       <SidebarHeader inert={navigationHidden} aria-hidden={navigationHidden}>
-        <div className="flex h-10 items-center px-2 text-base font-semibold">
-          pi-web-codex
+        <div className="flex h-10 items-center px-2">
+          <PiBrand />
         </div>
       </SidebarHeader>
       <SidebarContent

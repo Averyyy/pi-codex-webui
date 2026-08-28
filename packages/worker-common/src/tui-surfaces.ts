@@ -279,7 +279,7 @@ export class TuiSurfaceManager {
     this.remove(slot)
     const id = randomUUID()
     const terminal = this.createTerminal(id)
-    const tui = new this.tuiModule.TUI(terminal)
+    const tui = new this.tuiModule.TuiMainScreen(terminal)
     const component = factory(tui)
     this.attach({
       id,
@@ -341,7 +341,7 @@ export class TuiSurfaceManager {
     return new Promise<T>((resolve, reject) => {
       const id = randomUUID()
       const terminal = this.createTerminal(id)
-      const tui = new this.tuiModule.TUI(terminal)
+      const tui = new this.tuiModule.TuiMainScreen(terminal)
       let finished = false
       let attached = false
       const finish = (result: T) => {

@@ -48,36 +48,21 @@ function matchesQuery(resource: ResourceView, query: string) {
   ].some((value) => value?.toLocaleLowerCase().includes(query))
 }
 
-export function ResourceListSettings({
+export function ResourceListContent({
   kind,
-  projects,
-  projectId,
-  sessionIds,
-  initialCatalog,
-  mutationToken,
+  catalog,
+  busy,
+  onToggle,
+  onQueryChange,
 }: {
   kind: "extension" | "skill"
-  projects: ResourceProject[]
-  projectId: string
-  sessionIds: string[]
-  initialCatalog: ResourceCatalog
-  mutationToken: string
+  catalog: ResourceCatalog
+  busy: boolean
+  onToggle: (resource: ResourceView, enabled: boolean) => void
+  onQueryChange?: () => void
 }) {
   const { t } = useI18n()
   const [query, setQuery] = useState("")
-  const [workingId, setWorkingId] = useState<string | null>(null)
-  const [trustWorking, setTrustWorking] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const workingRef = useRef(false)
-  const errorRef = useRef<HTMLParagraphElement | null>(null)
-  const focusErrorRef = useRef(false)
-  const [catalog, setCatalog] = useResourceCatalog(
-    projectId,
-    sessionIds,
-    initialCatalog,
-    setError,
-    t("settings.resources.readFailed")
-  )
   const resources = catalog.resources.filter(
     (resource) => resource.type === kind
   )
@@ -85,73 +70,13 @@ export function ResourceListSettings({
   const visibleResources = normalizedQuery
     ? resources.filter((resource) => matchesQuery(resource, normalizedQuery))
     : resources
-  const busy = workingId !== null || trustWorking
   const kindLabel =
     kind === "skill"
       ? t("settings.resources.kind.skills")
       : t("settings.resources.kind.extensions")
 
-  useEffect(() => {
-    if (!error || busy || !focusErrorRef.current) return
-    focusErrorRef.current = false
-    const frame = requestAnimationFrame(() => errorRef.current?.focus())
-    return () => cancelAnimationFrame(frame)
-  }, [busy, error])
-
-  function reportMutationError(failure: unknown) {
-    focusErrorRef.current = true
-    setError(failure instanceof Error ? failure.message : String(failure))
-  }
-
-  function handleProjectError(message: string | null) {
-    if (message) focusErrorRef.current = true
-    setError(message)
-  }
-
-  async function toggle(resource: ResourceView, enabled: boolean) {
-    if (workingRef.current) return
-    workingRef.current = true
-    setWorkingId(resource.id)
-    setError(null)
-    try {
-      const response = await fetch(`/api/v1/${kind}s/${resource.id}`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Pi-Web-Codex-Mutation-Token": mutationToken,
-        },
-        body: JSON.stringify({
-          projectId,
-          writeScope: resource.scope,
-          enabled,
-        }),
-      })
-      const result = await validatedResponseJson(
-        response,
-        (value) => resourceCatalogSchema.parse(value),
-        t("settings.common.saveFailed")
-      )
-      setCatalog(result)
-    } catch (failure) {
-      reportMutationError(failure)
-    } finally {
-      workingRef.current = false
-      setWorkingId(null)
-    }
-  }
-
   return (
-    <div className="grid gap-6">
-      <ResourceProjectControls
-        projects={projects}
-        projectId={projectId}
-        catalog={catalog}
-        mutationToken={mutationToken}
-        working={busy}
-        onWorkingChange={setTrustWorking}
-        onCatalogChange={setCatalog}
-        onError={handleProjectError}
-      />
+    <>
       <div className="grid gap-1.5">
         <Input
           type="search"
@@ -165,7 +90,7 @@ export function ResourceListSettings({
           })}
           onChange={(event) => {
             setQuery(event.target.value)
-            setError(null)
+            onQueryChange?.()
           }}
         />
         {normalizedQuery ? (
@@ -243,7 +168,7 @@ export function ResourceListSettings({
                           (scope === "project" && !catalog.projectTrusted)
                         }
                         onCheckedChange={(enabled) =>
-                          void toggle(resource, enabled)
+                          onToggle(resource, enabled)
                         }
                       />
                     </CardAction>
@@ -273,6 +198,109 @@ export function ResourceListSettings({
           </section>
         )
       })}
+    </>
+  )
+}
+
+export function ResourceListSettings({
+  kind,
+  projects,
+  projectId,
+  sessionIds,
+  initialCatalog,
+  mutationToken,
+}: {
+  kind: "extension" | "skill"
+  projects: ResourceProject[]
+  projectId: string
+  sessionIds: string[]
+  initialCatalog: ResourceCatalog
+  mutationToken: string
+}) {
+  const { t } = useI18n()
+  const [workingId, setWorkingId] = useState<string | null>(null)
+  const [trustWorking, setTrustWorking] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const workingRef = useRef(false)
+  const errorRef = useRef<HTMLParagraphElement | null>(null)
+  const focusErrorRef = useRef(false)
+  const [catalog, setCatalog] = useResourceCatalog(
+    projectId,
+    sessionIds,
+    initialCatalog,
+    setError,
+    t("settings.resources.readFailed")
+  )
+  const busy = workingId !== null || trustWorking
+
+  useEffect(() => {
+    if (!error || busy || !focusErrorRef.current) return
+    focusErrorRef.current = false
+    const frame = requestAnimationFrame(() => errorRef.current?.focus())
+    return () => cancelAnimationFrame(frame)
+  }, [busy, error])
+
+  function reportMutationError(failure: unknown) {
+    focusErrorRef.current = true
+    setError(failure instanceof Error ? failure.message : String(failure))
+  }
+
+  function handleProjectError(message: string | null) {
+    if (message) focusErrorRef.current = true
+    setError(message)
+  }
+
+  async function toggle(resource: ResourceView, enabled: boolean) {
+    if (workingRef.current) return
+    workingRef.current = true
+    setWorkingId(resource.id)
+    setError(null)
+    try {
+      const response = await fetch(`/api/v1/${kind}s/${resource.id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Pi-Web-Codex-Mutation-Token": mutationToken,
+        },
+        body: JSON.stringify({
+          projectId,
+          writeScope: resource.scope,
+          enabled,
+        }),
+      })
+      const result = await validatedResponseJson(
+        response,
+        (value) => resourceCatalogSchema.parse(value),
+        t("settings.common.saveFailed")
+      )
+      setCatalog(result)
+    } catch (failure) {
+      reportMutationError(failure)
+    } finally {
+      workingRef.current = false
+      setWorkingId(null)
+    }
+  }
+
+  return (
+    <div className="grid gap-6">
+      <ResourceProjectControls
+        projects={projects}
+        projectId={projectId}
+        catalog={catalog}
+        mutationToken={mutationToken}
+        working={busy}
+        onWorkingChange={setTrustWorking}
+        onCatalogChange={setCatalog}
+        onError={handleProjectError}
+      />
+      <ResourceListContent
+        kind={kind}
+        catalog={catalog}
+        busy={busy}
+        onToggle={(resource, enabled) => void toggle(resource, enabled)}
+        onQueryChange={() => setError(null)}
+      />
       {error ? (
         <p
           ref={errorRef}

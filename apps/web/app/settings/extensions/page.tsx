@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation"
 
-import { ResourceListSettings } from "@/components/resource-list-settings"
+import { ExtensionSettings } from "@/components/extension-settings"
 import { SettingsSection } from "@/components/settings-section"
 import { getLocalizedConfig } from "@/lib/i18n-server"
 import { loadResourceSettings } from "@/lib/resource-settings-data"
@@ -22,9 +22,8 @@ export default async function ExtensionsSettingsPage({
       description={t("settings.page.extensions.description")}
     >
       {data.catalog && data.selectedProjectId ? (
-        <ResourceListSettings
+        <ExtensionSettings
           key={`extension:${data.selectedProjectId}`}
-          kind="extension"
           projects={data.projects}
           projectId={data.selectedProjectId}
           sessionIds={data.sessionIds}

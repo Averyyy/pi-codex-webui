@@ -258,7 +258,15 @@ export function ModelSettings({
         })
       )
       setSettings(next)
-      toast.success(t("settings.models.refreshSuccess"))
+      if (next.refreshErrors && next.refreshErrors.length > 0) {
+        toast.error(
+          next.refreshErrors
+            .map(({ provider, message }) => `${provider}: ${message}`)
+            .join("; ")
+        )
+      } else {
+        toast.success(t("settings.models.refreshSuccess"))
+      }
     } catch (failure) {
       toast.error(operationError(failure, t))
     } finally {

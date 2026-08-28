@@ -141,6 +141,7 @@ interface ManagedRuntime {
   resourceReloadPromise: Promise<RuntimeSnapshot> | null
   modelReloadPromise: Promise<RuntimeSnapshot> | null
   webUiStatuses: Map<string, WebUiExtensionStatus>
+  extensionStatuses: Map<string, string>
   extensionUiRequests?: Map<
     string,
     {
@@ -405,7 +406,7 @@ export class RuntimeSupervisor {
         sessionId,
       })
     )
-    runtime.snapshot = snapshot
+    runtime.snapshot = this.snapshotWithExtensionStatuses(runtime, snapshot)
     runtime.status =
       snapshot.isStreaming || snapshot.isCompacting ? "busy" : "ready"
     if (runtime.status === "ready") {
@@ -448,7 +449,10 @@ export class RuntimeSupervisor {
       requestId: requestId(),
       sessionId,
     })
-    runtime.snapshot = runtimeSnapshotSchema.parse(data)
+    runtime.snapshot = this.snapshotWithExtensionStatuses(
+      runtime,
+      runtimeSnapshotSchema.parse(data)
+    )
     return runtime.snapshot
   }
 
@@ -465,15 +469,18 @@ export class RuntimeSupervisor {
 
   async setModel(sessionId: string, provider: string, modelId: string) {
     const runtime = await this.activate(sessionId)
-    const snapshot = runtimeSnapshotSchema.parse(
-      await this.request(runtime, {
-        type: "session.set-model",
-        requestId: requestId(),
-        sessionId,
-        payload: { provider, modelId },
-      })
+    const snapshot = this.snapshotWithExtensionStatuses(
+      runtime,
+      runtimeSnapshotSchema.parse(
+        await this.request(runtime, {
+          type: "session.set-model",
+          requestId: requestId(),
+          sessionId,
+          payload: { provider, modelId },
+        })
+      )
     )
-    runtime.snapshot = snapshot
+    runtime.snapshot = this.snapshotWithExtensionStatuses(runtime, snapshot)
     return snapshot
   }
 
@@ -482,15 +489,18 @@ export class RuntimeSupervisor {
     level: RuntimeSnapshot["thinkingLevel"]
   ) {
     const runtime = await this.activate(sessionId)
-    const snapshot = runtimeSnapshotSchema.parse(
-      await this.request(runtime, {
-        type: "session.set-thinking-level",
-        requestId: requestId(),
-        sessionId,
-        payload: { level },
-      })
+    const snapshot = this.snapshotWithExtensionStatuses(
+      runtime,
+      runtimeSnapshotSchema.parse(
+        await this.request(runtime, {
+          type: "session.set-thinking-level",
+          requestId: requestId(),
+          sessionId,
+          payload: { level },
+        })
+      )
     )
-    runtime.snapshot = snapshot
+    runtime.snapshot = this.snapshotWithExtensionStatuses(runtime, snapshot)
     return snapshot
   }
 
@@ -538,15 +548,18 @@ export class RuntimeSupervisor {
 
   async rename(sessionId: string, name: string) {
     const runtime = await this.activateReadyRuntime(sessionId)
-    const snapshot = runtimeSnapshotSchema.parse(
-      await this.request(runtime, {
-        type: "session.rename",
-        requestId: requestId(),
-        sessionId,
-        payload: { name },
-      })
+    const snapshot = this.snapshotWithExtensionStatuses(
+      runtime,
+      runtimeSnapshotSchema.parse(
+        await this.request(runtime, {
+          type: "session.rename",
+          requestId: requestId(),
+          sessionId,
+          payload: { name },
+        })
+      )
     )
-    runtime.snapshot = snapshot
+    runtime.snapshot = this.snapshotWithExtensionStatuses(runtime, snapshot)
     return snapshot
   }
 
@@ -591,7 +604,10 @@ export class RuntimeSupervisor {
         summarize ? COMPACTION_TIMEOUT_MS : REQUEST_TIMEOUT_MS
       )
     )
-    runtime.snapshot = result.snapshot
+    runtime.snapshot = this.snapshotWithExtensionStatuses(
+      runtime,
+      result.snapshot
+    )
     if (options.publishEvent !== false) {
       this.eventHub.publish({
         type: "session.leaf.changed",
@@ -953,6 +969,18 @@ export class RuntimeSupervisor {
             ...status,
           }))
         : []
+    })
+  }
+
+  private snapshotWithExtensionStatuses(
+    runtime: ManagedRuntime,
+    snapshot: RuntimeSnapshot
+  ) {
+    return runtimeSnapshotSchema.parse({
+      ...snapshot,
+      extensionStatuses: runtime.extensionStatuses
+        ? Object.fromEntries(runtime.extensionStatuses)
+        : snapshot.extensionStatuses,
     })
   }
 
@@ -1386,7 +1414,7 @@ export class RuntimeSupervisor {
       runtime.nativeSessionId = identity.nativeSessionId
       runtime.nativeSessionFile = identity.nativeSessionFile
       runtime.lockPath = nextLockPath
-      runtime.snapshot = snapshot
+      runtime.snapshot = this.snapshotWithExtensionStatuses(runtime, snapshot)
       runtime.status = "ready"
       runtime.lastActivityAt = Date.now()
       this.runtimes.set(identity.id, runtime)
@@ -1505,6 +1533,7 @@ export class RuntimeSupervisor {
       resourceReloadPromise: null,
       modelReloadPromise: null,
       webUiStatuses: new Map(),
+      extensionStatuses: new Map(),
       extensionUiRequests: new Map(),
     }
     this.runtimes.set(provisionalWebSessionId, managed)
@@ -1516,20 +1545,23 @@ export class RuntimeSupervisor {
     })
 
     try {
-      let snapshot = runtimeSnapshotSchema.parse(
-        await this.request(managed, {
-          type: "runtime.initialize",
-          requestId: requestId(),
-          payload: {
-            webSessionId: provisionalWebSessionId,
-            runtimeProfileId: target.profileId,
-            cwd: target.cwd,
-            agentDir: getPiAgentDir(),
-            mcpTools,
-            webuiAdapters,
-            target: initializationTarget,
-          },
-        })
+      let snapshot = this.snapshotWithExtensionStatuses(
+        managed,
+        runtimeSnapshotSchema.parse(
+          await this.request(managed, {
+            type: "runtime.initialize",
+            requestId: requestId(),
+            payload: {
+              webSessionId: provisionalWebSessionId,
+              runtimeProfileId: target.profileId,
+              cwd: target.cwd,
+              agentDir: getPiAgentDir(),
+              mcpTools,
+              webuiAdapters,
+              target: initializationTarget,
+            },
+          })
+        )
       )
       const identity = await getSessionIdentityByNativeFile(
         snapshot.nativeSessionFile
@@ -1563,12 +1595,15 @@ export class RuntimeSupervisor {
       }
 
       if (identity.id !== provisionalWebSessionId) {
-        snapshot = runtimeSnapshotSchema.parse(
-          await this.request(managed, {
-            type: "runtime.rebind-web-session",
-            requestId: requestId(),
-            payload: { webSessionId: identity.id },
-          })
+        snapshot = this.snapshotWithExtensionStatuses(
+          managed,
+          runtimeSnapshotSchema.parse(
+            await this.request(managed, {
+              type: "runtime.rebind-web-session",
+              requestId: requestId(),
+              payload: { webSessionId: identity.id },
+            })
+          )
         )
       }
       managed.lockPath = await this.acquireSessionLock({
@@ -1581,7 +1616,7 @@ export class RuntimeSupervisor {
       managed.webSessionId = identity.id
       managed.nativeSessionId = identity.nativeSessionId
       managed.nativeSessionFile = identity.nativeSessionFile
-      managed.snapshot = snapshot
+      managed.snapshot = this.snapshotWithExtensionStatuses(managed, snapshot)
       managed.status = "ready"
       this.runtimes.set(identity.id, managed)
       this.eventHub.publish({
@@ -1698,6 +1733,7 @@ export class RuntimeSupervisor {
       resourceReloadPromise: null,
       modelReloadPromise: null,
       webUiStatuses: new Map(),
+      extensionStatuses: new Map(),
       extensionUiRequests: new Map(),
     }
     this.runtimes.set(sessionId, managed)
@@ -1709,20 +1745,23 @@ export class RuntimeSupervisor {
     })
 
     try {
-      const snapshot = runtimeSnapshotSchema.parse(
-        await this.request(managed, {
-          type: "runtime.initialize",
-          requestId: requestId(),
-          payload: {
-            webSessionId: sessionId,
-            runtimeProfileId: target.runtimeProfileId,
-            cwd: target.cwd,
-            agentDir: getPiAgentDir(),
-            mcpTools,
-            webuiAdapters,
-            target: { mode: "resume", nativeSessionFile },
-          },
-        })
+      const snapshot = this.snapshotWithExtensionStatuses(
+        managed,
+        runtimeSnapshotSchema.parse(
+          await this.request(managed, {
+            type: "runtime.initialize",
+            requestId: requestId(),
+            payload: {
+              webSessionId: sessionId,
+              runtimeProfileId: target.runtimeProfileId,
+              cwd: target.cwd,
+              agentDir: getPiAgentDir(),
+              mcpTools,
+              webuiAdapters,
+              target: { mode: "resume", nativeSessionFile },
+            },
+          })
+        )
       )
       if (snapshot.nativeSessionId !== target.nativeSessionId) {
         throw new RuntimeRequestError(
@@ -1730,7 +1769,7 @@ export class RuntimeSupervisor {
           "The Pi worker opened a different native session."
         )
       }
-      managed.snapshot = snapshot
+      managed.snapshot = this.snapshotWithExtensionStatuses(managed, snapshot)
       managed.status = "ready"
       return managed
     } catch (error) {
@@ -1820,6 +1859,22 @@ export class RuntimeSupervisor {
     }
     if (message.type === "extension.ui.request") {
       let expiresAt: number | null | undefined
+      if (message.payload.method === "setStatus") {
+        if (message.payload.statusText === undefined) {
+          runtime.extensionStatuses.delete(message.payload.statusKey)
+        } else {
+          runtime.extensionStatuses.set(
+            message.payload.statusKey,
+            message.payload.statusText
+          )
+        }
+        if (runtime.snapshot) {
+          runtime.snapshot = this.snapshotWithExtensionStatuses(
+            runtime,
+            runtime.snapshot
+          )
+        }
+      }
       if (
         message.payload.method === "select" ||
         message.payload.method === "confirm" ||
@@ -1879,13 +1934,16 @@ export class RuntimeSupervisor {
     }
     if (message.type === "runtime.ready") {
       this.failures.delete(runtime.webSessionId)
-      runtime.snapshot = message.payload
+      runtime.snapshot = this.snapshotWithExtensionStatuses(
+        runtime,
+        message.payload
+      )
       runtime.status = "ready"
-      this.resolvePending(runtime, message.requestId, message.payload)
+      this.resolvePending(runtime, message.requestId, runtime.snapshot)
       this.eventHub.publish({
         type: "runtime.ready",
         sessionId: runtime.webSessionId,
-        payload: message.payload,
+        payload: runtime.snapshot,
       })
       this.schedulePendingRuntimeWork(runtime)
       return
@@ -2338,16 +2396,19 @@ export class RuntimeSupervisor {
           sessionId: runtime.webSessionId,
           payload: { reason: "model-settings-reload" },
         })
-        const snapshot = runtimeSnapshotSchema.parse(
-          await this.request(runtime, {
-            type: "runtime.reload-model-settings",
-            requestId: requestId(),
-            sessionId: runtime.webSessionId,
-          })
+        const snapshot = this.snapshotWithExtensionStatuses(
+          runtime,
+          runtimeSnapshotSchema.parse(
+            await this.request(runtime, {
+              type: "runtime.reload-model-settings",
+              requestId: requestId(),
+              sessionId: runtime.webSessionId,
+            })
+          )
         )
         this.assertRuntimeReloadable(runtime)
         latest = snapshot
-        runtime.snapshot = snapshot
+        runtime.snapshot = this.snapshotWithExtensionStatuses(runtime, snapshot)
         runtime.status = "ready"
         this.eventHub.publish({
           type: "runtime.ready",
@@ -2400,20 +2461,23 @@ export class RuntimeSupervisor {
           sessionId: runtime.webSessionId,
           payload: { reason: "resources-reload" },
         })
-        const snapshot = runtimeSnapshotSchema.parse(
-          await this.request(
-            runtime,
-            {
-              type: "runtime.reload-resources",
-              requestId: requestId(),
-              sessionId: runtime.webSessionId,
-            },
-            COMPACTION_TIMEOUT_MS
+        const snapshot = this.snapshotWithExtensionStatuses(
+          runtime,
+          runtimeSnapshotSchema.parse(
+            await this.request(
+              runtime,
+              {
+                type: "runtime.reload-resources",
+                requestId: requestId(),
+                sessionId: runtime.webSessionId,
+              },
+              COMPACTION_TIMEOUT_MS
+            )
           )
         )
         this.assertRuntimeReloadable(runtime)
         latest = snapshot
-        runtime.snapshot = snapshot
+        runtime.snapshot = this.snapshotWithExtensionStatuses(runtime, snapshot)
         runtime.status = "ready"
         this.eventHub.publish({
           type: "runtime.ready",
@@ -2472,12 +2536,15 @@ export class RuntimeSupervisor {
   }
 
   private async refreshSettledRuntimeSnapshot(runtime: ManagedRuntime) {
-    const snapshot = runtimeSnapshotSchema.parse(
-      await this.request(runtime, {
-        type: "session.snapshot",
-        requestId: requestId(),
-        sessionId: runtime.webSessionId,
-      })
+    const snapshot = this.snapshotWithExtensionStatuses(
+      runtime,
+      runtimeSnapshotSchema.parse(
+        await this.request(runtime, {
+          type: "session.snapshot",
+          requestId: requestId(),
+          sessionId: runtime.webSessionId,
+        })
+      )
     )
     if (
       runtime.cleaned ||
@@ -2488,7 +2555,7 @@ export class RuntimeSupervisor {
         "The settled Pi runtime is no longer active."
       )
     }
-    runtime.snapshot = snapshot
+    runtime.snapshot = this.snapshotWithExtensionStatuses(runtime, snapshot)
     runtime.status =
       snapshot.isStreaming || snapshot.isCompacting ? "busy" : "ready"
   }

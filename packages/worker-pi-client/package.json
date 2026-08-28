@@ -14,9 +14,9 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@earendil-works/pi-ai": "npm:@averyyy/pi-ai@0.80.6-piclient.7",
-    "@earendil-works/pi-coding-agent": "npm:@averyyy/pi-coding-agent@0.80.6-piclient.7",
-    "@earendil-works/pi-tui": "npm:@averyyy/pi-tui@0.80.6-piclient.7",
+    "@earendil-works/pi-ai": "npm:@averyyy/pi-ai@0.84.2-piclient.3",
+    "@earendil-works/pi-coding-agent": "npm:@averyyy/pi-coding-agent@0.84.2-piclient.3",
+    "@earendil-works/pi-tui": "npm:@averyyy/pi-tui@0.84.2-piclient.3",
     "proper-lockfile": "^4.1.2"
   },
   "devDependencies": {

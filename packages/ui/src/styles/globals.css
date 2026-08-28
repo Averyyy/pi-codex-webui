@@ -70,9 +70,12 @@
 
 :root {
   --font-ui:
-    -apple-system, BlinkMacSystemFont, "SF Pro Text", Inter, ui-sans-serif,
-    "Segoe UI", sans-serif;
-  --font-code: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+    -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text",
+    "PingFang SC", "Hiragino Sans GB", Inter, ui-sans-serif, "Segoe UI",
+    sans-serif;
+  --font-code:
+    "SFMono-Regular", "Cascadia Code", "Roboto Mono", Menlo, Monaco, Consolas,
+    "Liberation Mono", monospace;
   --background: oklch(1 0 0);
   --foreground: oklch(0.13 0 0);
   --card: oklch(1 0 0);
@@ -215,9 +218,62 @@
     @apply min-h-svh bg-background text-foreground antialiased;
     font-family: var(--font-ui);
     font-size: var(--app-font-size, 14px);
+    font-feature-settings: "kern", "liga", "clig", "calt";
+    font-optical-sizing: auto;
+    letter-spacing: 0;
+    line-height: 1.5;
+    text-rendering: optimizeLegibility;
+  }
+  :is(code, kbd, pre, samp) {
+    font-family: var(--font-code);
+    font-variant-ligatures: none;
+  }
+  :is(button, input, textarea, select) {
+    font: inherit;
   }
   ::selection {
     background: color-mix(in oklab, var(--primary) 24%, transparent);
+  }
+
+  [data-running="true"] > .conversation-disclosure-trigger {
+    position: relative;
+    overflow: hidden;
+    isolation: isolate;
+  }
+
+  [data-running="true"] > .conversation-disclosure-trigger::before {
+    position: absolute;
+    z-index: 0;
+    inset-block: 0;
+    left: -45%;
+    width: 45%;
+    content: "";
+    background: linear-gradient(
+      90deg,
+      transparent,
+      color-mix(in oklab, var(--tool-execute) 16%, transparent),
+      transparent
+    );
+    animation: conversation-disclosure-flow 1.8s ease-in-out infinite;
+    pointer-events: none;
+  }
+
+  [data-running="true"] > .conversation-disclosure-trigger > * {
+    position: relative;
+    z-index: 1;
+  }
+}
+
+@keyframes conversation-disclosure-flow {
+  to {
+    transform: translateX(325%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-running="true"] > .conversation-disclosure-trigger::before {
+    animation: none;
+    left: 28%;
   }
 }
 

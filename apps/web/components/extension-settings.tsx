@@ -6,8 +6,6 @@ import {
   PackagePlusIcon,
   RefreshCwIcon,
   Trash2Icon,
-  CheckCircle2Icon,
-  AlertCircleIcon,
 } from "lucide-react"
 
 import { Badge } from "@workspace/ui/components/badge"
@@ -28,71 +26,23 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@workspace/ui/components/select"
+import {
+  resourceCatalogSchema,
+  type ResourceCatalog,
+  type ResourceView,
+} from "@workspace/runtime-protocol"
 
-import type { ResourceProject } from "@/components/resource-project-controls"
-import { ResourceProjectControls } from "@/components/resource-project-controls"
+import {
+  ResourceProjectControls,
+  type ResourceProject,
+} from "@/components/resource-project-controls"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { useI18n } from "@/components/i18n-provider"
+import { ResourceListContent } from "@/components/resource-list-settings"
 import { validatedResponseJson } from "@/lib/api-response"
 import { useResourceCatalog } from "@/lib/use-resource-catalog"
 
-// Pi extension types
-interface PiExtension {
-  id: string
-  name: string
-  version: string
-  description: string
-  scope: "global" | "project"
-  installed: boolean
-  updateAvailable: boolean
-  status: "active" | "inactive" | "error"
-}
-
-interface PiExtensionCatalog {
-  extensions: PiExtension[]
-  revision: number
-  projectTrusted: boolean
-}
-
-// Mock catalog for demonstration - in production this would come from the API
-const mockCatalog: PiExtensionCatalog = {
-  extensions: [
-    {
-      id: "subagent",
-      name: "@tintinweb/pi-subagents",
-      version: "0.80.6",
-      description: "多智能体协作扩展，支持并行任务执行",
-      scope: "global",
-      installed: true,
-      updateAvailable: false,
-      status: "active",
-    },
-    {
-      id: "coding-agent",
-      name: "@earendil-works/pi-coding-agent",
-      version: "0.80.6",
-      description: "代码生成和重构智能体",
-      scope: "global",
-      installed: true,
-      updateAvailable: false,
-      status: "active",
-    },
-    {
-      id: "pi-ai",
-      name: "@earendil-works/pi-ai",
-      version: "0.80.6",
-      description: "Pi AI 核心扩展",
-      scope: "global",
-      installed: true,
-      updateAvailable: false,
-      status: "active",
-    },
-  ],
-  revision: 1,
-  projectTrusted: true,
-}
-
-export function PiExtensionSettings({
+export function ExtensionSettings({
   projects,
   projectId,
   sessionIds,
@@ -102,32 +52,41 @@ export function PiExtensionSettings({
   projects: ResourceProject[]
   projectId: string
   sessionIds: string[]
-  initialCatalog: any // Replace with actual catalog type
+  initialCatalog: ResourceCatalog
   mutationToken: string
 }) {
   const { t } = useI18n()
-  const [catalog, setCatalog] = useState<PiExtensionCatalog>(mockCatalog)
   const [source, setSource] = useState("")
   const [scope, setScope] = useState<"global" | "project">("global")
   const [query, setQuery] = useState("")
   const [working, setWorking] = useState<string | null>(null)
-  const [pendingRemove, setPendingRemove] = useState<PiExtension | null>(null)
+  const [extensionWorkingId, setExtensionWorkingId] = useState<string | null>(
+    null
+  )
+  const [pendingRemove, setPendingRemove] = useState<
+    ResourceCatalog["packages"][number] | null
+  >(null)
   const [trustWorking, setTrustWorking] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const workingRef = useRef(false)
   const errorRef = useRef<HTMLParagraphElement | null>(null)
   const focusErrorRef = useRef(false)
-
+  const [catalog, setCatalog] = useResourceCatalog(
+    projectId,
+    sessionIds,
+    initialCatalog,
+    setError,
+    t("settings.resources.readFailed")
+  )
   const normalizedQuery = query.trim().toLocaleLowerCase()
-  const visibleExtensions = normalizedQuery
-    ? catalog.extensions.filter((ext) =>
-        [ext.name, ext.description, ext.scope].some((value) =>
+  const visiblePackages = normalizedQuery
+    ? catalog.packages.filter((pkg) =>
+        [pkg.source, pkg.installedPath, pkg.scope].some((value) =>
           value?.toLocaleLowerCase().includes(normalizedQuery)
         )
       )
-    : catalog.extensions
-
-  const busy = working !== null || trustWorking
+    : catalog.packages
+  const busy = working !== null || extensionWorkingId !== null || trustWorking
 
   useEffect(() => {
     if (!error || busy || !focusErrorRef.current) return
@@ -146,19 +105,34 @@ export function PiExtensionSettings({
     setError(message)
   }
 
+  async function readCatalog(response: Response) {
+    const result = await validatedResponseJson(
+      response,
+      (value) => resourceCatalogSchema.parse(value),
+      t("settings.common.saveFailed")
+    )
+    setCatalog(result)
+  }
+
   async function install(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    const extensionSource = source.trim()
-    if (!extensionSource || workingRef.current) return
+    const packageSource = source.trim()
+    if (!packageSource || workingRef.current) return
     workingRef.current = true
     setWorking("install")
     setError(null)
     try {
-      // TODO: Implement actual API call
-      // await fetch("/api/v1/pi-extensions", { ... })
-      await new Promise((resolve) => setTimeout(resolve, 1000))
+      await readCatalog(
+        await fetch("/api/v1/packages", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Pi-Web-Codex-Mutation-Token": mutationToken,
+          },
+          body: JSON.stringify({ projectId, source: packageSource, scope }),
+        })
+      )
       setSource("")
-      setError(null)
     } catch (failure) {
       reportMutationError(failure)
     } finally {
@@ -167,15 +141,32 @@ export function PiExtensionSettings({
     }
   }
 
-  async function mutate(extensionId: string, operation: "remove" | "update") {
+  async function mutate(packageId: string, operation: "remove" | "update") {
     if (workingRef.current) return
     workingRef.current = true
-    setWorking(`${operation}:${extensionId}`)
+    setWorking(`${operation}:${packageId}`)
     setError(null)
     try {
-      // TODO: Implement actual API call
-      await new Promise((resolve) => setTimeout(resolve, 1000))
-      setError(null)
+      await readCatalog(
+        await fetch(
+          operation === "remove"
+            ? `/api/v1/packages/${packageId}?projectId=${encodeURIComponent(projectId)}`
+            : `/api/v1/packages/${packageId}/update`,
+          {
+            method: operation === "remove" ? "DELETE" : "POST",
+            headers: {
+              ...(operation === "update"
+                ? { "Content-Type": "application/json" }
+                : {}),
+              "X-Pi-Web-Codex-Mutation-Token": mutationToken,
+            },
+            body:
+              operation === "update"
+                ? JSON.stringify({ projectId })
+                : undefined,
+          }
+        )
+      )
     } catch (failure) {
       reportMutationError(failure)
     } finally {
@@ -186,19 +177,36 @@ export function PiExtensionSettings({
 
   async function confirmRemove() {
     if (!pendingRemove) return
-    const extensionId = pendingRemove.id
+    const packageId = pendingRemove.id
     setPendingRemove(null)
-    await mutate(extensionId, "remove")
+    await mutate(packageId, "remove")
   }
 
-  function getStatusIcon(status: PiExtension["status"]) {
-    switch (status) {
-      case "active":
-        return <CheckCircle2Icon className="h-4 w-4 text-green-600" />
-      case "error":
-        return <AlertCircleIcon className="h-4 w-4 text-destructive" />
-      default:
-        return null
+  async function toggleExtension(resource: ResourceView, enabled: boolean) {
+    if (workingRef.current) return
+    workingRef.current = true
+    setExtensionWorkingId(resource.id)
+    setError(null)
+    try {
+      await readCatalog(
+        await fetch(`/api/v1/extensions/${resource.id}`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Pi-Web-Codex-Mutation-Token": mutationToken,
+          },
+          body: JSON.stringify({
+            projectId,
+            writeScope: resource.scope,
+            enabled,
+          }),
+        })
+      )
+    } catch (failure) {
+      reportMutationError(failure)
+    } finally {
+      workingRef.current = false
+      setExtensionWorkingId(null)
     }
   }
 
@@ -207,18 +215,18 @@ export function PiExtensionSettings({
       <ResourceProjectControls
         projects={projects}
         projectId={projectId}
-        catalog={initialCatalog}
+        catalog={catalog}
         mutationToken={mutationToken}
         working={busy}
         onWorkingChange={setTrustWorking}
-        onCatalogChange={() => {}}
+        onCatalogChange={setCatalog}
         onError={handleProjectError}
       />
       <Card>
         <CardHeader>
-          <CardTitle>{t("settings.piExtensions.installTitle")}</CardTitle>
+          <CardTitle>{t("settings.packages.installTitle")}</CardTitle>
           <CardDescription>
-            {t("settings.piExtensions.installDescription")}
+            {t("settings.packages.installDescription")}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -233,23 +241,23 @@ export function PiExtensionSettings({
                 setSource(event.target.value)
                 setError(null)
               }}
-              placeholder={t("settings.piExtensions.sourcePlaceholder")}
-              aria-label={t("settings.piExtensions.source")}
+              placeholder={t("settings.packages.sourcePlaceholder")}
+              aria-label={t("settings.packages.source")}
             />
             <Select
               value={scope}
               disabled={busy}
               onValueChange={(value) => setScope(value as "global" | "project")}
             >
-              <SelectTrigger aria-label={t("settings.piExtensions.scope")}>
+              <SelectTrigger aria-label={t("settings.packages.scope")}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="global">
-                  {t("settings.piExtensions.global")}
+                  {t("settings.packages.global")}
                 </SelectItem>
                 <SelectItem value="project">
-                  {t("settings.piExtensions.currentProject")}
+                  {t("settings.packages.currentProject")}
                 </SelectItem>
               </SelectContent>
             </Select>
@@ -266,7 +274,7 @@ export function PiExtensionSettings({
               ) : (
                 <PackagePlusIcon />
               )}
-              {t("settings.piExtensions.install")}
+              {t("settings.packages.install")}
             </Button>
           </form>
         </CardContent>
@@ -274,14 +282,14 @@ export function PiExtensionSettings({
       <section className="grid gap-3">
         <div className="flex items-baseline justify-between gap-4">
           <h2 className="text-lg font-semibold">
-            {t("settings.piExtensions.configured")}
+            {t("settings.packages.configured")}
           </h2>
           <span className="text-xs text-muted-foreground">
             {t(
-              catalog.extensions.length === 1
-                ? "settings.piExtensions.itemCountOne"
-                : "settings.piExtensions.itemCountMany",
-              { count: catalog.extensions.length }
+              catalog.packages.length === 1
+                ? "settings.packages.itemCountOne"
+                : "settings.packages.itemCountMany",
+              { count: catalog.packages.length }
             )}
           </span>
         </div>
@@ -291,10 +299,10 @@ export function PiExtensionSettings({
             value={query}
             autoComplete="off"
             aria-label={t("settings.resources.searchLabel", {
-              kind: t("settings.piExtensions.kind"),
+              kind: t("settings.packages.kind"),
             })}
             placeholder={t("settings.resources.searchPlaceholder", {
-              kind: t("settings.piExtensions.kind"),
+              kind: t("settings.packages.kind"),
             })}
             onChange={(event) => {
               setQuery(event.target.value)
@@ -304,59 +312,44 @@ export function PiExtensionSettings({
           {normalizedQuery ? (
             <p aria-live="polite" className="text-xs text-muted-foreground">
               {t("settings.resources.filteredSummary", {
-                visible: visibleExtensions.length,
-                total: catalog.extensions.length,
+                visible: visiblePackages.length,
+                total: catalog.packages.length,
               })}
             </p>
           ) : null}
         </div>
-        {visibleExtensions.length ? (
-          visibleExtensions.map((ext) => (
-            <Card key={ext.id} size="sm">
+        {visiblePackages.length ? (
+          visiblePackages.map((pkg) => (
+            <Card key={pkg.id} size="sm">
               <CardHeader>
                 <CardTitle className="flex min-w-0 flex-wrap items-center gap-2 break-all">
-                  {ext.name}
+                  {pkg.source}
                   <Badge variant="outline">
-                    {ext.scope === "global"
+                    {pkg.scope === "global"
                       ? t("settings.resources.global")
                       : t("settings.resources.project")}
                   </Badge>
-                  {ext.status === "active" && (
-                    <Badge variant="secondary" className="gap-1">
-                      {getStatusIcon(ext.status)}
-                      {t("settings.piExtensions.active")}
+                  {pkg.missing ? (
+                    <Badge variant="destructive">
+                      {t("settings.packages.missing")}
                     </Badge>
-                  )}
-                  {ext.status === "error" && (
-                    <Badge variant="destructive" className="gap-1">
-                      {getStatusIcon(ext.status)}
-                      {t("settings.piExtensions.error")}
-                    </Badge>
-                  )}
-                  {ext.updateAvailable && (
-                    <Badge variant="outline">
-                      {t("settings.piExtensions.updateAvailable")}
-                    </Badge>
-                  )}
+                  ) : null}
                 </CardTitle>
                 <CardDescription className="break-all">
-                  {ext.description}
-                  <span className="ml-2 text-muted-foreground">
-                    v{ext.version}
-                  </span>
+                  {pkg.installedPath ?? t("settings.packages.missingPath")}
                 </CardDescription>
                 <CardAction className="flex gap-2">
                   <Button
                     type="button"
                     variant="outline"
                     size="icon"
-                    aria-label={t("settings.piExtensions.update", {
-                      name: ext.name,
+                    aria-label={t("settings.packages.update", {
+                      source: pkg.source,
                     })}
                     disabled={busy}
-                    onClick={() => void mutate(ext.id, "update")}
+                    onClick={() => void mutate(pkg.id, "update")}
                   >
-                    {working === `update:${ext.id}` ? (
+                    {working === `update:${pkg.id}` ? (
                       <LoaderCircleIcon className="animate-spin" />
                     ) : (
                       <RefreshCwIcon />
@@ -366,13 +359,13 @@ export function PiExtensionSettings({
                     type="button"
                     variant="outline"
                     size="icon"
-                    aria-label={t("settings.piExtensions.remove", {
-                      name: ext.name,
+                    aria-label={t("settings.packages.remove", {
+                      source: pkg.source,
                     })}
                     disabled={busy}
-                    onClick={() => setPendingRemove(ext)}
+                    onClick={() => setPendingRemove(pkg)}
                   >
-                    {working === `remove:${ext.id}` ? (
+                    {working === `remove:${pkg.id}` ? (
                       <LoaderCircleIcon className="animate-spin" />
                     ) : (
                       <Trash2Icon />
@@ -380,17 +373,36 @@ export function PiExtensionSettings({
                   </Button>
                 </CardAction>
               </CardHeader>
+              {pkg.filtered ? (
+                <CardContent className="text-xs text-muted-foreground">
+                  {t("settings.packages.filtered")}
+                </CardContent>
+              ) : null}
             </Card>
           ))
-        ) : catalog.extensions.length ? (
+        ) : catalog.packages.length ? (
           <p className="rounded-xl border border-dashed p-5 text-sm text-muted-foreground">
             {t("settings.resources.noMatches")}
           </p>
         ) : (
           <p className="rounded-xl border border-dashed p-5 text-sm text-muted-foreground">
-            {t("settings.piExtensions.empty")}
+            {t("settings.packages.empty")}
           </p>
         )}
+      </section>
+      <section className="grid gap-3">
+        <h2 className="text-lg font-semibold">
+          {t("settings.extensions.enabled")}
+        </h2>
+        <ResourceListContent
+          kind="extension"
+          catalog={catalog}
+          busy={busy}
+          onToggle={(resource, enabled) =>
+            void toggleExtension(resource, enabled)
+          }
+          onQueryChange={() => setError(null)}
+        />
       </section>
       {error ? (
         <p
@@ -408,12 +420,12 @@ export function PiExtensionSettings({
           onOpenChange={(open) => {
             if (!open) setPendingRemove(null)
           }}
-          title={t("settings.piExtensions.confirmRemoveTitle")}
-          description={t("settings.piExtensions.confirmRemoveDescription", {
-            name: pendingRemove.name,
+          title={t("settings.packages.confirmRemoveTitle")}
+          description={t("settings.packages.confirmRemoveDescription", {
+            source: pendingRemove.source,
           })}
-          cancelLabel={t("settings.piExtensions.cancel")}
-          confirmLabel={t("settings.piExtensions.confirmRemove")}
+          cancelLabel={t("settings.packages.cancel")}
+          confirmLabel={t("settings.packages.confirmRemove")}
           onConfirm={() => void confirmRemove()}
         />
       ) : null}

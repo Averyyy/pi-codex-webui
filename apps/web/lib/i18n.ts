@@ -266,7 +266,7 @@ const messages = {
     "zh-CN": "项目终端",
     "en-US": "Project terminal",
   },
-  "session.status.stopped": { "zh-CN": "未激活", "en-US": "Inactive" },
+  "session.status.stopped": { "zh-CN": "已停止", "en-US": "Stopped" },
   "session.status.starting": { "zh-CN": "启动中", "en-US": "Starting" },
   "session.status.ready": { "zh-CN": "就绪", "en-US": "Ready" },
   "session.status.busy": { "zh-CN": "运行中", "en-US": "Running" },
@@ -444,6 +444,22 @@ const messages = {
     "zh-CN": "重新启动 Runtime",
     "en-US": "Restart Runtime",
   },
+  "session.runtime.active": {
+    "zh-CN": "Runtime 运行中",
+    "en-US": "Runtime active",
+  },
+  "session.runtime.inactive": {
+    "zh-CN": "Runtime 未运行",
+    "en-US": "Runtime inactive",
+  },
+  "session.runtime.ponytailMode": {
+    "zh-CN": "Ponytail 强度",
+    "en-US": "Ponytail intensity",
+  },
+  "session.runtime.ponytailLevel": {
+    "zh-CN": "Ponytail：{level}",
+    "en-US": "Ponytail: {level}",
+  },
   "session.goal.startTitle": {
     "zh-CN": "启动目标",
     "en-US": "Start a goal",
@@ -520,19 +536,33 @@ const messages = {
   },
   "session.goal.save": { "zh-CN": "保存", "en-US": "Save" },
   "session.queue.title": {
-    "zh-CN": "待处理消息",
-    "en-US": "Pending messages",
+    "zh-CN": "待处理队列",
+    "en-US": "Pending queue",
   },
   "session.queue.description": {
-    "zh-CN": "{count} 条消息将按发送顺序处理",
-    "en-US": "{count} messages will be processed in send order",
+    "zh-CN": "{count} 项将按顺序处理",
+    "en-US": "{count} items will be processed in order",
   },
   "session.queue.descriptionOne": {
-    "zh-CN": "{count} 条消息将按发送顺序处理",
-    "en-US": "{count} message will be processed in send order",
+    "zh-CN": "{count} 项将按顺序处理",
+    "en-US": "{count} item will be processed in order",
   },
   "session.queue.steering": { "zh-CN": "引导中", "en-US": "Steering" },
   "session.queue.queued": { "zh-CN": "排队", "en-US": "Queued" },
+  "session.queue.control.model": { "zh-CN": "模型", "en-US": "Model" },
+  "session.queue.control.thinking": {
+    "zh-CN": "思考",
+    "en-US": "Thinking",
+  },
+  "session.queue.control.compact": {
+    "zh-CN": "压缩上下文",
+    "en-US": "Compact context",
+  },
+  "session.queue.control.goal": { "zh-CN": "目标", "en-US": "Goal" },
+  "session.queue.control.ponytail": {
+    "zh-CN": "Ponytail",
+    "en-US": "Ponytail",
+  },
   "session.queue.steer": { "zh-CN": "引导", "en-US": "Steer" },
   "session.queue.editAria": {
     "zh-CN": "编辑第 {index} 条待处理消息",
@@ -589,6 +619,18 @@ const messages = {
   "session.transcript.failed": { "zh-CN": "失败", "en-US": "Failed" },
   "session.transcript.running": { "zh-CN": "运行中", "en-US": "Running" },
   "session.transcript.complete": { "zh-CN": "完成", "en-US": "Complete" },
+  "session.transcript.process": {
+    "zh-CN": "执行过程",
+    "en-US": "Work performed",
+  },
+  "session.transcript.elapsed": {
+    "zh-CN": "用时 {duration}",
+    "en-US": "Took {duration}",
+  },
+  "session.transcript.expandProcess": {
+    "zh-CN": "展开执行过程",
+    "en-US": "Expand work performed",
+  },
   "session.transcript.expandShell": {
     "zh-CN": "展开 shell 详情",
     "en-US": "Expand shell details",
@@ -1865,16 +1907,7 @@ const messages = {
   "settings.nav.shortcuts": { "zh-CN": "键盘快捷键", "en-US": "Keyboard" },
   "settings.nav.archive": { "zh-CN": "归档", "en-US": "Archive" },
   "settings.nav.models": { "zh-CN": "模型", "en-US": "Models" },
-  "settings.nav.packages": { "zh-CN": "软件包", "en-US": "Packages" },
   "settings.nav.extensions": { "zh-CN": "扩展", "en-US": "Extensions" },
-  "settings.nav.piExtensions": {
-    "zh-CN": "Pi 扩展",
-    "en-US": "Pi Extensions",
-  },
-  "settings.nav.webuiExtensions": {
-    "zh-CN": "WebUI 扩展",
-    "en-US": "WebUI Extensions",
-  },
   "settings.nav.skills": { "zh-CN": "技能", "en-US": "Skills" },
   "settings.nav.mcp": { "zh-CN": "MCP", "en-US": "MCP" },
   "settings.nav.developer": { "zh-CN": "开发者", "en-US": "Developer" },
@@ -2323,18 +2356,13 @@ const messages = {
     "zh-CN": "管理 Pi 的 provider 认证与可用 Model scope。",
     "en-US": "Manage Pi provider authentication and the available model scope.",
   },
-  "settings.page.packages.title": { "zh-CN": "软件包", "en-US": "Packages" },
-  "settings.page.packages.description": {
-    "zh-CN": "使用 Pi 的 package manager 安装、更新或移除资源包。",
-    "en-US": "Install, update, or remove packages with Pi's package manager.",
-  },
   "settings.page.extensions.title": {
     "zh-CN": "扩展",
     "en-US": "Extensions",
   },
   "settings.page.extensions.description": {
-    "zh-CN": "查看并切换 Pi 实际解析到的全局与项目扩展。",
-    "en-US": "View and toggle the global and project extensions Pi resolved.",
+    "zh-CN": "添加、更新、卸载或启停全局与项目扩展。",
+    "en-US": "Add, update, remove, or toggle global and project extensions.",
   },
   "settings.page.webuiExtensions.title": {
     "zh-CN": "WebUI 扩展",
@@ -2364,13 +2392,9 @@ const messages = {
     "zh-CN": "配置新 session 使用的 Agent runtime 与 Pi Server 连接。",
     "en-US": "Configure the Agent runtime and Pi Server for new sessions.",
   },
-  "settings.page.noProject.packages": {
-    "zh-CN": "添加工作区项目后才能管理 Pi packages。",
-    "en-US": "Add a workspace project before managing Pi packages.",
-  },
   "settings.page.noProject.extensions": {
-    "zh-CN": "添加工作区项目后才能管理 Pi extensions。",
-    "en-US": "Add a workspace project before managing Pi extensions.",
+    "zh-CN": "添加工作区项目后才能管理扩展。",
+    "en-US": "Add a workspace project before managing extensions.",
   },
   "settings.page.noProject.skills": {
     "zh-CN": "添加工作区项目后才能管理 Pi skills。",
@@ -2759,18 +2783,16 @@ const messages = {
   },
 
   "settings.packages.installTitle": {
-    "zh-CN": "安装 Pi 软件包",
-    "en-US": "Install Pi package",
+    "zh-CN": "添加扩展",
+    "en-US": "Add extension",
   },
   "settings.packages.installDescription": {
-    "zh-CN":
-      "交给 Pi 的 DefaultPackageManager 安装；支持 npm、git 和本地路径。",
-    "en-US":
-      "Pass the source to Pi DefaultPackageManager; npm, git, and local paths are supported.",
+    "zh-CN": "支持 npm、git 和本地路径。",
+    "en-US": "npm, git, and local paths are supported.",
   },
   "settings.packages.source": {
-    "zh-CN": "软件包来源",
-    "en-US": "Package source",
+    "zh-CN": "扩展来源",
+    "en-US": "Extension source",
   },
   "settings.packages.sourcePlaceholder": {
     "zh-CN": "npm:@scope/package 或 git:https://…",
@@ -2778,7 +2800,7 @@ const messages = {
   },
   "settings.packages.scope": {
     "zh-CN": "安装范围",
-    "en-US": "Package scope",
+    "en-US": "Install scope",
   },
   "settings.packages.global": { "zh-CN": "全局", "en-US": "Global" },
   "settings.packages.currentProject": {
@@ -2787,8 +2809,8 @@ const messages = {
   },
   "settings.packages.install": { "zh-CN": "安装", "en-US": "Install" },
   "settings.packages.configured": {
-    "zh-CN": "已配置的软件包",
-    "en-US": "Configured packages",
+    "zh-CN": "已添加的组件",
+    "en-US": "Added components",
   },
   "settings.packages.itemCountOne": {
     "zh-CN": "{count} 项",
@@ -2798,11 +2820,11 @@ const messages = {
     "zh-CN": "{count} 项",
     "en-US": "{count} items",
   },
-  "settings.packages.kind": { "zh-CN": "软件包", "en-US": "packages" },
+  "settings.packages.kind": { "zh-CN": "扩展", "en-US": "extensions" },
   "settings.packages.missing": { "zh-CN": "未安装", "en-US": "Not installed" },
   "settings.packages.missingPath": {
-    "zh-CN": "Pi settings 中已配置，但本地安装缺失",
-    "en-US": "Configured in Pi settings, but missing locally",
+    "zh-CN": "已配置，但本地文件缺失",
+    "en-US": "Configured, but missing locally",
   },
   "settings.packages.update": {
     "zh-CN": "更新 {source}",
@@ -2814,110 +2836,28 @@ const messages = {
   },
   "settings.packages.cancel": { "zh-CN": "取消", "en-US": "Cancel" },
   "settings.packages.confirmRemoveTitle": {
-    "zh-CN": "移除软件包？",
-    "en-US": "Remove package?",
+    "zh-CN": "卸载扩展？",
+    "en-US": "Remove extension?",
   },
   "settings.packages.confirmRemoveDescription": {
-    "zh-CN": "确定要从 Pi 设置中移除 {source} 吗？",
-    "en-US": "Remove {source} from Pi settings?",
+    "zh-CN": "确定要卸载 {source} 吗？",
+    "en-US": "Remove {source}?",
   },
   "settings.packages.confirmRemove": {
-    "zh-CN": "移除",
+    "zh-CN": "卸载",
     "en-US": "Remove",
   },
   "settings.packages.filtered": {
-    "zh-CN": "已配置资源筛选规则",
-    "en-US": "Resource filter configured",
+    "zh-CN": "已配置启用规则",
+    "en-US": "Activation rules configured",
   },
   "settings.packages.empty": {
-    "zh-CN": "Pi 设置中还没有配置软件包。",
-    "en-US": "No package is configured in Pi settings.",
+    "zh-CN": "还没有添加组件。",
+    "en-US": "No components have been added.",
   },
-
-  "settings.piExtensions.installTitle": {
-    "zh-CN": "安装 Pi 扩展",
-    "en-US": "Install Pi extension",
-  },
-  "settings.piExtensions.installDescription": {
-    "zh-CN":
-      "支持从 npm、git 或本地路径安装已适配的 Pi runtime 扩展。",
-    "en-US":
-      "Install adapted Pi runtime extensions from npm, git, or local paths.",
-  },
-  "settings.piExtensions.source": {
-    "zh-CN": "扩展来源",
-    "en-US": "Extension source",
-  },
-  "settings.piExtensions.sourcePlaceholder": {
-    "zh-CN": "@tintinweb/pi-subagents 或 git:https://…",
-    "en-US": "@tintinweb/pi-subagents or git:https://…",
-  },
-  "settings.piExtensions.scope": {
-    "zh-CN": "安装范围",
-    "en-US": "Installation scope",
-  },
-  "settings.piExtensions.global": { "zh-CN": "全局", "en-US": "Global" },
-  "settings.piExtensions.currentProject": {
-    "zh-CN": "当前项目",
-    "en-US": "Current project",
-  },
-  "settings.piExtensions.install": { "zh-CN": "安装", "en-US": "Install" },
-  "settings.piExtensions.configured": {
-    "zh-CN": "已安装的扩展",
-    "en-US": "Installed extensions",
-  },
-  "settings.piExtensions.itemCountOne": {
-    "zh-CN": "{count} 个扩展",
-    "en-US": "{count} extension",
-  },
-  "settings.piExtensions.itemCountMany": {
-    "zh-CN": "{count} 个扩展",
-    "en-US": "{count} extensions",
-  },
-  "settings.piExtensions.kind": { "zh-CN": "扩展", "en-US": "extensions" },
-  "settings.piExtensions.active": { "zh-CN": "运行中", "en-US": "Active" },
-  "settings.piExtensions.inactive": { "zh-CN": "未激活", "en-US": "Inactive" },
-  "settings.piExtensions.error": { "zh-CN": "错误", "en-US": "Error" },
-  "settings.piExtensions.updateAvailable": {
-    "zh-CN": "可更新",
-    "en-US": "Update available",
-  },
-  "settings.piExtensions.update": {
-    "zh-CN": "更新 {name}",
-    "en-US": "Update {name}",
-  },
-  "settings.piExtensions.remove": {
-    "zh-CN": "卸载 {name}",
-    "en-US": "Uninstall {name}",
-  },
-  "settings.piExtensions.cancel": { "zh-CN": "取消", "en-US": "Cancel" },
-  "settings.piExtensions.confirmRemoveTitle": {
-    "zh-CN": "卸载扩展？",
-    "en-US": "Uninstall extension?",
-  },
-  "settings.piExtensions.confirmRemoveDescription": {
-    "zh-CN": "确定要从 Pi runtime 中卸载 {name} 吗？",
-    "en-US": "Uninstall {name} from Pi runtime?",
-  },
-  "settings.piExtensions.confirmRemove": {
-    "zh-CN": "卸载",
-    "en-US": "Uninstall",
-  },
-  "settings.piExtensions.empty": {
-    "zh-CN": "还没有安装任何 Pi 扩展。",
-    "en-US": "No Pi extensions installed yet.",
-  },
-  "settings.page.piExtensions.title": {
-    "zh-CN": "Pi 扩展",
-    "en-US": "Pi Extensions",
-  },
-  "settings.page.piExtensions.description": {
-    "zh-CN": "管理 Pi runtime 中的扩展，如 subagent、coding-agent 等。",
-    "en-US": "Manage Pi runtime extensions like subagent, coding-agent, etc.",
-  },
-  "settings.page.noProject.piExtensions": {
-    "zh-CN": "添加工作区项目后才能管理 Pi 扩展。",
-    "en-US": "Add a workspace project before managing Pi extensions.",
+  "settings.extensions.enabled": {
+    "zh-CN": "启用状态",
+    "en-US": "Activation",
   },
 
   "settings.resources.context": {
@@ -3020,8 +2960,8 @@ const messages = {
     "en-US": "Source file missing",
   },
   "settings.resources.source.package": {
-    "zh-CN": "软件包",
-    "en-US": "Package",
+    "zh-CN": "安装来源",
+    "en-US": "Install source",
   },
   "settings.resources.source.directory": {
     "zh-CN": "目录",

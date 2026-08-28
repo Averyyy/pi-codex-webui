@@ -36,6 +36,7 @@ import { cn } from "@workspace/ui/lib/utils"
 import type { QueuedPromptItem } from "@workspace/runtime-protocol"
 
 import { useI18n } from "@/components/i18n-provider"
+import type { MessageKey } from "@/lib/i18n"
 
 export function PromptQueue({
   items,
@@ -128,6 +129,7 @@ export function PromptQueue({
           <CardContent className="flex max-h-64 flex-col gap-1 overflow-y-auto">
             {items.map((item, index) => {
               const steering = item.mode === "steer"
+              const control = item.kind === "control" ? item.control : undefined
               const itemDisabled = disabled || updatingId !== null
               return (
                 <div
@@ -137,18 +139,34 @@ export function PromptQueue({
                     steering && "bg-accent"
                   )}
                 >
-                  <Badge variant={steering ? "secondary" : "outline"}>
-                    {steering
-                      ? t("session.queue.steering")
-                      : t("session.queue.queued")}
+                  <Badge
+                    variant={
+                      control ? "secondary" : steering ? "secondary" : "outline"
+                    }
+                  >
+                    {control
+                      ? t(
+                          {
+                            model: "session.queue.control.model",
+                            thinking: "session.queue.control.thinking",
+                            compact: "session.queue.control.compact",
+                            goal: "session.queue.control.goal",
+                            ponytail: "session.queue.control.ponytail",
+                          }[control.type] as MessageKey
+                        )
+                      : steering
+                        ? t("session.queue.steering")
+                        : t("session.queue.queued")}
                   </Badge>
                   <p
                     className="min-w-0 flex-1 truncate text-sm"
                     title={item.text.slice(0, 200)}
                   >
-                    {item.text}
+                    {control?.type === "model" || control?.type === "thinking"
+                      ? control.value
+                      : item.text}
                   </p>
-                  {!steering ? (
+                  {!steering && !control ? (
                     <Button
                       type="button"
                       variant="ghost"
@@ -169,22 +187,24 @@ export function PromptQueue({
                       {t("session.queue.steer")}
                     </Button>
                   ) : null}
-                  <Button
-                    ref={(node) => {
-                      if (node) editButtonRefs.current.set(item.id, node)
-                      else editButtonRefs.current.delete(item.id)
-                    }}
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label={t("session.queue.editAria", {
-                      index: index + 1,
-                    })}
-                    disabled={itemDisabled}
-                    onClick={() => openEditor(item)}
-                  >
-                    <PencilIcon />
-                  </Button>
+                  {!control ? (
+                    <Button
+                      ref={(node) => {
+                        if (node) editButtonRefs.current.set(item.id, node)
+                        else editButtonRefs.current.delete(item.id)
+                      }}
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label={t("session.queue.editAria", {
+                        index: index + 1,
+                      })}
+                      disabled={itemDisabled}
+                      onClick={() => openEditor(item)}
+                    >
+                      <PencilIcon />
+                    </Button>
+                  ) : null}
                   <Button
                     type="button"
                     variant="ghost"

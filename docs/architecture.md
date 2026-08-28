@@ -963,11 +963,10 @@ dist/workers/pi/dist/worker.mjs
 dist/workers/pi-client/dist/worker.mjs
 ```
 
-每个 active session 默认对应一个 worker。
+每个打开的 session 默认对应一个 worker。历史 session 在其网页打开时启动
+worker；离开网页不会改变已启动 runtime 的生命周期。
 
-历史 session 默认不启动 worker。
-
-只有发生以下情况时才激活：
+以下操作也会在 runtime 尚未启动时触发激活：
 
 - 发送 prompt
 - 修改 model
@@ -1845,9 +1844,8 @@ mtime/size 未变化
     → 重建该 session 索引
 ```
 
-历史 session 浏览不启动 worker。
-
-只有用户对历史 session 发起 mutation 时才 activate runtime。
+历史 session 页面打开时启动 worker。页面上的 runtime 状态只用 active/inactive
+指示点展示，具体生命周期事件仍通过事件流同步。
 
 ---
 
@@ -2500,8 +2498,8 @@ UI 随功能阶段逐步开放。只有已经接通真实数据、真实状态�
 
 ### Session
 
-16. 历史 session 默认不启动 worker。
-17. 首次 mutation 时懒激活 worker。
+16. 打开历史 session 页面时默认启动 worker。
+17. 页面打开后 runtime 状态通过事件流同步。
 18. 同一个 native session 不能有两个 writable workers。
 19. Worker crash 不影响 Next.js Host。
 20. Worker crash 后历史内容仍可浏览。

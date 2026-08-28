@@ -16,12 +16,9 @@ test("shared UI labels follow the Chinese locale", () => {
   assert.equal(t("app.notFound.home"), "返回首页")
   assert.equal(t("app.error.retry"), "重试")
   assert.equal(t("settings.nav.ariaLabel"), "设置导航")
-  assert.equal(t("settings.nav.packages"), "软件包")
   assert.equal(t("settings.nav.extensions"), "扩展")
-  assert.equal(t("settings.nav.webuiExtensions"), "WebUI 扩展")
   assert.equal(t("settings.nav.skills"), "技能")
   assert.equal(t("settings.nav.developer"), "开发者")
-  assert.equal(t("settings.page.packages.title"), "软件包")
   assert.equal(t("settings.page.extensions.title"), "扩展")
   assert.equal(t("settings.page.webuiExtensions.title"), "WebUI 扩展")
   assert.equal(t("settings.page.skills.title"), "技能")
@@ -38,11 +35,12 @@ test("shared UI labels follow the Chinese locale", () => {
     "原生 Adapter 不可用，正在打开 Pi TUI…"
   )
   assert.equal(t("settings.webui.readFailed"), "读取 WebUI 扩展状态失败。")
-  assert.equal(t("settings.packages.source"), "软件包来源")
+  assert.equal(t("settings.packages.source"), "扩展来源")
   assert.equal(t("settings.packages.itemCountOne", { count: 1 }), "1 项")
   assert.equal(t("settings.resources.global"), "全局")
   assert.equal(t("settings.resources.project"), "当前项目")
   assert.equal(t("settings.resources.source.explicitPath"), "显式路径")
+  assert.equal(t("settings.resources.source.package"), "安装来源")
   assert.equal(t("settings.mcp.context"), "MCP 上下文")
   assert.equal(t("settings.mcp.serverCountMany", { count: 2 }), "2 项")
   assert.equal(t("settings.mcpForm.environment"), "环境变量")
@@ -141,12 +139,9 @@ test("shared UI labels retain their English defaults", () => {
   assert.equal(t("ui.sidebarDescription"), "Displays the mobile sidebar.")
   assert.equal(t("ui.toggleSidebar"), "Toggle Sidebar")
   assert.equal(t("settings.nav.ariaLabel"), "Settings navigation")
-  assert.equal(t("settings.nav.packages"), "Packages")
   assert.equal(t("settings.nav.extensions"), "Extensions")
-  assert.equal(t("settings.nav.webuiExtensions"), "WebUI Extensions")
   assert.equal(t("settings.nav.skills"), "Skills")
   assert.equal(t("settings.nav.developer"), "Developer")
-  assert.equal(t("settings.page.packages.title"), "Packages")
   assert.equal(t("settings.page.extensions.title"), "Extensions")
   assert.equal(t("settings.page.webuiExtensions.title"), "WebUI Extensions")
   assert.equal(t("settings.page.skills.title"), "Skills")
@@ -166,7 +161,7 @@ test("shared UI labels retain their English defaults", () => {
     t("settings.webui.readFailed"),
     "Failed to read WebUI extension status."
   )
-  assert.equal(t("settings.packages.source"), "Package source")
+  assert.equal(t("settings.packages.source"), "Extension source")
   assert.equal(t("settings.packages.itemCountOne", { count: 1 }), "1 item")
   assert.equal(t("settings.packages.itemCountMany", { count: 2 }), "2 items")
   assert.equal(
@@ -174,6 +169,7 @@ test("shared UI labels retain their English defaults", () => {
     "Search extensions by name, package, or path"
   )
   assert.equal(t("settings.resources.source.explicitPath"), "Explicit path")
+  assert.equal(t("settings.resources.source.package"), "Install source")
   assert.equal(t("settings.mcp.serverCountOne", { count: 1 }), "1 server")
   assert.equal(t("settings.mcp.serverCountMany", { count: 2 }), "2 servers")
   assert.equal(

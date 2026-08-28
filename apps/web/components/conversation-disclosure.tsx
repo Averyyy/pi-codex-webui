@@ -85,14 +85,18 @@ export function ConversationDisclosure({
   const StatusIcon = statusIcon
 
   return (
-    <Collapsible defaultOpen={defaultOpen} className={cn("min-w-0", className)}>
+    <Collapsible
+      defaultOpen={defaultOpen}
+      data-running={statusTone === "running" ? "true" : undefined}
+      className={cn("min-w-0", className)}
+    >
       <CollapsibleTrigger
         aria-label={ariaLabel}
         className={buttonVariants({
           variant: "ghost",
           size: "sm",
           className:
-            "w-full min-w-0 justify-start px-2 text-left font-normal text-muted-foreground data-[state=open]:[&_svg:last-child]:rotate-90",
+            "conversation-disclosure-trigger w-full min-w-0 justify-start px-2 text-left font-normal text-muted-foreground data-[state=open]:[&_svg:last-child]:rotate-90",
         })}
       >
         <span

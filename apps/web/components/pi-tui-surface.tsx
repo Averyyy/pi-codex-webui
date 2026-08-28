@@ -66,7 +66,7 @@ export function PiTuiSurface({ surface, onAction, onError }: Props) {
           convertEol: false,
           cursorBlink: true,
           fontFamily:
-            'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace',
+            'SFMono-Regular, "Cascadia Code", "Roboto Mono", Menlo, Monaco, Consolas, "Liberation Mono", monospace',
           fontSize: 13,
           screenReaderMode: true,
           scrollback: 0,

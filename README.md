@@ -25,8 +25,8 @@ browser for real Pi JSONL projects, standalone tasks, messages, tool records,
 and full-text search, plus an isolated Pi SDK worker. Standalone tasks run
 without project Files, Git, or project-scoped resources; project sessions keep
 their workspace context in a collapsible navigator and environment inspector.
-Session pages lazily activate
-their worker and expose real prompt streaming, tool events, abort, model,
+Session pages activate their worker when opened and expose real prompt streaming,
+tool events, abort, model,
 thinking, queue, compaction, and retry state. Pi-backed session operations cover
 new, resume, rename, fork, clone, tree navigation, JSONL/HTML export, JSONL
 import, and statistics. Extensions can use native Web confirm, select, input,

@@ -33,21 +33,8 @@ import {
 import { SubagentsSummary } from "@/components/subagents"
 import { useI18n } from "@/components/i18n-provider"
 import { useStreamingRuntimeStatus } from "@/components/session-streaming-context"
-import type { Translator } from "@/lib/i18n"
 import type { ProjectGitStatus } from "@/lib/project-git"
 import { formatTimestamp } from "@/lib/session-display"
-
-function statusLabel(t: Translator, status: RuntimeStatus) {
-  const keys = {
-    stopped: "session.status.stopped",
-    starting: "session.status.starting",
-    ready: "session.status.ready",
-    busy: "session.status.busy",
-    stopping: "session.status.stopping",
-    crashed: "session.status.crashed",
-  } as const
-  return t(keys[status])
-}
 
 export interface SessionInspectorProps {
   cwd: string
@@ -94,6 +81,12 @@ function InspectorContent({
 }: SessionInspectorProps) {
   const { locale, t } = useI18n()
   const changedFiles = git.available ? git.files : []
+  const runtimeActive = ["starting", "ready", "busy", "stopping"].includes(
+    runtimeStatus
+  )
+  const runtimeStatusLabel = t(
+    runtimeActive ? "session.runtime.active" : "session.runtime.inactive"
+  )
 
   return (
     <div className="flex min-w-0 flex-col gap-4 p-4">
@@ -101,17 +94,14 @@ function InspectorContent({
         <p className="truncate text-sm font-medium">
           {t("session.inspector.title")}
         </p>
-        <Badge
-          variant={
-            runtimeStatus === "crashed"
-              ? "destructive"
-              : runtimeStatus === "busy" || runtimeStatus === "starting"
-                ? "secondary"
-                : "outline"
-          }
-        >
-          {statusLabel(t, runtimeStatus)}
-        </Badge>
+        <span
+          role="status"
+          aria-label={runtimeStatusLabel}
+          title={runtimeStatusLabel}
+          className={`size-2 shrink-0 rounded-full ${
+            runtimeActive ? "bg-emerald-500" : "bg-red-500"
+          }`}
+        />
       </div>
 
       <div className="flex min-w-0 flex-col gap-4">
@@ -132,7 +122,13 @@ function InspectorContent({
           icon={SquareTerminalIcon}
           label={runtimeKind === "pi" ? "Pi" : "Pi Client"}
         >
-          Runtime · {statusLabel(t, runtimeStatus)}
+          <span
+            aria-label={runtimeStatusLabel}
+            title={runtimeStatusLabel}
+            className={`inline-block size-1.5 rounded-full ${
+              runtimeActive ? "bg-emerald-500" : "bg-red-500"
+            }`}
+          />
         </DetailRow>
         <DetailRow
           icon={Clock3Icon}

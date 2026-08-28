@@ -13,8 +13,7 @@ import {
 import path from "node:path"
 
 import type {
-  AuthStorage,
-  ModelRegistry,
+  ModelRuntime,
   SettingsManager,
 } from "@earendil-works/pi-coding-agent"
 import lockfile from "proper-lockfile"
@@ -44,11 +43,6 @@ type ModelSettingsMessage = Extract<
 >
 
 type JsonObject = Record<string, unknown>
-type RegistryModel = ReturnType<ModelRegistry["getAll"]>[number]
-type ProviderModelConfig = NonNullable<
-  Parameters<ModelRegistry["registerProvider"]>[1]["models"]
->[number]
-
 interface ModelsConfig {
   providers: Record<string, JsonObject>
 }
@@ -56,10 +50,11 @@ interface ModelsConfig {
 interface ModelSettingsState {
   codingAgent: CodingAgentModule
   modelThinking: ModelThinkingModule
-  authStorage: AuthStorage
-  modelRegistry: ModelRegistry
+  modelRuntime: ModelRuntime
+  builtInProviders: Set<string>
   settingsManager: SettingsManager
   modelsPath: string
+  authPath: string
 }
 
 const supportedApis = new Set<ModelProviderApi>([
@@ -69,140 +64,12 @@ const supportedApis = new Set<ModelProviderApi>([
   "google-generative-ai",
 ])
 
-const OPENCODE_PROVIDER = "opencode"
-const OPENCODE_MODELS_URL = "https://opencode.ai/zen/v1/models"
-const OPENCODE_REFRESH_TIMEOUT_MS = 15_000
-
 function isJsonObject(value: unknown): value is JsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
 function modelKey(model: { provider: string; id: string }) {
   return `${model.provider}/${model.id}`
-}
-
-function inferredOpencodeApi(modelId: string): ModelProviderApi {
-  if (modelId.startsWith("claude-") || modelId.startsWith("qwen")) {
-    return "anthropic-messages"
-  }
-  if (modelId.startsWith("gemini-")) return "google-generative-ai"
-  if (
-    modelId.startsWith("gpt-") ||
-    modelId.startsWith("grok-") ||
-    modelId.startsWith("muse-")
-  ) {
-    return "openai-responses"
-  }
-  return "openai-completions"
-}
-
-function fallbackModelName(modelId: string) {
-  return modelId
-    .split(/[-_]+/)
-    .filter(Boolean)
-    .map((part) => {
-      const normalized = part.toLowerCase()
-      if (normalized === "gpt") return "GPT"
-      if (normalized === "glm") return "GLM"
-      return part[0]?.toUpperCase() + part.slice(1)
-    })
-    .join(" ")
-}
-
-function opencodeModelConfig(
-  modelId: string,
-  known: RegistryModel | undefined
-): ProviderModelConfig {
-  const api = known?.api ?? inferredOpencodeApi(modelId)
-  return {
-    id: modelId,
-    name: known?.name ?? fallbackModelName(modelId),
-    api,
-    baseUrl:
-      known?.baseUrl ??
-      (api === "anthropic-messages"
-        ? "https://opencode.ai/zen"
-        : "https://opencode.ai/zen/v1"),
-    reasoning: known?.reasoning ?? true,
-    thinkingLevelMap: known?.thinkingLevelMap,
-    input:
-      known?.input ??
-      (api === "anthropic-messages" ||
-      api === "google-generative-ai" ||
-      api === "openai-responses"
-        ? ["text", "image"]
-        : ["text"]),
-    cost: known?.cost ?? {
-      input: 0,
-      output: 0,
-      cacheRead: 0,
-      cacheWrite: 0,
-    },
-    contextWindow: known?.contextWindow ?? 1_000_000,
-    maxTokens: known?.maxTokens ?? 128_000,
-    compat: known?.compat,
-  }
-}
-
-async function fetchOpencodeModelIds(
-  apiKey: string,
-  fetcher: typeof fetch = fetch
-) {
-  const response = await fetcher(OPENCODE_MODELS_URL, {
-    headers: {
-      Accept: "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    signal: AbortSignal.timeout(OPENCODE_REFRESH_TIMEOUT_MS),
-  })
-  if (!response.ok) {
-    throw new Error(
-      `OpenCode model catalog request failed (HTTP ${response.status}).`
-    )
-  }
-
-  const payload: unknown = await response.json()
-  if (!isJsonObject(payload) || !Array.isArray(payload.data)) {
-    throw new Error("OpenCode model catalog response is invalid.")
-  }
-
-  const ids = payload.data.map((entry) => {
-    if (!isJsonObject(entry) || typeof entry.id !== "string" || !entry.id) {
-      throw new Error("OpenCode model catalog contains an invalid model.")
-    }
-    return entry.id
-  })
-  return [...new Set(ids)]
-}
-
-export async function refreshOpencodeModelRegistry(
-  authStorage: AuthStorage,
-  modelRegistry: ModelRegistry,
-  options: { required?: boolean; fetcher?: typeof fetch } = {}
-) {
-  authStorage.reload()
-  modelRegistry.refresh()
-  const apiKey = await authStorage.getApiKey(OPENCODE_PROVIDER)
-  if (!apiKey) return false
-
-  try {
-    const ids = await fetchOpencodeModelIds(apiKey, options.fetcher)
-    const knownModels = new Map(
-      modelRegistry
-        .getAll()
-        .filter((model) => model.provider === OPENCODE_PROVIDER)
-        .map((model) => [model.id, model])
-    )
-    modelRegistry.registerProvider(OPENCODE_PROVIDER, {
-      baseUrl: "https://opencode.ai/zen/v1",
-      apiKey,
-      models: ids.map((id) => opencodeModelConfig(id, knownModels.get(id))),
-    })
-    return true
-  } catch (error) {
-    if (options.required) throw error
-    return false
-  }
 }
 
 function readModelsConfig(modelsPath: string): ModelsConfig {
@@ -305,17 +172,6 @@ function customModels(
   return config.models.map((model) => readCustomModel(model, provider))
 }
 
-function builtinProviders(
-  codingAgent: CodingAgentModule,
-  authStorage: AuthStorage
-) {
-  return new Set(
-    codingAgent.ModelRegistry.inMemory(authStorage)
-      .getAll()
-      .map((model) => model.provider)
-  )
-}
-
 function writeModelsConfig(
   modelsPath: string,
   update: (current: ModelsConfig) => ModelsConfig
@@ -357,36 +213,142 @@ function writeModelsConfig(
   }
 }
 
-function createModelSettingsState(
+async function createModelSettingsState(
   codingAgent: CodingAgentModule,
   modelThinking: ModelThinkingModule,
   cwd: string,
   agentDir: string
-): ModelSettingsState {
+): Promise<ModelSettingsState> {
   const resolvedAgentDir = path.resolve(agentDir)
   const modelsPath = path.join(resolvedAgentDir, "models.json")
-  const authStorage = codingAgent.AuthStorage.create(
-    path.join(resolvedAgentDir, "auth.json")
+  const authPath = path.join(resolvedAgentDir, "auth.json")
+  const settingsManager = createSettingsManager(
+    codingAgent,
+    cwd,
+    agentDir,
+    false
+  )
+  const services = await codingAgent.createAgentSessionServices({
+    cwd,
+    agentDir,
+    settingsManager,
+  })
+  const staticRuntime = await codingAgent.ModelRuntime.create({
+    authPath,
+    modelsPath: null,
+    refreshOnCreate: false,
+  })
+  const builtInProviders = new Set(
+    staticRuntime.getProviders().map((provider) => provider.id)
   )
   return {
     codingAgent,
     modelThinking,
-    authStorage,
-    modelRegistry: codingAgent.ModelRegistry.create(authStorage, modelsPath),
-    settingsManager: createSettingsManager(codingAgent, cwd, agentDir, false),
+    modelRuntime: services.modelRuntime,
+    builtInProviders,
+    settingsManager: services.settingsManager,
     modelsPath,
+    authPath,
+  }
+}
+
+async function refreshModelRuntime(state: ModelSettingsState) {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 15_000)
+  try {
+    const result = await state.modelRuntime.refresh({
+      force: true,
+      signal: controller.signal,
+    })
+    if (result.aborted && result.errors.size === 0) {
+      return {
+        ...result,
+        errors: new Map([
+          ["model-catalog", new Error("Model catalog refresh timed out.")],
+        ]),
+      }
+    }
+    return result
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
+async function credentialsByProvider(state: ModelSettingsState) {
+  return new Map(
+    (await state.modelRuntime.listCredentials()).map((credential) => [
+      credential.providerId,
+      credential,
+    ])
+  )
+}
+
+function readAuthConfig(authPath: string): Record<string, JsonObject> {
+  if (!existsSync(authPath)) return {}
+  const parsed: unknown = JSON.parse(readFileSync(authPath, "utf8"))
+  if (!isJsonObject(parsed)) {
+    throw new Error("Invalid auth.json: expected an object.")
+  }
+  const credentials: Record<string, JsonObject> = {}
+  for (const [provider, credential] of Object.entries(parsed)) {
+    if (!isJsonObject(credential)) {
+      throw new Error(
+        `Invalid auth.json credential for provider "${provider}".`
+      )
+    }
+    credentials[provider] = credential
+  }
+  return credentials
+}
+
+function writeAuthConfig(
+  authPath: string,
+  update: (current: Record<string, JsonObject>) => Record<string, JsonObject>
+) {
+  const directory = path.dirname(authPath)
+  mkdirSync(directory, { recursive: true })
+  const release = lockfile.lockSync(authPath, { realpath: false })
+  try {
+    const next = update(readAuthConfig(authPath))
+    const temporaryPath = path.join(
+      directory,
+      `.${path.basename(authPath)}.${randomUUID()}.tmp`
+    )
+    let handle: number | undefined
+    try {
+      handle = openSync(temporaryPath, "wx", 0o600)
+      writeFileSync(handle, `${JSON.stringify(next, null, 2)}\n`, "utf8")
+      fsyncSync(handle)
+      closeSync(handle)
+      handle = undefined
+      renameSync(temporaryPath, authPath)
+    } catch (error) {
+      if (handle !== undefined) closeSync(handle)
+      rmSync(temporaryPath, { force: true })
+      throw error
+    }
+    if (process.platform !== "win32") {
+      const directoryHandle = openSync(directory, "r")
+      try {
+        fsyncSync(directoryHandle)
+      } finally {
+        closeSync(directoryHandle)
+      }
+    }
+  } finally {
+    release()
   }
 }
 
 export async function resolveConfiguredScopedModels(
   codingAgent: CodingAgentModule,
   settingsManager: Pick<SettingsManager, "getEnabledModels">,
-  modelRegistry: ModelRegistry
+  modelRuntime: ModelRuntime
 ) {
   const patterns = settingsManager.getEnabledModels()
   if (!patterns || patterns.length === 0) return []
   return (
-    await codingAgent.resolveModelScopeWithDiagnostics(patterns, modelRegistry)
+    await codingAgent.resolveModelScopeWithDiagnostics(patterns, modelRuntime)
   ).scopedModels
 }
 
@@ -415,15 +377,15 @@ async function readModelSettings(
   refreshLive = true
 ): Promise<ModelSettings> {
   if (refreshLive) {
-    await refreshOpencodeModelRegistry(state.authStorage, state.modelRegistry)
+    await refreshModelRuntime(state)
   }
   const config = readModelsConfig(state.modelsPath)
-  const availableModels = state.modelRegistry.getAvailable()
+  const availableModels = state.modelRuntime.getAvailableSnapshot()
   const patterns = state.settingsManager.getEnabledModels()
   const scopedModels = await resolveConfiguredScopedModels(
     state.codingAgent,
     state.settingsManager,
-    state.modelRegistry
+    state.modelRuntime
   )
   const defaultProvider = state.settingsManager.getDefaultProvider()
   const defaultModelId = state.settingsManager.getDefaultModel()
@@ -439,12 +401,13 @@ async function readModelSettings(
       ? scopedModels.map(({ model }) => modelKey(model))
       : availableModels.map(modelKey)
   )
+  const credentials = await credentialsByProvider(state)
   const providers = new Set([
-    ...availableModels.map((model) => model.provider),
-    ...state.authStorage.list(),
+    ...state.modelRuntime.getProviders().map((provider) => provider.id),
+    ...credentials.keys(),
     ...Object.keys(config.providers),
   ])
-  const builtIns = builtinProviders(state.codingAgent, state.authStorage)
+  const builtIns = state.builtInProviders
   const defaultThinkingLevel =
     state.settingsManager.getDefaultThinkingLevel() ?? "medium"
   const scopedThinkingLevels = new Map(
@@ -468,8 +431,8 @@ async function readModelSettings(
     providers: [...providers]
       .sort((left, right) => left.localeCompare(right))
       .map((provider) => {
-        const credential = state.authStorage.get(provider)
-        const authStatus = state.modelRegistry.getProviderAuthStatus(provider)
+        const credential = credentials.get(provider)
+        const authStatus = state.modelRuntime.getProviderAuthStatus(provider)
         const rawConfig = config.providers[provider]
         const custom = Boolean(rawConfig) && !builtIns.has(provider)
         return {
@@ -484,7 +447,7 @@ async function readModelSettings(
                   : authStatus.configured
                     ? ("api-key" as const)
                     : ("environment" as const),
-          removable: custom || state.authStorage.has(provider),
+          removable: custom || credential !== undefined,
           modelCount: availableModels.filter(
             (model) => model.provider === provider
           ).length,
@@ -519,10 +482,12 @@ async function readModelSettings(
 
 async function refreshModelSettings(state: ModelSettingsState) {
   await state.settingsManager.reload()
-  await refreshOpencodeModelRegistry(state.authStorage, state.modelRegistry, {
-    required: true,
-  })
-  return readModelSettings(state, false)
+  const result = await refreshModelRuntime(state)
+  const settings = await readModelSettings(state, false)
+  const refreshErrors = [...result.errors.entries()].map(
+    ([provider, error]) => ({ provider, message: error.message })
+  )
+  return refreshErrors.length ? { ...settings, refreshErrors } : settings
 }
 
 async function setModelScope(
@@ -577,9 +542,10 @@ function removeProviderFromScope(state: ModelSettingsState, provider: string) {
 
 async function removeProvider(state: ModelSettingsState, provider: string) {
   const config = readModelsConfig(state.modelsPath)
-  const builtIns = builtinProviders(state.codingAgent, state.authStorage)
+  const builtIns = state.builtInProviders
   const custom = Boolean(config.providers[provider]) && !builtIns.has(provider)
-  if (!custom && !state.authStorage.has(provider)) {
+  const credentials = await credentialsByProvider(state)
+  if (!custom && !credentials.has(provider)) {
     throw new Error(
       `Provider ${provider} has no stored configuration to delete.`
     )
@@ -592,10 +558,16 @@ async function removeProvider(state: ModelSettingsState, provider: string) {
       return { providers }
     })
   }
-  if (state.authStorage.has(provider)) state.authStorage.remove(provider)
+  if (credentials.has(provider)) {
+    writeAuthConfig(state.authPath, (current) => {
+      const next = { ...current }
+      delete next[provider]
+      return next
+    })
+  }
   const scopeChanged = removeProviderFromScope(state, provider)
   if (scopeChanged) await state.settingsManager.flush()
-  state.modelRegistry.refresh()
+  await state.modelRuntime.refresh({ allowNetwork: false })
   return readModelSettings(state)
 }
 
@@ -625,7 +597,7 @@ async function saveCustomProvider(
   state: ModelSettingsState,
   input: ModelSettingsProviderInput
 ) {
-  const builtIns = builtinProviders(state.codingAgent, state.authStorage)
+  const builtIns = state.builtInProviders
   if (builtIns.has(input.provider)) {
     throw new Error(
       `Provider ${input.provider} is built in and cannot be edited here.`
@@ -655,22 +627,25 @@ async function saveCustomProvider(
   })
 
   if (input.apiKey?.trim()) {
-    state.authStorage.set(input.provider, {
-      type: "api_key",
-      key: input.apiKey.trim(),
-    })
+    writeAuthConfig(state.authPath, (current) => ({
+      ...current,
+      [input.provider]: {
+        type: "api_key",
+        key: input.apiKey!.trim(),
+      },
+    }))
   }
-  state.modelRegistry.refresh()
+  await state.modelRuntime.refresh({ allowNetwork: false })
   return readModelSettings(state)
 }
 
-export function handleModelSettingsMessage(
+export async function handleModelSettingsMessage(
   codingAgent: CodingAgentModule,
   modelThinking: ModelThinkingModule,
   message: ModelSettingsMessage
 ) {
   const { cwd, agentDir } = message.payload
-  const state = createModelSettingsState(
+  const state = await createModelSettingsState(
     codingAgent,
     modelThinking,
     cwd,

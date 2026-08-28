@@ -4,6 +4,7 @@ import type {
   AgentSession,
   AgentSessionEvent,
   AgentSessionRuntime,
+  Extension,
   ExtensionUIContext,
   KeybindingsManager,
   SessionManager,
@@ -32,10 +33,7 @@ import type {
   TuiModule,
 } from "./coding-agent.js"
 import { createMcpToolDefinitions } from "./mcp.js"
-import {
-  refreshOpencodeModelRegistry,
-  resolveConfiguredScopedModels,
-} from "./model-settings.js"
+import { resolveConfiguredScopedModels } from "./model-settings.js"
 import { sessionTreeEntryText } from "./session-tree.js"
 import { SubagentBridge } from "./subagents.js"
 import { createFooterData, TuiSurfaceManager } from "./tui-surfaces.js"
@@ -47,6 +45,34 @@ import {
 import { RpcCustomMessageRenderer } from "./custom-message-rendering.js"
 import { WebUiAdapterHost } from "./webui-adapter-host.js"
 import { PromptQueue, type QueuedPromptRecord } from "./prompt-queue.js"
+
+type QueuedControl = NonNullable<NonNullable<QueuedPromptRecord["control"]>>
+
+function queuedControl(text: string): QueuedControl | undefined {
+  const trimmed = text.trim()
+  if (trimmed.startsWith("/model ")) {
+    return { type: "model", value: trimmed.slice("/model ".length).trim() }
+  }
+  if (trimmed.startsWith("/thinking ")) {
+    return {
+      type: "thinking",
+      value: trimmed.slice("/thinking ".length).trim(),
+    }
+  }
+  if (trimmed === "/compact" || trimmed.startsWith("/compact ")) {
+    const instructions = trimmed.slice("/compact".length).trim()
+    return instructions
+      ? { type: "compact", value: instructions }
+      : { type: "compact" }
+  }
+  if (trimmed.startsWith("/goal ")) {
+    return { type: "goal", value: trimmed }
+  }
+  if (trimmed.startsWith("/ponytail ")) {
+    return { type: "ponytail", value: trimmed }
+  }
+  return undefined
+}
 
 let codingAgent: CodingAgentModule
 let modelThinking: ModelThinkingModule
@@ -222,7 +248,7 @@ function snapshot(session: AgentSession): RuntimeSnapshot {
     throw new Error("Pi runtime identity is not initialized.")
   }
   const model = session.model
-  const availableModels = session.modelRegistry.getAvailable()
+  const availableModels = session.modelRuntime.getAvailableSnapshot()
   const availableModelIds = new Set(
     availableModels.map((available) => `${available.provider}/${available.id}`)
   )
@@ -234,6 +260,31 @@ function snapshot(session: AgentSession): RuntimeSnapshot {
           )
           .map(({ model: scopedModel }) => scopedModel)
       : availableModels
+  const slashCommands = [
+    ...session.extensionRunner.getRegisteredCommands().map((command) => ({
+      name: command.invocationName,
+      description: command.description,
+      source: "extension" as const,
+    })),
+    ...session.promptTemplates.map((template) => ({
+      name: template.name,
+      description: template.description,
+      source: "prompt" as const,
+    })),
+    ...session.resourceLoader.getSkills().skills.map((skill) => ({
+      name: `skill:${skill.name}`,
+      description: skill.description,
+      source: "skill" as const,
+    })),
+  ]
+  const uniqueSlashCommands = [
+    ...slashCommands
+      .reduce((unique, command) => {
+        if (!unique.has(command.name)) unique.set(command.name, command)
+        return unique
+      }, new Map<string, (typeof slashCommands)[number]>())
+      .values(),
+  ].sort((left, right) => left.name.localeCompare(right.name))
   return {
     webSessionId,
     nativeSessionId: session.sessionId,
@@ -259,6 +310,8 @@ function snapshot(session: AgentSession): RuntimeSnapshot {
     isStreaming: session.isStreaming,
     isCompacting: session.isCompacting,
     queuedPrompts: promptQueue.snapshot(),
+    slashCommands: uniqueSlashCommands,
+    extensionStatuses: Object.fromEntries(extensionStatuses),
   }
 }
 
@@ -313,7 +366,9 @@ function resetSurfaceManager() {
       extensionStatuses,
       () =>
         new Set(
-          session.modelRegistry.getAvailable().map((model) => model.provider)
+          session.modelRuntime
+            .getAvailableSnapshot()
+            .map((model) => model.provider)
         ).size
     ),
     (event) => {
@@ -710,15 +765,10 @@ async function initialize(
         ),
       },
     })
-    await refreshOpencodeModelRegistry(
-      services.authStorage,
-      services.modelRegistry,
-      { required: false }
-    )
     const scopedModels = await resolveConfiguredScopedModels(
       codingAgent,
       settingsManager,
-      services.modelRegistry
+      services.modelRuntime
     )
     const hasExistingSession =
       options.sessionManager.buildSessionContext().messages.length > 0
@@ -726,7 +776,7 @@ async function initialize(
     const savedModelId = settingsManager.getDefaultModel()
     const savedModel =
       savedProvider && savedModelId
-        ? services.modelRegistry.find(savedProvider, savedModelId)
+        ? services.modelRuntime.getModel(savedProvider, savedModelId)
         : undefined
     const initialScopedModel =
       !hasExistingSession && scopedModels.length > 0
@@ -740,6 +790,75 @@ async function initialize(
     await adapterHost.initialize(
       services.resourceLoader.getExtensions().extensions
     )
+    const boundSessionHolder: { session?: AgentSession } = {}
+    const queuedControlsExtension: Extension = {
+      path: "<pi-web-codex-queued-controls>",
+      resolvedPath: "<pi-web-codex-queued-controls>",
+      sourceInfo: {
+        path: "<pi-web-codex-queued-controls>",
+        source: "pi-web-codex",
+        scope: "temporary",
+        origin: "top-level",
+      },
+      handlers: new Map([
+        [
+          "agent_end",
+          [
+            async () => {
+              const boundSession = boundSessionHolder.session
+              if (!boundSession) return
+              for (const record of promptQueue.controlRecords()) {
+                promptQueue.consumeControl(record.text)
+                emitPromptQueueUpdate(boundSession)
+                const control = record.control
+                if (!control) continue
+                if (control.type === "model") {
+                  const separator = control.value?.indexOf("/") ?? -1
+                  if (
+                    separator <= 0 ||
+                    separator === control.value!.length - 1
+                  ) {
+                    throw new Error(
+                      "Queued model change must use /model provider/id."
+                    )
+                  }
+                  const model = services.modelRuntime.getModel(
+                    control.value!.slice(0, separator),
+                    control.value!.slice(separator + 1)
+                  )
+                  if (!model)
+                    throw new Error(`Unknown Pi model ${control.value}.`)
+                  await boundSession.setModel(model)
+                } else if (control.type === "thinking") {
+                  const level = control.value
+                  if (
+                    !level ||
+                    !boundSession
+                      .getAvailableThinkingLevels()
+                      .includes(level as never)
+                  ) {
+                    throw new Error(`Unknown thinking level ${level ?? ""}.`)
+                  }
+                  boundSession.setThinkingLevel(level as never)
+                } else if (control.type === "compact") {
+                  await boundSession.compact(control.value)
+                } else if (control.value) {
+                  await boundSession.prompt(control.value, { source: "rpc" })
+                }
+              }
+            },
+          ],
+        ],
+      ]),
+      tools: new Map(),
+      messageRenderers: new Map(),
+      commands: new Map(),
+      flags: new Map(),
+      shortcuts: new Map(),
+    }
+    services.resourceLoader
+      .getExtensions()
+      .extensions.push(queuedControlsExtension)
     const created = await codingAgent.createAgentSessionFromServices({
       services,
       sessionManager: options.sessionManager,
@@ -753,6 +872,7 @@ async function initialize(
           }
         : {}),
     })
+    boundSessionHolder.session = created.session
     return { ...created, services, diagnostics: services.diagnostics }
   }
 
@@ -874,6 +994,20 @@ async function prompt(
   assertSession(message)
   const session = currentRuntime().session
   const queued = session.isStreaming
+  const control = queued ? queuedControl(message.payload.message) : undefined
+  if (control) {
+    promptQueue.upsertControl(
+      message.payload.streamingBehavior,
+      message.payload.message,
+      control
+    )
+    emitPromptQueueUpdate(session)
+    respond(message.requestId, {
+      success: true,
+      data: { accepted: true, queued: true },
+    })
+    return
+  }
   const pendingId = queued
     ? promptQueue.begin(
         message.payload.streamingBehavior,
@@ -914,6 +1048,7 @@ async function enqueueRecords(
   records: QueuedPromptRecord[]
 ) {
   for (const record of records) {
+    if (record.kind === "control") continue
     if (record.mode === "steer") {
       await session.steer(record.text, record.images)
     } else {
@@ -959,16 +1094,14 @@ async function replacePromptQueue(
 async function reloadModelSettings(session: AgentSession) {
   const services = currentRuntime().services
   await services.settingsManager.reload()
-  await refreshOpencodeModelRegistry(
-    services.authStorage,
-    services.modelRegistry,
-    { required: false }
-  )
+  await services.modelRuntime.refresh({
+    force: true,
+  })
   session.setScopedModels(
     await resolveConfiguredScopedModels(
       codingAgent,
       services.settingsManager,
-      services.modelRegistry
+      services.modelRuntime
     )
   )
 }
@@ -1078,7 +1211,20 @@ async function dispatch(message: HostToWorkerMessage) {
   } else if (message.type === "session.snapshot") {
     respond(message.requestId, { success: true, data: snapshot(session) })
   } else if (message.type === "session.set-model") {
-    const model = session.modelRegistry.find(
+    if (session.isStreaming) {
+      await prompt({
+        type: "session.prompt",
+        requestId: message.requestId,
+        sessionId: message.sessionId,
+        payload: {
+          message: `/model ${message.payload.provider}/${message.payload.modelId}`,
+          images: [],
+          streamingBehavior: "followUp",
+        },
+      })
+      return
+    }
+    const model = session.modelRuntime.getModel(
       message.payload.provider,
       message.payload.modelId
     )
@@ -1090,9 +1236,36 @@ async function dispatch(message: HostToWorkerMessage) {
     await session.setModel(model)
     respond(message.requestId, { success: true, data: snapshot(session) })
   } else if (message.type === "session.set-thinking-level") {
+    if (session.isStreaming) {
+      await prompt({
+        type: "session.prompt",
+        requestId: message.requestId,
+        sessionId: message.sessionId,
+        payload: {
+          message: `/thinking ${message.payload.level}`,
+          images: [],
+          streamingBehavior: "followUp",
+        },
+      })
+      return
+    }
     session.setThinkingLevel(message.payload.level)
     respond(message.requestId, { success: true, data: snapshot(session) })
   } else if (message.type === "session.compact") {
+    if (session.isStreaming) {
+      const instructions = message.payload.instructions?.trim()
+      await prompt({
+        type: "session.prompt",
+        requestId: message.requestId,
+        sessionId: message.sessionId,
+        payload: {
+          message: instructions ? `/compact ${instructions}` : "/compact",
+          images: [],
+          streamingBehavior: "followUp",
+        },
+      })
+      return
+    }
     const result = await session.compact(message.payload.instructions)
     respond(message.requestId, { success: true, data: result })
   } else if (

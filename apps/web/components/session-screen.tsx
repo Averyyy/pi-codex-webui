@@ -44,6 +44,11 @@ export async function SessionScreen({
 }) {
   const eventCursor = getEventHub().cursor()
   const supervisor = getRuntimeSupervisor()
+  try {
+    await supervisor.activate(sessionId)
+  } catch {
+    // Keep the historical transcript readable when runtime startup is unavailable.
+  }
   const runtime = supervisor.state(sessionId)
   const activeLeafId =
     runtime.status === "busy" ? undefined : runtime.snapshot?.leafId

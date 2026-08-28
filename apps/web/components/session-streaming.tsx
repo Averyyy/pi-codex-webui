@@ -8,9 +8,10 @@ import {
   useLayoutEffect,
   useRef,
 } from "react"
-import { LoaderCircleIcon } from "lucide-react"
+import { LoaderCircleIcon, TerminalIcon } from "lucide-react"
 
 import { SessionExtensionContext } from "@/components/session-extension-provider"
+import { ConversationDisclosure } from "@/components/conversation-disclosure"
 import { ConversationMessageParts } from "@/components/conversation-message-parts"
 import { useI18n } from "@/components/i18n-provider"
 import {
@@ -19,6 +20,7 @@ import {
   useStreamingMessages,
 } from "@/components/session-streaming-context"
 import type { StreamingMessageView } from "@/lib/session-stream-store"
+import { formatInlinePreview } from "@/lib/session-display"
 import { replacesStreamingMessage } from "@/lib/webui-message-replacements"
 
 export {
@@ -29,6 +31,10 @@ export {
 
 const COMPLETED_MESSAGE_CLASS =
   "[content-visibility:auto] [contain-intrinsic-size:auto_5rem]"
+
+function isFinalOutputPart(part: StreamingMessageView["parts"][number]) {
+  return part.type !== "thinking" && part.type !== "toolCall"
+}
 
 const StreamingMessage = memo(function StreamingMessage({
   message,
@@ -90,6 +96,7 @@ const StreamingMessage = memo(function StreamingMessage({
 })
 
 export function SessionStreamingMessage() {
+  const { t } = useI18n()
   const streamedMessages = useStreamingMessages()
   const extensions = useContext(SessionExtensionContext)
   const messages = extensions
@@ -102,6 +109,50 @@ export function SessionStreamingMessage() {
   const contentRef = useRef<HTMLDivElement>(null)
   const tailRef = useRef<HTMLDivElement>(null)
   const followingRef = useRef(false)
+  const processIndex = messages.findIndex((message) => message.role !== "user")
+  const visibleMessages =
+    processIndex < 0 ? messages : messages.slice(0, processIndex)
+  const workMessages = processIndex < 0 ? [] : messages.slice(processIndex)
+  let finalIndex = -1
+  for (let index = workMessages.length - 1; index >= 0; index -= 1) {
+    const message = workMessages[index]!
+    if (message.role === "assistant" && message.parts.some(isFinalOutputPart)) {
+      finalIndex = index
+      break
+    }
+  }
+  const finalMessage = finalIndex >= 0 ? workMessages[finalIndex] : undefined
+  const finalPartIndex = finalMessage?.parts.findIndex(isFinalOutputPart) ?? -1
+  const processMessages = workMessages
+    .slice(0, finalIndex >= 0 ? finalIndex : workMessages.length)
+    .concat(
+      finalMessage && finalPartIndex > 0
+        ? [
+            {
+              ...finalMessage,
+              parts: finalMessage.parts.slice(0, finalPartIndex),
+            },
+          ]
+        : []
+    )
+  const finalMessages =
+    finalMessage && finalPartIndex >= 0
+      ? [
+          {
+            ...finalMessage,
+            parts: finalMessage.parts.slice(finalPartIndex),
+          },
+          ...workMessages.slice(finalIndex + 1),
+        ]
+      : []
+  const processPreview = processMessages
+    .flatMap((message) =>
+      message.parts.flatMap((part) =>
+        part.type === "text" || part.type === "thinking" ? [part.text] : []
+      )
+    )
+    .map(formatInlinePreview)
+    .find(Boolean)
 
   useEffect(() => {
     const content = contentRef.current
@@ -139,8 +190,27 @@ export function SessionStreamingMessage() {
         }
         className={messages.length ? "flex min-w-0 flex-col gap-5" : "hidden"}
       >
-        {messages.map((message) => (
+        {visibleMessages.map((message) => (
           <StreamingMessage key={message.id} message={message} />
+        ))}
+        {processMessages.length ? (
+          <ConversationDisclosure
+            label={t("session.transcript.process")}
+            preview={processPreview}
+            icon={<TerminalIcon />}
+            tone="execute"
+            status={t("session.transcript.running")}
+            statusTone="running"
+            ariaLabel={t("session.transcript.expandProcess")}
+            contentClassName="flex min-w-0 flex-col gap-5"
+          >
+            {processMessages.map((message) => (
+              <StreamingMessage key={message.id} message={message} />
+            ))}
+          </ConversationDisclosure>
+        ) : null}
+        {finalMessages.map((message) => (
+          <StreamingMessage key={`${message.id}:final`} message={message} />
         ))}
       </div>
       <div ref={tailRef} className="h-px" aria-hidden="true" />

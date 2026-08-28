@@ -43,6 +43,7 @@ import {
 } from "@workspace/ui/components/sidebar"
 import { WorkspaceNavProject } from "@/components/workspace-nav-project"
 import { WorkspaceNavSession } from "@/components/workspace-nav-session"
+import { PiBrand } from "@/components/pi-brand"
 import { useI18n } from "@/components/i18n-provider"
 import { useKeyboardShortcuts } from "@/components/keyboard-shortcuts-provider"
 import { useSessionIndicators } from "@/hooks/use-session-indicators"
@@ -329,9 +330,10 @@ export function WorkspaceNav({
             <div className="flex h-9 items-center justify-between">
               <Link
                 href="/"
-                className="px-1 text-base font-semibold tracking-tight"
+                aria-label="pi-web-codex"
+                className="rounded-md px-1 py-1 transition-opacity outline-none hover:opacity-80 focus-visible:ring-2 focus-visible:ring-ring/50"
               >
-                pi-web-codex
+                <PiBrand />
               </Link>
               <Button asChild variant="ghost" size="icon-sm">
                 <Link

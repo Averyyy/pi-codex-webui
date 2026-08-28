@@ -31,13 +31,24 @@ function sameItems(left: QueuedPromptItem[], right: QueuedPromptItem[]) {
       (item, index) =>
         item.id === right[index]?.id &&
         item.text === right[index].text &&
-        item.mode === right[index].mode
+        item.mode === right[index].mode &&
+        (item.kind ?? "message") === (right[index]?.kind ?? "message") &&
+        JSON.stringify(item.control) === JSON.stringify(right[index].control)
     )
   )
 }
 
 function publicItem(record: QueuedPromptRecord): QueuedPromptItem {
-  return { id: record.id, text: record.text, mode: record.mode }
+  const item: QueuedPromptItem = {
+    id: record.id,
+    text: record.text,
+    mode: record.mode,
+  }
+  if (record.kind === "control") {
+    item.kind = "control"
+    item.control = record.control
+  }
+  return item
 }
 
 export class PromptQueue {
@@ -50,10 +61,53 @@ export class PromptQueue {
       id,
       text,
       mode,
+      kind: "message" as const,
       images,
       order: this.nextOrder++,
       confirmed: false,
     })
+    return id
+  }
+
+  beginControl(
+    mode: QueuedPromptMode,
+    text: string,
+    control: NonNullable<QueuedPromptItem["control"]>
+  ): string {
+    const id = randomUUID()
+    this.records.push({
+      id,
+      text,
+      mode,
+      kind: "control",
+      control,
+      images: [],
+      order: this.nextOrder++,
+      confirmed: false,
+    })
+    return id
+  }
+
+  upsertControl(
+    mode: QueuedPromptMode,
+    text: string,
+    control: NonNullable<QueuedPromptItem["control"]>
+  ): string {
+    const existing = this.records.find(
+      (record) =>
+        record.confirmed &&
+        record.kind === "control" &&
+        record.control?.type === control.type
+    )
+    if (existing) {
+      existing.text = text
+      existing.mode = mode
+      existing.control = control
+      return existing.id
+    }
+    const id = this.beginControl(mode, text, control)
+    const record = this.records.find((item) => item.id === id)
+    if (record) record.confirmed = true
     return id
   }
 
@@ -77,6 +131,27 @@ export class PromptQueue {
       .filter((record) => record.confirmed)
       .sort((left, right) => left.order - right.order)
       .map(publicItem)
+  }
+
+  confirmedRecords(): QueuedPromptRecord[] {
+    return this.records
+      .filter((record) => record.confirmed)
+      .sort((left, right) => left.order - right.order)
+      .map((record) => ({ ...record, images: [...record.images] }))
+  }
+
+  controlRecords(): QueuedPromptRecord[] {
+    return this.confirmedRecords().filter((record) => record.kind === "control")
+  }
+
+  consumeControl(text: string) {
+    const index = this.records.findIndex(
+      (record) =>
+        record.confirmed && record.kind === "control" && record.text === text
+    )
+    if (index === -1) return undefined
+    const [record] = this.records.splice(index, 1)
+    return record
   }
 
   prepareReplacement(expected: QueuedPromptItem[], next: QueuedPromptItem[]) {
@@ -105,6 +180,8 @@ export class PromptQueue {
         ...record,
         text: item.text,
         mode: item.mode,
+        kind: item.kind,
+        control: item.control,
         confirmed: true,
       }
     })
@@ -121,7 +198,7 @@ export class PromptQueue {
 
   private reconcileMode(mode: QueuedPromptMode, texts: readonly string[]) {
     const modeRecords = this.records
-      .filter((record) => record.mode === mode)
+      .filter((record) => record.mode === mode && record.kind !== "control")
       .sort((left, right) => left.order - right.order)
     const confirmed = modeRecords.filter((record) => record.confirmed)
     const pending = modeRecords.filter((record) => !record.confirmed)
@@ -145,6 +222,7 @@ export class PromptQueue {
           id: randomUUID(),
           text,
           mode,
+          kind: "message" as const,
           images: [],
           order: this.nextOrder++,
           confirmed: true,
@@ -154,7 +232,9 @@ export class PromptQueue {
     }
 
     this.records = [
-      ...this.records.filter((record) => record.mode !== mode),
+      ...this.records.filter(
+        (record) => record.mode !== mode || record.kind === "control"
+      ),
       ...nextModeRecords,
     ]
   }

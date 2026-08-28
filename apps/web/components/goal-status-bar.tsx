@@ -78,10 +78,12 @@ export function GoalStatusBar({
   initialState,
   disabled,
   onCommand,
+  queueCommands = false,
 }: {
   initialState: PiGoalState | null
   disabled: boolean
   onCommand(args: string): Promise<boolean>
+  queueCommands?: boolean
 }) {
   const { t } = useI18n()
   const extensions = useContext(SessionExtensionContext)
@@ -119,10 +121,16 @@ export function GoalStatusBar({
     setPending(true)
     setError("")
     try {
-      const accepted = liveView
-        ? (await extensionRuntime.invoke(liveView, "goal.command", input), true)
-        : await onCommand(commandArgs(input))
+      const accepted =
+        liveView && !queueCommands
+          ? (await extensionRuntime.invoke(liveView, "goal.command", input),
+            true)
+          : await onCommand(commandArgs(input))
       if (!accepted) return
+      if (queueCommands) {
+        setEditing(false)
+        return true
+      }
       setState((current) => {
         if (!current || input.command === "clear") return null
         if (input.command === "pause") {

@@ -8,6 +8,7 @@ import {
   promptAcceptedSchema,
   queueUpdatedEventSchema,
   resourceCatalogSchema,
+  runtimeSnapshotSchema,
   runtimeStatusSchema,
   subagentsSnapshotSchema,
   tuiSurfaceActionSchema,
@@ -22,6 +23,60 @@ import { hasAvailableSelectedModel } from "./runtime-supervisor"
 test("runtime status accepts only supervisor states", () => {
   assert.equal(runtimeStatusSchema.parse("busy"), "busy")
   assert.equal(runtimeStatusSchema.safeParse("running").success, false)
+})
+
+test("runtime snapshots preserve extension status state", () => {
+  const snapshot = {
+    webSessionId: "web-1",
+    nativeSessionId: "native-1",
+    nativeSessionFile: "/tmp/session.jsonl",
+    leafId: null,
+    cwd: "/tmp/project",
+    model: null,
+    availableModels: [],
+    thinkingLevel: "off",
+    availableThinkingLevels: ["off"],
+    activeTools: [],
+    isStreaming: false,
+    isCompacting: false,
+    queuedPrompts: [],
+  }
+
+  assert.deepEqual(runtimeSnapshotSchema.parse(snapshot).extensionStatuses, {})
+  assert.deepEqual(
+    runtimeSnapshotSchema.parse({
+      ...snapshot,
+      extensionStatuses: { ponytail: "Ponytail: FULL" },
+    }).extensionStatuses,
+    { ponytail: "Ponytail: FULL" }
+  )
+})
+
+test("runtime snapshots expose TUI-compatible slash commands", () => {
+  const snapshot = {
+    webSessionId: "web-1",
+    nativeSessionId: "native-1",
+    nativeSessionFile: "/tmp/session.jsonl",
+    leafId: null,
+    cwd: "/tmp/project",
+    model: null,
+    availableModels: [],
+    thinkingLevel: "off",
+    availableThinkingLevels: ["off"],
+    activeTools: [],
+    isStreaming: false,
+    isCompacting: false,
+    queuedPrompts: [],
+    slashCommands: [
+      { name: "codex", description: "Quick settings", source: "extension" },
+      { name: "skill:review", source: "skill" },
+    ],
+  }
+
+  assert.deepEqual(
+    runtimeSnapshotSchema.parse(snapshot).slashCommands,
+    snapshot.slashCommands
+  )
 })
 
 test("IPC schemas reject uncorrelated requests and responses", () => {

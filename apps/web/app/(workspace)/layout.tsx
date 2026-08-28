@@ -7,6 +7,7 @@ import {
 } from "@workspace/ui/components/sidebar"
 
 import { WorkspaceNav } from "@/components/workspace-nav"
+import { PiBrand } from "@/components/pi-brand"
 import { SidebarShortcut } from "@/components/sidebar-shortcut"
 import { SessionComposerDraftProvider } from "@/components/session-composer-draft-context"
 import { listWorkspaceProjects, listWorkspaceTasks } from "@/lib/catalog"
@@ -53,7 +54,7 @@ export default async function WorkspaceLayout({
         >
           <header className="flex h-12 shrink-0 items-center border-b px-3 md:hidden">
             <SidebarTrigger />
-            <span className="ml-2 font-medium">pi-web-codex</span>
+            <PiBrand className="ml-2" />
           </header>
           {children}
         </SidebarInset>

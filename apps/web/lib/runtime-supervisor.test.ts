@@ -69,6 +69,7 @@ function snapshot(sessionId: string, leafId: string): RuntimeSnapshot {
     isStreaming: false,
     isCompacting: false,
     queuedPrompts: [],
+    extensionStatuses: {},
   }
 }
 

@@ -40,11 +40,37 @@ export const runtimeModelSchema = z.object({
 
 export const queuedPromptModeSchema = z.enum(["followUp", "steer"])
 
-export const queuedPromptItemSchema = z.object({
-  id: z.string().uuid(),
-  text: z.string().min(1).max(100_000),
-  mode: queuedPromptModeSchema,
+export const queuedPromptKindSchema = z.enum(["message", "control"])
+export const queuedPromptControlSchema = z.object({
+  type: z.enum(["model", "thinking", "compact", "goal", "ponytail"]),
+  value: z.string().min(1).optional(),
 })
+
+export const queuedPromptItemSchema = z
+  .object({
+    id: z.string().uuid(),
+    text: z.string().min(1).max(100_000),
+    mode: queuedPromptModeSchema,
+    kind: queuedPromptKindSchema.optional(),
+    control: queuedPromptControlSchema.optional(),
+  })
+  .superRefine((item, context) => {
+    const kind = item.kind ?? "message"
+    if (kind === "control" && !item.control) {
+      context.addIssue({
+        code: "custom",
+        message: "Control queue entries must include control metadata.",
+        path: ["control"],
+      })
+    }
+    if (kind === "message" && item.control) {
+      context.addIssue({
+        code: "custom",
+        message: "Message queue entries cannot include control metadata.",
+        path: ["control"],
+      })
+    }
+  })
 
 export const queuedPromptItemsSchema = z
   .array(queuedPromptItemSchema)
@@ -63,6 +89,14 @@ export const queuedPromptItemsSchema = z
     }
   })
 
+export const runtimeSlashCommandSchema = z.object({
+  name: z.string().min(1),
+  description: z.string().optional(),
+  source: z.enum(["extension", "prompt", "skill"]),
+})
+
+export const runtimeSlashCommandsSchema = z.array(runtimeSlashCommandSchema)
+
 export const runtimeSnapshotSchema = z.object({
   webSessionId: z.string().min(1),
   nativeSessionId: z.string().min(1),
@@ -80,6 +114,8 @@ export const runtimeSnapshotSchema = z.object({
   isStreaming: z.boolean(),
   isCompacting: z.boolean(),
   queuedPrompts: queuedPromptItemsSchema.default([]),
+  slashCommands: runtimeSlashCommandsSchema.optional(),
+  extensionStatuses: z.record(z.string(), z.string()).default({}),
 })
 
 export const mcpToolDefinitionSchema = z.object({
@@ -706,6 +742,14 @@ export const modelSettingsSchema = z.object({
   defaultModel: runtimeModelSchema
     .pick({ provider: true, id: true, name: true })
     .nullable(),
+  refreshErrors: z
+    .array(
+      z.object({
+        provider: z.string().min(1),
+        message: z.string().min(1),
+      })
+    )
+    .optional(),
 })
 
 const initializeMessageSchema = z.object({

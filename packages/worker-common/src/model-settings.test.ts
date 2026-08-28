@@ -8,10 +8,7 @@ import * as codingAgent from "@earendil-works/pi-coding-agent"
 import type { HostToWorkerMessage } from "@workspace/runtime-protocol"
 
 import type { ModelThinkingModule } from "./coding-agent.js"
-import {
-  handleModelSettingsMessage,
-  refreshOpencodeModelRegistry,
-} from "./model-settings.js"
+import { handleModelSettingsMessage } from "./model-settings.js"
 
 type ProviderMessage = Extract<
   HostToWorkerMessage,
@@ -209,68 +206,6 @@ test("model catalog refresh reads external provider and model changes", async ()
       ),
       true
     )
-  } finally {
-    await rm(root, { recursive: true, force: true })
-  }
-})
-
-test("live OpenCode refresh includes models added after the bundled catalog", async () => {
-  const root = await mkdtemp(path.join(tmpdir(), "pi-opencode-refresh-"))
-  const modelsPath = path.join(root, "models.json")
-  const authPath = path.join(root, "auth.json")
-  try {
-    await writeFile(modelsPath, '{"providers":{}}\n')
-    await writeFile(
-      authPath,
-      JSON.stringify({ opencode: { type: "api_key", key: "test-key" } })
-    )
-    const authStorage = codingAgent.AuthStorage.create(authPath)
-    const modelRegistry = codingAgent.ModelRegistry.create(
-      authStorage,
-      modelsPath
-    )
-    let requestUrl = ""
-    let requestAuthorization = ""
-    const refreshed = await refreshOpencodeModelRegistry(
-      authStorage,
-      modelRegistry,
-      {
-        required: true,
-        fetcher: async (input, init) => {
-          requestUrl = String(input)
-          requestAuthorization = String(
-            new Headers(init?.headers).get("authorization")
-          )
-          return new Response(
-            JSON.stringify({
-              object: "list",
-              data: [{ id: "claude-opus-5" }, { id: "gpt-5.6-sol" }],
-            }),
-            { status: 200, headers: { "content-type": "application/json" } }
-          )
-        },
-      }
-    )
-
-    assert.equal(refreshed, true)
-    assert.equal(requestUrl, "https://opencode.ai/zen/v1/models")
-    assert.equal(requestAuthorization, "Bearer test-key")
-    assert.equal(
-      modelRegistry.find("opencode", "claude-opus-5")?.name,
-      "Claude Opus 5"
-    )
-    assert.equal(
-      modelRegistry.find("opencode", "claude-opus-5")?.api,
-      "anthropic-messages"
-    )
-    assert.equal(
-      modelRegistry.find("opencode", "gpt-5.6-sol")?.api,
-      "openai-responses"
-    )
-    assert.deepEqual(modelRegistry.find("opencode", "gpt-5.6-sol")?.input, [
-      "text",
-      "image",
-    ])
   } finally {
     await rm(root, { recursive: true, force: true })
   }
