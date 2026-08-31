@@ -2,12 +2,14 @@ import { execFile } from "node:child_process"
 import {
   access,
   chmod,
+  copyFile,
   cp,
   lstat,
   mkdir,
   readFile,
   readdir,
   realpath,
+  rename as fsRename,
   rm,
 } from "node:fs/promises"
 import path from "node:path"
@@ -103,6 +105,25 @@ async function dereferenceSymlinks(directory) {
   )
 }
 
+async function materializeFiles(directory) {
+  const entries = await readdir(directory, { withFileTypes: true })
+  await Promise.all(
+    entries.map(async (entry) => {
+      const target = path.join(directory, entry.name)
+      if (entry.isDirectory()) {
+        await materializeFiles(target)
+        return
+      }
+      if (!entry.isFile()) return
+      const temporary = `${target}.materialize-${process.pid}`
+      await copyFile(target, temporary)
+      await chmod(temporary, (await lstat(target)).mode & 0o777)
+      await rm(target)
+      await fsRename(temporary, target)
+    })
+  )
+}
+
 await rm(path.join(root, "dist"), { recursive: true, force: true })
 await mkdir(outputRoot, { recursive: true })
 const standaloneRoot = path.join(nextRoot, "standalone")
@@ -134,6 +155,7 @@ async function deployWorker(packageName, directory) {
     { cwd: root }
   )
   await dereferenceSymlinks(workerRoot)
+  await materializeFiles(workerRoot)
   await removeTypeScript(workerRoot)
 }
 
