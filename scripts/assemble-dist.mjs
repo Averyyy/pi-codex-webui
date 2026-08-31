@@ -87,6 +87,22 @@ async function removeTypeScript(directory) {
   )
 }
 
+async function dereferenceSymlinks(directory) {
+  const entries = await readdir(directory, { withFileTypes: true })
+  await Promise.all(
+    entries.map(async (entry) => {
+      const target = path.join(directory, entry.name)
+      if (entry.isSymbolicLink()) {
+        const resolved = await realpath(target)
+        await rm(target, { recursive: true, force: true })
+        await copyPortable(resolved, target)
+        return
+      }
+      if (entry.isDirectory()) await dereferenceSymlinks(target)
+    })
+  )
+}
+
 await rm(path.join(root, "dist"), { recursive: true, force: true })
 await mkdir(outputRoot, { recursive: true })
 const standaloneRoot = path.join(nextRoot, "standalone")
@@ -117,6 +133,7 @@ async function deployWorker(packageName, directory) {
     [pnpmEntrypoint, "--filter", packageName, "deploy", "--prod", workerRoot],
     { cwd: root }
   )
+  await dereferenceSymlinks(workerRoot)
   await removeTypeScript(workerRoot)
 }
 
