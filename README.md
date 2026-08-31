@@ -1,63 +1,55 @@
+<div align="center">
+
 # pi-web-codex
 
-## Installation
+### A polished local web host for Pi coding-agent workflows
+
+Run Pi sessions, projects, extensions, and developer tools in a fast browser UI that stays local, inspectable, and scriptable.
+
+[![npm version](https://img.shields.io/npm/v/pi-web-codex?color=cb3837&logo=npm&logoColor=white)](https://www.npmjs.com/package/pi-web-codex)
+[![npm downloads](https://img.shields.io/npm/dm/pi-web-codex?color=0ea5e9&logo=npm&logoColor=white)](https://www.npmjs.com/package/pi-web-codex)
+[![GitHub stars](https://img.shields.io/github/stars/Averyyy/pi-codex-webui?style=flat&color=f59e0b&logo=github)](https://github.com/Averyyy/pi-codex-webui)
+[![License](https://img.shields.io/badge/license-MIT-16a34a.svg)](LICENSE)
+[![Node.js](https://img.shields.io/badge/Node.js-22.19%2B-43853d?logo=node.js&logoColor=white)](https://nodejs.org/)
+
+<br />
+
+**[中文文档](README.zh-CN.md)** · **[NPM](https://www.npmjs.com/package/pi-web-codex)** · **[GitHub](https://github.com/Averyyy/pi-codex-webui)**
+
+</div>
+
+## See it in action
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/Averyyy/pi-codex-webui/main/reference/image-9.png" alt="Pi session with streaming output and environment inspector" width="49%" />
+  <img src="https://raw.githubusercontent.com/Averyyy/pi-codex-webui/main/reference/image-7.png" alt="Extension marketplace and integrations" width="49%" />
+</p>
+<p align="center">
+  <img src="https://raw.githubusercontent.com/Averyyy/pi-codex-webui/main/reference/image-3.png" alt="Searchable archived tasks" width="49%" />
+  <img src="https://raw.githubusercontent.com/Averyyy/pi-codex-webui/main/reference/image-4.png" alt="Appearance and theme settings" width="49%" />
+</p>
+
+## Why pi-web-codex
+
+| | Capability | What it means in practice |
+| --- | --- | --- |
+| ⚡ | **Real-time Pi sessions** | Prompt streaming, tool events, abort, retry, compaction, model and thinking controls. |
+| 🧭 | **Projects and session history** | Browse JSONL projects, search full text, fork or clone sessions, navigate branches, and export/import JSONL or HTML. |
+| 🧩 | **Native WebUI Extensions** | Render dialogs, editors, widgets and overlays in the browser while preserving Pi's original TUI fallback. |
+| 🔌 | **MCP and runtime controls** | Configure stdio or Streamable HTTP servers, inspect connection status, and reload idle runtimes safely. |
+| 🛠️ | **Developer visibility** | Read-only files, Git branch/commit/worktree state, environment details and runtime diagnostics in one place. |
+| 📦 | **Local-first delivery** | A standalone CLI, installable PWA, atomic settings, optional notifications and no hosted account required. |
+
+## Install and run
+
+Requires **Node.js 22.19+** or **Node.js 24+**. Node.js 23 is not supported.
 
 ```bash
 npm install --global pi-web-codex
-```
-
-Requires Node.js 22.19+ or Node.js 24+. Node.js 23 is not supported.
-
-## Usage
-
-```bash
 pi-web-codex
 ```
 
-Opens <http://127.0.0.1:1816> after the server starts. Use `pi-web-codex --help` for options.
-
-## About
-
-
-The current milestone provides the production host lifecycle, health and settings
-APIs, atomic local configuration, functional General and Appearance pages, a
-browser for real Pi JSONL projects, standalone tasks, messages, tool records,
-and full-text search, plus an isolated Pi SDK worker. Standalone tasks run
-without project Files, Git, or project-scoped resources; project sessions keep
-their workspace context in a collapsible navigator and environment inspector.
-Session pages activate their worker when opened and expose real prompt streaming,
-tool events, abort, model,
-thinking, queue, compaction, and retry state. Pi-backed session operations cover
-new, resume, rename, fork, clone, tree navigation, JSONL/HTML export, JSONL
-import, and statistics. Extensions can use native Web confirm, select, input,
-editor, notification, status, and line-widget controls. Component widgets,
-custom dialogs and overlays, headers, footers, raw terminal input, and custom
-editors keep running as real Pi TUI components inside the worker and render in
-the browser through versioned virtual-terminal surfaces. Independent WebUI
-Adapter packages can progressively replace known commands and renderers with
-content-hashed Shadow DOM views; built-in and external packages use one runtime
-manifest/SDK, and every failure returns to the original Pi/Virtual TUI path.
-Packages, extensions, and skills have dedicated Global/Current Project settings
-pages backed by Pi's real SettingsManager and DefaultPackageManager. Resource
-changes respect Pi project trust, persist atomically, reload idle runtimes
-immediately, and defer busy runtime reloads until `agent_settled`. Developer
-settings can enable the separately packaged Pi Client distribution, store its
-Pi Server token outside `config.json`, run an authenticated connection test,
-and choose the default runtime for new sessions. Existing sessions keep their
-original runtime binding; migration is an explicit duplicate that records its
-source. MCP settings manage real global/project stdio and Streamable HTTP
-servers, keep credentials in SecretStore, discover and namespace tools, expose
-connection status/logs, and restart affected idle runtimes so per-tool changes
-reach the actual AgentSession. Project pages also expose a host-confined,
-read-only file browser and real Git branch, commit, upstream, and worktree
-status. Missing historical workspaces remain readable without starting a
-runtime or resolving deleted paths. The installable PWA keeps dynamic session
-and API data out of its cache;
-optional browser notifications fire only for completed agents, runtime crashes,
-and extension notifications while the page is hidden. Runtime diagnostics show
-the managed worker, MCP/tool activity, and recent domain events, with explicit
-crash recovery that preserves readable JSONL history. No UI is shown without a
-backing operation.
+The host opens <http://127.0.0.1:1816> when the server is ready. Use `pi-web-codex --help` to see all CLI options.
 
 ## Development
 
@@ -66,9 +58,7 @@ npx pnpm@11.12.0 install
 npx pnpm@11.12.0 dev
 ```
 
-Open <http://127.0.0.1:1816>.
-
-Build and verify the standalone package with:
+Open <http://127.0.0.1:1816>, then run the focused checks below before publishing:
 
 ```bash
 npx pnpm@11.12.0 test
@@ -77,18 +67,26 @@ npx pnpm@11.12.0 lint
 npx pnpm@11.12.0 build
 ```
 
-Run the complete packed-release check with:
+For the complete packed-release check:
 
 ```bash
 npx pnpm@11.12.0 release:verify
 ```
 
-This builds the portable standalone tree, verifies that the NPM tarball contains
-both compiled workers and no TypeScript business source, installs it into a
-temporary global prefix, and starts the installed CLI through its health check.
+This builds the portable standalone tree, verifies the NPM tarball contains both compiled workers and no TypeScript business source, installs it into a temporary global prefix, and starts the installed CLI through its health check.
 
-## Architecture
+## Extending the host
 
-See [docs/architecture.md](docs/architecture.md) and the
-[WebUI Extension architecture](docs/webui-extensions/architecture.md). Adapter
-authors can start with [webui-extensions/README.md](webui-extensions/README.md).
+WebUI Extensions are optional adapters for existing Pi Extensions. They can progressively replace known commands and renderers with browser-native Shadow DOM views. If an adapter is absent, disabled, incompatible, conflicting or fails at runtime, the original Pi behavior and Virtual TUI remain available.
+
+- [Extension author guide](webui-extensions/README.md)
+- [Extension architecture](docs/webui-extensions/architecture.md)
+- [Core architecture](docs/architecture.md)
+
+## Project status
+
+The current milestone covers the production host lifecycle, health and settings APIs, real Pi JSONL projects and standalone tasks, isolated Pi SDK workers, session lifecycle operations, extension settings, MCP management, project Git/file inspection, PWA caching and runtime diagnostics. No UI is presented without a backing operation.
+
+## License
+
+[MIT](LICENSE)
