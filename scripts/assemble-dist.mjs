@@ -89,35 +89,22 @@ async function removeTypeScript(directory) {
   )
 }
 
-async function dereferenceSymlinks(directory) {
+async function materializeHardLinkedFiles(directory) {
   const entries = await readdir(directory, { withFileTypes: true })
   await Promise.all(
     entries.map(async (entry) => {
       const target = path.join(directory, entry.name)
-      if (entry.isSymbolicLink()) {
-        const resolved = await realpath(target)
-        await rm(target, { recursive: true, force: true })
-        await copyPortable(resolved, target)
-        return
-      }
-      if (entry.isDirectory()) await dereferenceSymlinks(target)
-    })
-  )
-}
-
-async function materializeFiles(directory) {
-  const entries = await readdir(directory, { withFileTypes: true })
-  await Promise.all(
-    entries.map(async (entry) => {
-      const target = path.join(directory, entry.name)
+      if (entry.isSymbolicLink()) return
       if (entry.isDirectory()) {
-        await materializeFiles(target)
+        await materializeHardLinkedFiles(target)
         return
       }
       if (!entry.isFile()) return
+      const stats = await lstat(target)
+      if (stats.nlink <= 1) return
       const temporary = `${target}.materialize-${process.pid}`
       await copyFile(target, temporary)
-      await chmod(temporary, (await lstat(target)).mode & 0o777)
+      await chmod(temporary, stats.mode & 0o777)
       await rm(target)
       await fsRename(temporary, target)
     })
@@ -154,8 +141,7 @@ async function deployWorker(packageName, directory) {
     [pnpmEntrypoint, "--filter", packageName, "deploy", "--prod", workerRoot],
     { cwd: root }
   )
-  await dereferenceSymlinks(workerRoot)
-  await materializeFiles(workerRoot)
+  await materializeHardLinkedFiles(workerRoot)
   await removeTypeScript(workerRoot)
 }
 
