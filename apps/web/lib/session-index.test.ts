@@ -105,6 +105,62 @@ function sessionJsonl(
   return `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`
 }
 
+test("ignores Pi session sidecar jsonl files", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "pi-web-codex-sidecars-"))
+  const configRoot = path.join(root, "config")
+  const sessionRoot = path.join(root, "sessions")
+  const projectCwd = path.join(root, "project")
+  const previous = {
+    config: process.env.PI_WEB_CODEX_CONFIG_DIR,
+    sessions: process.env.PI_CODING_AGENT_SESSION_DIR,
+  }
+  process.env.PI_WEB_CODEX_CONFIG_DIR = configRoot
+  process.env.PI_CODING_AGENT_SESSION_DIR = sessionRoot
+  globalThis.piWebCodexDatabase = undefined
+  globalThis.piWebCodexIndexSync = undefined
+
+  try {
+    await mkdir(sessionRoot, { recursive: true })
+    await mkdir(projectCwd)
+    await addWorkspaceProject(projectCwd)
+    const sessionFile = path.join(sessionRoot, "session.jsonl")
+    await writeFile(
+      sessionFile,
+      sessionJsonl("native-session", projectCwd, "session message")
+    )
+    await Promise.all(
+      [".pi-server-runs.jsonl", ".tool-effects.jsonl"].map((suffix) =>
+        writeFile(
+          `${sessionFile}${suffix}`,
+          `${JSON.stringify({ payload: "...kind:run...", sha256: "..." })}\n`
+        )
+      )
+    )
+
+    await syncPiSessionIndex()
+
+    const database = await getDatabase()
+    const rows = database
+      .prepare("SELECT native_session_file FROM sessions")
+      .all() as { native_session_file: string }[]
+    assert.equal(rows.length, 1)
+    assert.equal(rows[0]?.native_session_file, sessionFile)
+  } finally {
+    const database = await getDatabase()
+    database.close()
+    globalThis.piWebCodexDatabase = undefined
+    globalThis.piWebCodexIndexSync = undefined
+    globalThis.piWebCodexProjectRegistrations = undefined
+    if (previous.config === undefined)
+      delete process.env.PI_WEB_CODEX_CONFIG_DIR
+    else process.env.PI_WEB_CODEX_CONFIG_DIR = previous.config
+    if (previous.sessions === undefined)
+      delete process.env.PI_CODING_AGENT_SESSION_DIR
+    else process.env.PI_CODING_AGENT_SESSION_DIR = previous.sessions
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 test("keeps tintinweb child sessions out of user-facing catalogs", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "pi-web-codex-subagents-"))
   const configRoot = path.join(root, "config")

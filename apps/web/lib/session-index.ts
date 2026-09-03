@@ -42,9 +42,20 @@ interface IndexedSessionRow {
 
 const decoder = new TextDecoder("utf-8", { fatal: true })
 const sessionTitleSearchEntryType = "session_title"
+const piSessionSidecarSuffixes = [
+  ".pi-server-runs.jsonl",
+  ".tool-effects.jsonl",
+] as const
 
 function hash(content: Uint8Array) {
   return createHash("sha256").update(content).digest("hex")
+}
+
+function isPiSessionFileName(name: string) {
+  return (
+    name.endsWith(".jsonl") &&
+    !piSessionSidecarSuffixes.some((suffix) => name.endsWith(suffix))
+  )
 }
 
 async function discoverSessionFiles(root: string) {
@@ -62,7 +73,7 @@ async function discoverSessionFiles(root: string) {
       const target = path.join(directory, entry.name)
       if (entry.isDirectory()) {
         await visit(target, await readdir(target, { withFileTypes: true }))
-      } else if (entry.isFile() && entry.name.endsWith(".jsonl")) {
+      } else if (entry.isFile() && isPiSessionFileName(entry.name)) {
         files.push(target)
       }
     }
