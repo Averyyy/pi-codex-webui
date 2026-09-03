@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { execFile, spawn } from "node:child_process"
-import { mkdtemp, mkdir, readFile, readdir, rm } from "node:fs/promises"
+import { lstat, mkdtemp, mkdir, readFile, readdir, rm } from "node:fs/promises"
 import { createServer } from "node:net"
 import { tmpdir } from "node:os"
 import path from "node:path"
@@ -105,9 +105,12 @@ async function requiredBuiltinReleaseFiles() {
 async function inspectTarball(tarball) {
   const required = new Set([
     "package/dist/app/apps/web/server.js",
+    "package/extensions/pi-web-codex.ts",
     ...(await requiredBuiltinReleaseFiles()),
     "package/dist/workers/pi/dist/worker.mjs",
+    "package/dist/workers/pi/node_modules/@earendil-works/pi-coding-agent/package.json",
     "package/dist/workers/pi-client/dist/worker.mjs",
+    "package/dist/workers/pi-client/node_modules/@earendil-works/pi-coding-agent/package.json",
   ])
   let leakedSource
   let staticAssets = false
@@ -121,7 +124,9 @@ async function inspectTarball(tarball) {
     tar.once("exit", (code) => resolve(code))
   })
   for await (const file of createInterface({ input: tar.stdout })) {
-    if (/\.(?:ts|tsx)$/.test(file)) leakedSource ??= file
+    if (/\.(?:ts|tsx)$/.test(file) && !file.startsWith("package/extensions/")) {
+      leakedSource ??= file
+    }
     required.delete(file)
     if (file.startsWith("package/dist/app/apps/web/.next/static/")) {
       staticAssets = true
@@ -142,6 +147,79 @@ async function inspectTarball(tarball) {
   )
 }
 
+function installedPackageRoot(installRoot) {
+  return path.join(
+    installRoot,
+    process.platform === "win32"
+      ? "node_modules/pi-web-codex"
+      : "lib/node_modules/pi-web-codex"
+  )
+}
+
+async function assertRegularFile(file, label) {
+  const stats = await lstat(file)
+  assert.equal(stats.isSymbolicLink(), false, `${label} is a symlink: ${file}`)
+  assert.equal(stats.isFile(), true, `${label} is missing: ${file}`)
+}
+
+async function assertProductionInstall(packageRoot) {
+  const server = await readFile(
+    path.join(packageRoot, "dist/app/apps/web/server.js"),
+    "utf8"
+  )
+  assert.match(
+    server,
+    /process\.env\.NODE_ENV = ['"]production['"]/,
+    "Installed server.js is not a Next.js production standalone entry."
+  )
+  assert.match(
+    server,
+    /isDev:\s*false/,
+    "Installed server.js does not start Next.js in production mode."
+  )
+  await assertRegularFile(
+    path.join(
+      packageRoot,
+      "dist/workers/pi/node_modules/@earendil-works/pi-coding-agent/package.json"
+    ),
+    "Pi worker SDK"
+  )
+  await assertRegularFile(
+    path.join(
+      packageRoot,
+      "dist/workers/pi-client/node_modules/@earendil-works/pi-coding-agent/package.json"
+    ),
+    "Pi client worker SDK"
+  )
+  await assertRegularFile(
+    path.join(packageRoot, "extensions/pi-web-codex.ts"),
+    "Pi package extension"
+  )
+}
+
+async function assertPageOk(url, pathname) {
+  const response = await fetch(`${url}${pathname}`, {
+    redirect: "follow",
+    signal: AbortSignal.timeout(15_000),
+  })
+  const body = await response.text()
+  assert.equal(
+    response.ok,
+    true,
+    `${pathname} returned ${response.status}: ${body.slice(0, 500)}`
+  )
+  assert.equal(
+    body.includes("__next_error__"),
+    false,
+    `${pathname} rendered the Next.js error page.`
+  )
+  assert.doesNotMatch(
+    body,
+    /Compiled (?:in|successfully)|Fast Refresh/i,
+    `${pathname} looks like next dev, not next build.`
+  )
+}
+
 let child
 try {
   const filename = (
@@ -159,6 +237,7 @@ try {
     installRoot,
     process.platform === "win32" ? "pi-web-codex.cmd" : "bin/pi-web-codex"
   )
+  const installedRoot = installedPackageRoot(installRoot)
   const packageJson = JSON.parse(
     await readFile(path.join(root, "package.json"))
   )
@@ -166,6 +245,7 @@ try {
     (await run(executable, ["--version"])).stdout.trim(),
     packageJson.version
   )
+  await assertProductionInstall(installedRoot)
 
   const port = await availablePort()
   const configRoot = path.join(temporary, "config")
@@ -180,9 +260,15 @@ try {
     }
   )
   await waitForReady(child)
-  const health = await fetch(`http://127.0.0.1:${port}/api/v1/health`)
+  const url = `http://127.0.0.1:${port}`
+  const health = await fetch(`${url}/api/v1/health`)
   assert.equal(health.ok, true)
-  assert.equal((await health.json()).name, "pi-web-codex")
+  const healthBody = await health.json()
+  assert.equal(healthBody.name, "pi-web-codex")
+  assert.equal(healthBody.version, packageJson.version)
+  await assertPageOk(url, "/")
+  await assertPageOk(url, "/new")
+  await assertPageOk(url, "/settings")
   child.kill("SIGTERM")
   await new Promise((resolve) => child.once("exit", resolve))
   child = undefined

@@ -16,6 +16,7 @@ import {
   type McpToolDefinition,
 } from "@workspace/runtime-protocol"
 
+import { APP_VERSION } from "./app"
 import { loadConfig } from "./config"
 import type {
   AppConfig,
@@ -247,7 +248,7 @@ export class McpService {
     this.log(server.id, "info", `Connecting with ${server.transport.type}.`)
     this.publishStatus(server.id)
 
-    const client = new Client({ name: "pi-web-codex", version: "0.1.0" })
+    const client = new Client({ name: "pi-web-codex", version: APP_VERSION })
     client.onclose = () => {
       if (state.client !== client) return
       state.client = null

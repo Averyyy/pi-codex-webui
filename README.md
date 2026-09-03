@@ -49,7 +49,13 @@ npm install --global pi-web-codex
 pi-web-codex
 ```
 
-The host opens <http://127.0.0.1:1816> when the server is ready. Use `pi-web-codex --help` to see all CLI options.
+Or install it as a Pi package and start it from a session:
+
+```bash
+pi install npm:pi-web-codex
+```
+
+Then run `/pi-web-codex` inside Pi. The host opens <http://127.0.0.1:1816> when the server is ready. Use `pi-web-codex --help` to see all CLI options.
 
 ## Development
 

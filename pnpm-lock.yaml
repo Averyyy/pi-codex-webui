@@ -11,6 +11,10 @@ patchedDependencies:
 importers:
 
   .:
+    dependencies:
+      '@earendil-works/pi-coding-agent':
+        specifier: '*'
+        version: 0.84.3(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)
     devDependencies:
       '@workspace/eslint-config':
         specifier: workspace:*

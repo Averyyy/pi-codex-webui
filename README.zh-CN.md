@@ -49,7 +49,13 @@ npm install --global pi-web-codex
 pi-web-codex
 ```
 
-服务就绪后会打开 <http://127.0.0.1:1816>。使用 `pi-web-codex --help` 查看全部 CLI 选项。
+也可以作为 Pi package 安装，并在会话里启动：
+
+```bash
+pi install npm:pi-web-codex
+```
+
+然后在 Pi 中运行 `/pi-web-codex`。服务就绪后会打开 <http://127.0.0.1:1816>。使用 `pi-web-codex --help` 查看全部 CLI 选项。
 
 ## 本地开发
 

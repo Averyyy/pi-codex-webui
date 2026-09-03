@@ -136,13 +136,37 @@ if (!pnpmEntrypoint)
   throw new Error("npm_execpath is required to deploy workers.")
 async function deployWorker(packageName, directory) {
   const workerRoot = path.join(root, "dist", "workers", directory)
+  const stagingRoot = `${workerRoot}.staging`
   await run(
     process.execPath,
-    [pnpmEntrypoint, "--filter", packageName, "deploy", "--prod", workerRoot],
+    [
+      pnpmEntrypoint,
+      "--filter",
+      packageName,
+      "deploy",
+      "--prod",
+      "--config.node-linker=hoisted",
+      stagingRoot,
+    ],
     { cwd: root }
   )
+  // Hoisted deploy still leaves .bin links. npm pack drops remaining
+  // symlinks, so copy a fully dereferenced tree into the published package.
+  await copyPortable(stagingRoot, workerRoot)
+  await rm(stagingRoot, { recursive: true, force: true })
   await materializeHardLinkedFiles(workerRoot)
   await removeTypeScript(workerRoot)
+  const workerPackage = path.join(
+    workerRoot,
+    "node_modules",
+    "@earendil-works",
+    "pi-coding-agent",
+    "package.json"
+  )
+  const workerPackageStats = await lstat(workerPackage)
+  if (workerPackageStats.isSymbolicLink()) {
+    throw new Error(`Worker dependency is still a symlink: ${workerPackage}`)
+  }
 }
 
 await Promise.all([

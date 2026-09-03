@@ -2159,10 +2159,16 @@ export class RuntimeSupervisor {
       cwd: message.payload.cwd,
       env: workerEnvironment(),
       execArgv: [],
-      stdio: ["ignore", "ignore", "ignore", "ipc"],
+      stdio: ["ignore", "ignore", "pipe", "ipc"],
     })
     return new Promise<unknown>((resolve, reject) => {
       let settled = false
+      let stderr = ""
+      child.stderr?.setEncoding("utf8")
+      child.stderr?.on("data", (chunk: string) => {
+        stderr += chunk
+        if (stderr.length > 4_000) stderr = stderr.slice(-4_000)
+      })
       const finish = (complete: () => void) => {
         if (settled) return
         settled = true
@@ -2191,7 +2197,9 @@ export class RuntimeSupervisor {
           reject(
             new RuntimeRequestError(
               "ResourceWorkerExited",
-              `The Pi resource worker exited (${signal ?? code ?? "unknown"}).`
+              `The Pi resource worker exited (${signal ?? code ?? "unknown"}).${
+                stderr.trim() ? `\n${stderr.trim()}` : ""
+              }`
             )
           )
         )
