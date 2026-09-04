@@ -3,6 +3,7 @@ import "server-only"
 import { createHash, randomUUID } from "node:crypto"
 import type { Dirent } from "node:fs"
 import { open, readdir, realpath, stat } from "node:fs/promises"
+import { homedir } from "node:os"
 import path from "node:path"
 import type { DatabaseSync } from "node:sqlite"
 
@@ -173,6 +174,22 @@ async function canonicalizeCwd(cwd: string) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return resolved
     throw error
   }
+}
+
+function isWithinDirectory(directory: string, candidate: string) {
+  const normalizedDirectory = path.resolve(
+    process.platform === "win32" ? directory.toLowerCase() : directory
+  )
+  const normalizedCandidate = path.resolve(
+    process.platform === "win32" ? candidate.toLowerCase() : candidate
+  )
+  const relative = path.relative(normalizedDirectory, normalizedCandidate)
+  return (
+    relative === "" ||
+    (relative !== ".." &&
+      !relative.startsWith(`..${path.sep}`) &&
+      !path.isAbsolute(relative))
+  )
 }
 
 async function sessionFileCwd(file: string) {
@@ -394,31 +411,23 @@ function removeMissingSessions(database: DatabaseSync, files: Set<string>) {
 }
 
 async function performSync() {
-  const [database, files] = await Promise.all([
+  const [database, files, homeDirectory] = await Promise.all([
     getDatabase(),
     discoverSessionFiles(getPiSessionsRoot()),
+    canonicalizeCwd(homedir()),
   ])
-  const registeredPaths = new Set(
-    (
-      database
-        .prepare(
-          `SELECT projects.canonical_path FROM project_registrations
-           JOIN projects ON projects.id = project_registrations.project_id`
-        )
-        .all() as { canonical_path: string }[]
-    ).map(({ canonical_path }) => canonical_path)
-  )
   for (const file of files) {
-    if (indexedSession(database, file)) {
+    const existing = indexedSession(database, file)
+    if (existing) {
+      if (existing.project_id !== null) continue
       await indexSessionFile(database, file)
       continue
     }
     const header = await sessionFileHeader(file)
-    if (
-      !registeredPaths.has(await canonicalizeCwd(header.cwd)) &&
-      !header.parentSession
-    )
+    const cwd = await canonicalizeCwd(header.cwd)
+    if (!isWithinDirectory(homeDirectory, cwd)) {
       continue
+    }
     await indexSessionFile(database, file)
   }
   removeMissingSessions(database, new Set(files))

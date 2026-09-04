@@ -16,6 +16,7 @@
     "PI_WEB_CODEX_PI_CLIENT_WORKER_PATH",
     "PI_WEB_CODEX_WEBUI_EXTENSION_PATHS",
     "PORT",
+    "SystemRoot",
     "XDG_CONFIG_HOME"
   ],
   "ui": "tui",

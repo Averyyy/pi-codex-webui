@@ -8,7 +8,7 @@ import {
   stat,
   writeFile,
 } from "node:fs/promises"
-import { tmpdir } from "node:os"
+import { homedir, tmpdir } from "node:os"
 import path from "node:path"
 import test from "node:test"
 
@@ -122,7 +122,6 @@ test("ignores Pi session sidecar jsonl files", async () => {
   try {
     await mkdir(sessionRoot, { recursive: true })
     await mkdir(projectCwd)
-    await addWorkspaceProject(projectCwd)
     const sessionFile = path.join(sessionRoot, "session.jsonl")
     await writeFile(
       sessionFile,
@@ -140,6 +139,7 @@ test("ignores Pi session sidecar jsonl files", async () => {
         )
       )
     )
+    await addWorkspaceProject(projectCwd)
 
     await syncPiSessionIndex()
 
@@ -149,6 +149,90 @@ test("ignores Pi session sidecar jsonl files", async () => {
       .all() as { native_session_file: string }[]
     assert.equal(rows.length, 1)
     assert.equal(rows[0]?.native_session_file, sessionFile)
+  } finally {
+    const database = await getDatabase()
+    database.close()
+    globalThis.piWebCodexDatabase = undefined
+    globalThis.piWebCodexIndexSync = undefined
+    globalThis.piWebCodexProjectRegistrations = undefined
+    if (previous.config === undefined)
+      delete process.env.PI_WEB_CODEX_CONFIG_DIR
+    else process.env.PI_WEB_CODEX_CONFIG_DIR = previous.config
+    if (previous.sessions === undefined)
+      delete process.env.PI_CODING_AGENT_SESSION_DIR
+    else process.env.PI_CODING_AGENT_SESSION_DIR = previous.sessions
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test("lazily indexes project sessions and treats home sessions as tasks", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "pi-web-codex-lazy-index-"))
+  const configRoot = path.join(root, "config")
+  const sessionRoot = path.join(root, "sessions")
+  const homeTaskCwd = path.join(homedir(), "pi-web-codex-home-task")
+  const projectCwd =
+    process.platform === "win32"
+      ? (process.env["SystemRoot"] ?? path.parse(homedir()).root)
+      : "/tmp"
+  const previous = {
+    config: process.env.PI_WEB_CODEX_CONFIG_DIR,
+    sessions: process.env.PI_CODING_AGENT_SESSION_DIR,
+  }
+  process.env.PI_WEB_CODEX_CONFIG_DIR = configRoot
+  process.env.PI_CODING_AGENT_SESSION_DIR = sessionRoot
+  globalThis.piWebCodexDatabase = undefined
+  globalThis.piWebCodexIndexSync = undefined
+
+  try {
+    await mkdir(sessionRoot, { recursive: true })
+    const homeTaskFile = path.join(sessionRoot, "home-task.jsonl")
+    const projectFile = path.join(sessionRoot, "project.jsonl")
+    const projectHeader = {
+      type: "session",
+      version: 3,
+      id: "native-lazy-project",
+      timestamp: "2026-07-14T00:00:00.000Z",
+      cwd: projectCwd,
+    }
+    await Promise.all([
+      writeFile(
+        homeTaskFile,
+        sessionJsonl("native-home-task", homeTaskCwd, "home task message")
+      ),
+      writeFile(
+        projectFile,
+        `${JSON.stringify(projectHeader)}\n{invalid json}\n`
+      ),
+    ])
+
+    await syncPiSessionIndex()
+
+    const [homeTask] = await listWorkspaceTasks()
+    assert.equal(homeTask?.nativeSessionId, "native-home-task")
+    assert.equal(homeTask?.projectId, null)
+    assert.equal(homeTask?.cwd, homeTaskCwd)
+    const database = await getDatabase()
+    assert.equal(
+      database.prepare("SELECT count(*) AS count FROM sessions").get()?.count,
+      1
+    )
+
+    await assert.rejects(addWorkspaceProject(projectCwd))
+
+    await writeFile(
+      projectFile,
+      sessionJsonl("native-lazy-project", projectCwd, "project message")
+    )
+    const project = await addWorkspaceProject(projectCwd)
+    assert.equal(project.sessionCount, 1)
+    assert.equal((await listProjectSessions(project.id)).length, 1)
+
+    await writeFile(
+      projectFile,
+      `${JSON.stringify(projectHeader)}\n{invalid json}\n`
+    )
+    const sessions = await listProjectSessions(project.id)
+    assert.equal(sessions[0]?.firstMessage, "project message")
   } finally {
     const database = await getDatabase()
     database.close()
@@ -309,8 +393,16 @@ function branchedSessionJsonl(id: string, cwd: string) {
   return `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`
 }
 
+function sessionFixtureParent() {
+  return process.platform === "win32"
+    ? path.join(process.env["SystemRoot"] ?? path.parse(homedir()).root, "Temp")
+    : tmpdir()
+}
+
 test("standalone sessions survive reindexing and remain outside projects", async () => {
-  const root = await mkdtemp(path.join(tmpdir(), "pi-web-codex-index-"))
+  const root = await mkdtemp(
+    path.join(sessionFixtureParent(), "pi-web-codex-index-")
+  )
   const configRoot = path.join(root, "config")
   const sessionRoot = path.join(root, "sessions")
   const projectCwd = path.join(root, "project")
@@ -456,11 +548,8 @@ test("standalone sessions survive reindexing and remain outside projects", async
       })}\n`
     )
     await syncPiSessionIndex()
-    assert.equal(
-      (await searchSessions("updated title"))[0]?.sessionId,
-      projectSession.id
-    )
-    assert.equal((await searchSessions("release roadmap")).length, 0)
+    assert.deepEqual(await searchSessions("updated title"), [])
+    assert.equal((await searchSessions("release roadmap")).length, 1)
 
     const sessionRowsBeforeRemoval = database
       .prepare("SELECT count(*) AS count FROM sessions WHERE project_id = ?")
@@ -505,18 +594,23 @@ test("standalone sessions survive reindexing and remain outside projects", async
       (await getSessionRuntimeTarget(projectSession.id))?.projectId,
       projectId
     )
-    assert.equal(
-      (await searchSessions("project updated while unregistered"))[0]
-        ?.sessionId,
-      projectSession.id
+    assert.deepEqual(
+      await searchSessions("project updated while unregistered"),
+      []
     )
     assert.equal(
-      (await searchSessions("project unregistered"))[0]?.sessionId,
+      (await searchSessions("project message"))[0]?.sessionId,
       projectSession.id
     )
 
     const reRegistered = await addWorkspaceProject(projectCwd)
     assert.equal(reRegistered.id, projectId)
+    assert.equal(
+      (await searchSessions("project updated while unregistered"))[0]
+        ?.sessionId,
+      projectSession.id
+    )
+    assert.deepEqual(await searchSessions("project message"), [])
     assert.equal(
       (await listWorkspaceProjects())[0]?.sessions[0]?.id,
       projectSession.id
