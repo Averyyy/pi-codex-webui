@@ -42,20 +42,13 @@ interface IndexedSessionRow {
 
 const decoder = new TextDecoder("utf-8", { fatal: true })
 const sessionTitleSearchEntryType = "session_title"
-const piSessionSidecarSuffixes = [
-  ".pi-server-runs.jsonl",
-  ".tool-effects.jsonl",
-] as const
 
 function hash(content: Uint8Array) {
   return createHash("sha256").update(content).digest("hex")
 }
 
 function isPiSessionFileName(name: string) {
-  return (
-    name.endsWith(".jsonl") &&
-    !piSessionSidecarSuffixes.some((suffix) => name.endsWith(suffix))
-  )
+  return name.endsWith(".jsonl") && !name.includes(".jsonl.")
 }
 
 async function discoverSessionFiles(root: string) {

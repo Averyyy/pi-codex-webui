@@ -129,10 +129,14 @@ test("ignores Pi session sidecar jsonl files", async () => {
       sessionJsonl("native-session", projectCwd, "session message")
     )
     await Promise.all(
-      [".pi-server-runs.jsonl", ".tool-effects.jsonl"].map((suffix) =>
+      [
+        ".pi-server-runs.jsonl",
+        ".pi-server-compacts.jsonl",
+        ".tool-effects.jsonl",
+      ].map((suffix) =>
         writeFile(
           `${sessionFile}${suffix}`,
-          `${JSON.stringify({ payload: "...kind:run...", sha256: "..." })}\n`
+          `${JSON.stringify({ payload: "...kind:run..." })}\n`
         )
       )
     )
