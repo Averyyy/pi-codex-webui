@@ -170,6 +170,7 @@ test("lazily indexes project sessions and treats home sessions as tasks", async 
   const configRoot = path.join(root, "config")
   const sessionRoot = path.join(root, "sessions")
   const homeTaskCwd = path.join(homedir(), "pi-web-codex-home-task")
+  const externalTaskCwd = path.parse(homedir()).root
   const projectCwd =
     process.platform === "win32"
       ? (process.env["SystemRoot"] ?? path.parse(homedir()).root)
@@ -226,6 +227,59 @@ test("lazily indexes project sessions and treats home sessions as tasks", async 
     const project = await addWorkspaceProject(projectCwd)
     assert.equal(project.sessionCount, 1)
     assert.equal((await listProjectSessions(project.id)).length, 1)
+
+    const externalTaskFile = path.join(sessionRoot, "external-task.jsonl")
+    await writeFile(
+      externalTaskFile,
+      sessionJsonl("native-external-task", externalTaskCwd, "external task")
+    )
+    assert.equal(
+      (await getSessionIdentityByNativeFile(externalTaskFile))?.projectId,
+      null
+    )
+
+    const newHomeTaskFile = path.join(sessionRoot, "new-home-task.jsonl")
+    const newExternalTaskFile = path.join(
+      sessionRoot,
+      "new-external-task.jsonl"
+    )
+    const newProjectFile = path.join(sessionRoot, "new-project.jsonl")
+    await Promise.all([
+      writeFile(
+        newHomeTaskFile,
+        sessionJsonl("native-new-home-task", homeTaskCwd, "new home task")
+      ),
+      writeFile(
+        newExternalTaskFile,
+        sessionJsonl(
+          "native-new-external-task",
+          externalTaskCwd,
+          "new external task"
+        )
+      ),
+      writeFile(
+        newProjectFile,
+        sessionJsonl("native-new-project", projectCwd, "new project message")
+      ),
+    ])
+    await syncPiSessionIndex()
+    assert.deepEqual(
+      (await listWorkspaceTasks())
+        .map(({ nativeSessionId }) => nativeSessionId)
+        .sort(),
+      [
+        "native-external-task",
+        "native-home-task",
+        "native-new-external-task",
+        "native-new-home-task",
+      ]
+    )
+    assert.deepEqual(
+      (await listProjectSessions(project.id))
+        .map(({ nativeSessionId }) => nativeSessionId)
+        .sort(),
+      ["native-lazy-project", "native-new-project"]
+    )
 
     await writeFile(
       projectFile,

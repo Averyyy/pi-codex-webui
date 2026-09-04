@@ -416,6 +416,26 @@ async function performSync() {
     discoverSessionFiles(getPiSessionsRoot()),
     canonicalizeCwd(homedir()),
   ])
+  const registeredPaths = new Set(
+    (
+      database
+        .prepare(
+          `SELECT projects.canonical_path FROM project_registrations
+           JOIN projects ON projects.id = project_registrations.project_id`
+        )
+        .all() as { canonical_path: string }[]
+    ).map(({ canonical_path }) => canonical_path)
+  )
+  const taskPaths = new Set(
+    (
+      database
+        .prepare(
+          `SELECT DISTINCT cwd FROM sessions
+           WHERE project_id IS NULL AND archived_at IS NULL`
+        )
+        .all() as { cwd: string }[]
+    ).map(({ cwd }) => cwd)
+  )
   for (const file of files) {
     const existing = indexedSession(database, file)
     if (existing) {
@@ -425,7 +445,11 @@ async function performSync() {
     }
     const header = await sessionFileHeader(file)
     const cwd = await canonicalizeCwd(header.cwd)
-    if (!isWithinDirectory(homeDirectory, cwd)) {
+    if (
+      !isWithinDirectory(homeDirectory, cwd) &&
+      !registeredPaths.has(cwd) &&
+      !taskPaths.has(cwd)
+    ) {
       continue
     }
     await indexSessionFile(database, file)
