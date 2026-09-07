@@ -203,6 +203,9 @@ await Promise.all(
 
 const productionFiles = await sourceFiles(path.join(root, "dist"))
 await Promise.all(
+  productionFiles.filter((file) => /\.pdb$/i.test(file)).map((file) => rm(file))
+)
+await Promise.all(
   productionFiles
     .filter((file) =>
       /\/node-pty(?:-[^/]+)?\/prebuilds\/darwin-[^/]+\/spawn-helper$/.test(

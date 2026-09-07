@@ -25,15 +25,17 @@ async function runCommand(command, args, options = {}) {
       const { stdout } = await run("where.exe", [command], options)
       command = stdout.trim().split(/\r?\n/)[0]
     }
-    return run([command, ...args].map(quoteWindowsShellArg).join(" "), [], {
+    command = [command, ...args].map(quoteWindowsShellArg).join(" ")
+    args = []
+    options = {
       ...options,
       shell: true,
       windowsVerbatimArguments: true,
-    })
+    }
   }
-  return run(command, args, {
-    ...options,
-  })
+  const execution = run(command, args, options)
+  execution.child.stderr.pipe(process.stderr)
+  return execution
 }
 
 function availablePort() {
@@ -139,6 +141,7 @@ async function inspectTarball(tarball) {
     "package/dist/workers/pi-client/node_modules/@earendil-works/pi-coding-agent/package.json",
   ])
   let leakedSource
+  let debugSymbols
   let staticAssets = false
   let currentNativeModule
   let currentSpawnHelper
@@ -156,6 +159,7 @@ async function inspectTarball(tarball) {
     if (/\.(?:ts|tsx)$/.test(file) && !file.startsWith("package/extensions/")) {
       leakedSource ??= file
     }
+    if (/\.pdb$/i.test(file)) debugSymbols ??= file
     required.delete(file)
     if (file.startsWith("package/dist/app/apps/web/.next/static/")) {
       staticAssets = true
@@ -187,6 +191,11 @@ async function inspectTarball(tarball) {
     leakedSource,
     undefined,
     `NPM tarball contains TypeScript business source: ${leakedSource}`
+  )
+  assert.equal(
+    debugSymbols,
+    undefined,
+    `NPM tarball contains native debug symbols: ${debugSymbols}`
   )
   assert.deepEqual([...required], [], `Missing release files: ${[...required]}`)
   assert.equal(
@@ -644,6 +653,8 @@ try {
   console.log("Installing release into an isolated global prefix...")
   await runCommand(npmCommand, [
     "install",
+    "--timing",
+    "--loglevel=verbose",
     "--global",
     "--prefix",
     installRoot,
