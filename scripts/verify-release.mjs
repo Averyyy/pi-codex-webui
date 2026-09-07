@@ -688,6 +688,7 @@ try {
     },
     stdio: ["ignore", "pipe", "pipe"],
   })
+  child.stderr.pipe(process.stderr)
   console.log("Starting installed host...")
   await waitForReady(child)
   const url = `http://127.0.0.1:${port}`
