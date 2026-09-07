@@ -395,6 +395,7 @@ async function assertTaskTerminal(url, mutationHeaders, packageVersion) {
   )
 
   const endpoint = `${url}/api/v1/sessions/${task.sessionId}/terminal`
+  console.log("Pi task ready; starting native terminal...")
   let reader
   try {
     const startResponse = await fetch(endpoint, {
@@ -403,6 +404,7 @@ async function assertTaskTerminal(url, mutationHeaders, packageVersion) {
       body: JSON.stringify({ action: "start", columns: 80, rows: 24 }),
     })
     await expectOk(startResponse, "Terminal start")
+    console.log("Native terminal started; opening output stream...")
 
     const streamResponse = await fetch(endpoint)
     assert.equal(
@@ -413,6 +415,7 @@ async function assertTaskTerminal(url, mutationHeaders, packageVersion) {
     assert.ok(streamResponse.body, "Terminal stream has no response body.")
     reader = streamResponse.body.getReader()
     await readSseUntil(reader, "event: snapshot")
+    console.log("Terminal stream ready; executing output probe...")
 
     const markerPrefix = `pi-web-codex-release-terminal-${packageVersion}-${Date.now()}`
     const marker = `${markerPrefix}-output`
@@ -428,6 +431,7 @@ async function assertTaskTerminal(url, mutationHeaders, packageVersion) {
     const output = await readSseUntil(reader, marker)
     assert.match(output, new RegExp(marker))
   } finally {
+    console.log("Closing terminal stream and task...")
     if (reader) await reader.cancel().catch(() => undefined)
     const stopResponse = await fetch(endpoint, {
       method: "DELETE",
@@ -513,6 +517,7 @@ async function assertPiClientTask(url, mutationHeaders) {
   )
 
   const sessionId = task.sessionId
+  console.log("Pi Client task ready; checking session and cleanup...")
   const sessionResponse = await fetch(`${url}/api/v1/sessions/${sessionId}`)
   const session = JSON.parse(
     await expectOk(sessionResponse, "Pi Client session")
@@ -632,9 +637,11 @@ try {
     tarball = path.join(temporary, filename)
   }
   assert.ok(filename.endsWith(".tgz"))
+  console.log(`Inspecting release artifact: ${filename}`)
   await inspectTarball(tarball)
 
   const installRoot = path.join(temporary, "global")
+  console.log("Installing release into an isolated global prefix...")
   await runCommand(npmCommand, [
     "install",
     "--global",
@@ -647,6 +654,7 @@ try {
     process.platform === "win32" ? "pi-web-codex.cmd" : "bin/pi-web-codex"
   )
   const installedRoot = installedPackageRoot(installRoot)
+  console.log("Checking installed CLI shim and production assets...")
   assert.equal(
     (await runCommand(executable, ["--version"])).stdout.trim(),
     packageJson.version
@@ -680,6 +688,7 @@ try {
     },
     stdio: ["ignore", "pipe", "pipe"],
   })
+  console.log("Starting installed host...")
   await waitForReady(child)
   const url = `http://127.0.0.1:${port}`
   const health = await fetch(`${url}/api/v1/health`)
@@ -695,13 +704,17 @@ try {
     Origin: url,
     "X-Pi-Web-Codex-Mutation-Token": mutationToken,
   }
+  console.log("Checking Pi worker and terminal command output...")
   await assertTaskTerminal(url, mutationHeaders, packageJson.version)
+  console.log("Checking Pi Client worker...")
   await assertPiClientTask(url, mutationHeaders)
+  console.log("Stopping installed host...")
   await stopProcessTree(child)
   child = undefined
 
   console.log(`Release verified: ${filename}`)
 } finally {
   await stopProcessTree(child)
+  console.log("Removing isolated release installation...")
   await rm(temporary, { recursive: true, force: true })
 }
