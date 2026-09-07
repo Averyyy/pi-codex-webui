@@ -14,19 +14,20 @@ Run Pi sessions, projects, extensions, and developer tools in a fast browser UI 
 
 <br />
 
-**[中文文档](README.zh-CN.md)** · **[NPM](https://www.npmjs.com/package/pi-web-codex)** · **[GitHub](https://github.com/Averyyy/pi-codex-webui)**
+**[中文文档](README.zh-CN.md)** · **[Pi Packages](https://pi.dev/packages/pi-web-codex)** · **[NPM](https://www.npmjs.com/package/pi-web-codex)** · **[GitHub](https://github.com/Averyyy/pi-codex-webui)**
 
 </div>
 
 ## See it in action
 
+Actual browser screenshots of pi-web-codex 0.1.3 running locally on macOS, captured on September 7, 2026. The project home is shown before selecting a model; these are not mockups or generated images.
+
 <p align="center">
-  <img src="https://raw.githubusercontent.com/Averyyy/pi-codex-webui/main/reference/image-9.png" alt="Pi session with streaming output and environment inspector" width="49%" />
-  <img src="https://raw.githubusercontent.com/Averyyy/pi-codex-webui/main/reference/image-7.png" alt="Extension marketplace and integrations" width="49%" />
+  <img src="https://raw.githubusercontent.com/Averyyy/pi-codex-webui/main/docs/screenshots/project-home.jpg" alt="Project home before starting a session" width="100%" />
 </p>
 <p align="center">
-  <img src="https://raw.githubusercontent.com/Averyyy/pi-codex-webui/main/reference/image-3.png" alt="Searchable archived tasks" width="49%" />
-  <img src="https://raw.githubusercontent.com/Averyyy/pi-codex-webui/main/reference/image-4.png" alt="Appearance and theme settings" width="49%" />
+  <img src="https://raw.githubusercontent.com/Averyyy/pi-codex-webui/main/docs/screenshots/appearance.jpg" alt="Appearance settings" width="49%" />
+  <img src="https://raw.githubusercontent.com/Averyyy/pi-codex-webui/main/docs/screenshots/shortcuts.jpg" alt="Keyboard shortcut settings" width="49%" />
 </p>
 
 ## Why pi-web-codex
@@ -57,7 +58,7 @@ Or install it as a Pi package and start it from a session:
 pi install npm:pi-web-codex
 ```
 
-Then run `/pi-web-codex` inside Pi. The host opens its configured URL (default: <http://127.0.0.1:1816>) when the server is ready. Use `pi-web-codex --help` to see all CLI options.
+If Pi is already open, run `/reload` (or restart Pi) to load the installed extension. Then run `/pi-web-codex` inside Pi. The host opens its configured URL (default: <http://127.0.0.1:1816>) when the server is ready. Use `pi-web-codex --help` to see all CLI options.
 
 ## Development
 

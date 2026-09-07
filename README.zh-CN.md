@@ -14,19 +14,20 @@
 
 <br />
 
-**[English](README.md)** · **[NPM](https://www.npmjs.com/package/pi-web-codex)** · **[GitHub](https://github.com/Averyyy/pi-codex-webui)**
+**[English](README.md)** · **[Pi Packages](https://pi.dev/packages/pi-web-codex)** · **[NPM](https://www.npmjs.com/package/pi-web-codex)** · **[GitHub](https://github.com/Averyyy/pi-codex-webui)**
 
 </div>
 
 ## 先看界面
 
+以下为 2026 年 9 月 7 日在 macOS 本机运行 pi-web-codex 0.1.3 的真实浏览器截图。项目首页处于尚未选择模型、尚未开始会话的状态；不是设计稿或生成图。
+
 <p align="center">
-  <img src="https://raw.githubusercontent.com/Averyyy/pi-codex-webui/main/reference/image-9.png" alt="实时 Pi 会话与环境检查器" width="49%" />
-  <img src="https://raw.githubusercontent.com/Averyyy/pi-codex-webui/main/reference/image-7.png" alt="插件市场与集成管理" width="49%" />
+  <img src="https://raw.githubusercontent.com/Averyyy/pi-codex-webui/main/docs/screenshots/project-home.jpg" alt="开始会话前的项目首页" width="100%" />
 </p>
 <p align="center">
-  <img src="https://raw.githubusercontent.com/Averyyy/pi-codex-webui/main/reference/image-3.png" alt="可搜索的归档任务" width="49%" />
-  <img src="https://raw.githubusercontent.com/Averyyy/pi-codex-webui/main/reference/image-4.png" alt="外观与主题设置" width="49%" />
+  <img src="https://raw.githubusercontent.com/Averyyy/pi-codex-webui/main/docs/screenshots/appearance.jpg" alt="外观设置" width="49%" />
+  <img src="https://raw.githubusercontent.com/Averyyy/pi-codex-webui/main/docs/screenshots/shortcuts.jpg" alt="键盘快捷键设置" width="49%" />
 </p>
 
 ## 核心亮点
@@ -57,7 +58,7 @@ pi-web-codex
 pi install npm:pi-web-codex
 ```
 
-然后在 Pi 中运行 `/pi-web-codex`。服务就绪后会打开配置的地址（默认 <http://127.0.0.1:1816>）。使用 `pi-web-codex --help` 查看全部 CLI 选项。
+如果 Pi 会话已经打开，先运行 `/reload`（或重启 Pi）加载新安装的扩展，再运行 `/pi-web-codex`。服务就绪后会打开配置的地址（默认 <http://127.0.0.1:1816>）。使用 `pi-web-codex --help` 查看全部 CLI 选项。
 
 ## 本地开发
 
