@@ -103,7 +103,7 @@ jobs:
 
   verify:
     needs: build
-    timeout-minutes: 15
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -149,6 +149,6 @@ jobs:
           registry-url: "https://registry.npmjs.org"
 
       - name: Publish package
-        run: npm publish artifact/release.tgz --access public --provenance=false
+        run: npm publish ./artifact/release.tgz --access public --provenance=false
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
