@@ -2,6 +2,7 @@ import "server-only"
 
 import { homedir } from "node:os"
 import path from "node:path"
+import process from "node:process"
 
 function configRoot() {
   if (process.env.PI_WEB_CODEX_CONFIG_DIR) {

@@ -1,5 +1,6 @@
 import "server-only"
 
+import process from "node:process"
 import { spawn, type IPty } from "node-pty"
 
 import { RuntimeRequestError } from "./runtime-error"

@@ -5,6 +5,7 @@ import type { Dirent } from "node:fs"
 import { open, readdir, realpath, stat } from "node:fs/promises"
 import { homedir } from "node:os"
 import path from "node:path"
+import process from "node:process"
 import type { DatabaseSync } from "node:sqlite"
 
 import { getPiSessionsRoot } from "@/lib/app-paths"
