@@ -13,6 +13,11 @@ on:
         description: "Git ref to publish from (defaults to the selected ref)"
         required: false
         type: string
+      publish:
+        description: "Publish the verified artifact to npm"
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -22,11 +27,15 @@ concurrency:
   group: publish-npm-${{ github.event.release.tag_name || inputs.version || github.ref_name }}
   cancel-in-progress: false
 
+env:
+  SOURCE_REF: ${{ inputs.ref || github.event.release.tag_name || github.sha }}
+  RELEASE_VERSION: ${{ github.event.release.tag_name || inputs.version }}
+
 jobs:
-  publish:
-    runs-on: ubuntu-latest
-    env:
-      SOURCE_REF: ${{ inputs.ref || github.event.release.tag_name || github.ref_name }}
+  build:
+    outputs:
+      source-sha: ${{ steps.source.outputs.sha }}
+    runs-on: ubuntu-22.04
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -34,26 +43,111 @@ jobs:
           ref: ${{ env.SOURCE_REF }}
           fetch-depth: 0
           persist-credentials: false
-      
+
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
           version: 11.12.0
-      
+
+      - name: Record source revision
+        id: source
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "22"
-          registry-url: "https://registry.npmjs.org"
+          node-version: "22.19.0"
           cache: pnpm
-      
+
+      - name: Validate release version
+        env:
+          EXPECTED_RELEASE_VERSION: ${{ env.RELEASE_VERSION }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync } from "node:fs"
+
+          const actual = JSON.parse(readFileSync("package.json", "utf8")).version
+          const expected = process.env.EXPECTED_RELEASE_VERSION.replace(/^v/, "")
+          if (actual !== expected) {
+            throw new Error(`Release version ${expected} does not match package.json version ${actual}.`)
+          }
+          NODE
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-      
-      - name: Verify release artifact
-        run: pnpm release:verify
-      
+
+      - name: Test release source
+        run: pnpm test
+
+      - name: Lint release source
+        run: pnpm lint
+
+      - name: Typecheck release source
+        run: pnpm typecheck
+
+      - name: Build release
+        run: pnpm build
+
+      - name: Pack release artifact
+        run: |
+          mkdir -p artifact
+          npm pack --silent --pack-destination artifact
+          mv artifact/*.tgz artifact/release.tgz
+
+      - name: Upload release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-tarball
+          path: artifact/release.tgz
+          if-no-files-found: error
+
+  verify:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.build.outputs.source-sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.19.0"
+
+      - name: Download release artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: release-tarball
+          path: artifact
+
+      - name: Verify installed release artifact
+        run: node scripts/verify-release.mjs artifact/release.tgz
+
+  publish:
+    needs: [build, verify]
+    if: ${{ github.event_name == 'release' || inputs.publish == true }}
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Download release artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: release-tarball
+          path: artifact
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.19.0"
+          registry-url: "https://registry.npmjs.org"
+
       - name: Publish package
-        run: npm publish --access public --provenance=false
+        run: npm publish artifact/release.tgz --access public --provenance=false
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

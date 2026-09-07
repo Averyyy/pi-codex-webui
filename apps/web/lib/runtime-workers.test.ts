@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { fork, type ChildProcess } from "node:child_process"
-import { createHash, randomUUID } from "node:crypto"
+import { randomUUID } from "node:crypto"
 import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
@@ -140,10 +140,7 @@ test("Pi Client duplicates into its own worker without changing the source", asy
     clientSnapshot.nativeSessionFile,
     piSnapshot.nativeSessionFile
   )
-  assert.equal(
-    createHash("sha256").update(sourceAfter).digest("hex"),
-    createHash("sha256").update(sourceBefore).digest("hex")
-  )
+  assert.deepEqual(sourceAfter, sourceBefore)
   await readFile(clientSnapshot.nativeSessionFile)
   await rm(directory, { recursive: true, force: true })
 })

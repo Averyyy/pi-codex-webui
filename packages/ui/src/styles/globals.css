@@ -280,7 +280,6 @@
 :is(
   [data-liquid-glass="control"],
   [data-slot="select-trigger"],
-  [data-slot="sidebar-menu-button"][data-active="true"],
   [data-slot="dropdown-menu-content"],
   [data-slot="dropdown-menu-sub-content"],
   [data-slot="context-menu-content"],
@@ -311,11 +310,9 @@
     transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
-:is(
-    [data-liquid-glass="control"],
-    [data-slot="select-trigger"],
-    [data-slot="sidebar-menu-button"][data-active="true"]
-  ):not(:disabled):not([data-disabled]):is(
+:is([data-liquid-glass="control"], [data-slot="select-trigger"]):not(
+    :disabled
+  ):not([data-disabled]):is(
     :hover,
     [data-state="open"],
     [aria-expanded="true"]
@@ -353,11 +350,9 @@
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  :is(
-      [data-liquid-glass="control"],
-      [data-slot="select-trigger"],
-      [data-slot="sidebar-menu-button"][data-active="true"]
-    ):not(:disabled):not([data-disabled]):is(
+  :is([data-liquid-glass="control"], [data-slot="select-trigger"]):not(
+      :disabled
+    ):not([data-disabled]):is(
       :hover,
       [data-state="open"],
       [aria-expanded="true"]
@@ -365,11 +360,9 @@
     transform: translateY(-1px) scale(1.012);
   }
 
-  :is(
-      [data-liquid-glass="control"],
-      [data-slot="select-trigger"],
-      [data-slot="sidebar-menu-button"][data-active="true"]
-    ):not(:disabled):not([data-disabled]):active {
+  :is([data-liquid-glass="control"], [data-slot="select-trigger"]):not(
+      :disabled
+    ):not([data-disabled]):active {
     transform: translateY(0) scale(0.985);
   }
 }
@@ -391,6 +384,8 @@
 
 [data-slot="sidebar-menu-button"][data-active="true"] {
   color: var(--sidebar-accent-foreground);
+  background-color: var(--sidebar-accent);
+  border: 1px solid var(--sidebar-border);
 }
 
 .hljs {
@@ -458,11 +453,7 @@
 }
 
 @media (prefers-reduced-transparency: reduce) {
-  :is(
-    [data-liquid-glass="control"],
-    [data-slot="select-trigger"],
-    [data-slot="sidebar-menu-button"][data-active="true"]
-  ) {
+  :is([data-liquid-glass="control"], [data-slot="select-trigger"]) {
     background-color: var(--secondary);
     -webkit-backdrop-filter: none;
     backdrop-filter: none;

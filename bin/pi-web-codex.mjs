@@ -92,22 +92,29 @@ async function readSettings(root) {
   }
 }
 
-async function isHealthy(url) {
+async function readHealth(url) {
   try {
     const response = await fetch(`${url}/api/v1/health`, {
       signal: AbortSignal.timeout(500),
     })
-    return response.ok && (await response.json()).name === APP_NAME
+    if (!response.ok) return null
+    const body = await response.json()
+    return body?.name === APP_NAME ? body : null
   } catch (error) {
     if (
       error.name === "AbortError" ||
       error.name === "TimeoutError" ||
       error instanceof TypeError
     ) {
-      return false
+      return null
     }
     throw error
   }
+}
+
+async function isHealthy(url, version) {
+  const health = await readHealth(url)
+  return Boolean(health && (!version || health.version === version))
 }
 
 async function assertPortAvailable(host, port) {
@@ -156,14 +163,14 @@ async function acquireLock(root) {
   return lockPath
 }
 
-async function waitUntilHealthy(url, child) {
+async function waitUntilHealthy(url, child, version) {
   for (let attempt = 0; attempt < 100; attempt += 1) {
     if (child.exitCode !== null) {
       throw new Error(
         `Next.js exited before becoming healthy (${child.exitCode}).`
       )
     }
-    if (await isHealthy(url)) return
+    if (await isHealthy(url, version)) return
     await new Promise((resolve) => setTimeout(resolve, 100))
   }
   throw new Error(`Timed out waiting for ${url}/api/v1/health.`)
@@ -186,6 +193,20 @@ function openBrowser(url) {
   launcher.unref()
 }
 
+async function readPackageVersion() {
+  const packageJson = JSON.parse(
+    await readFile(path.join(packageRoot, "package.json"), "utf8")
+  )
+  return packageJson.version
+}
+
+function announceReady(url) {
+  console.log(`${APP_NAME} is ready at ${url}`)
+  if (typeof process.send === "function" && process.connected) {
+    process.send({ type: "ready", url })
+  }
+}
+
 async function main() {
   const options = parseArguments(process.argv.slice(2))
   if (options.help) {
@@ -195,14 +216,13 @@ async function main() {
     return
   }
   if (options.version) {
-    const packageJson = JSON.parse(
-      await readFile(path.join(packageRoot, "package.json"), "utf8")
-    )
-    console.log(packageJson.version)
+    console.log(await readPackageVersion())
     return
   }
 
   assertSqliteFts5()
+
+  const packageVersion = await readPackageVersion()
 
   const root = configRoot(options.configDir)
   const persisted = await readSettings(root)
@@ -219,7 +239,14 @@ async function main() {
   }
 
   const url = `http://${host}:${port}`
-  if (await isHealthy(url)) {
+  const existingHealth = await readHealth(url)
+  if (existingHealth) {
+    if (existingHealth.version !== packageVersion) {
+      throw new Error(
+        `Another ${APP_NAME} instance is already running at ${url} (version ${existingHealth.version ?? "unknown"}), but this CLI is version ${packageVersion}. Stop the existing instance before starting the new version.`
+      )
+    }
+    announceReady(url)
     if (shouldOpen) openBrowser(url)
     return
   }
@@ -294,8 +321,11 @@ async function main() {
   const spawnError = new Promise((_, reject) => child.once("error", reject))
 
   try {
-    await Promise.race([waitUntilHealthy(url, child), spawnError])
-    console.log(`${APP_NAME} is ready at ${url}`)
+    await Promise.race([
+      waitUntilHealthy(url, child, packageVersion),
+      spawnError,
+    ])
+    announceReady(url)
     if (shouldOpen) openBrowser(url)
     const code = await new Promise((resolve, reject) => {
       child.once("error", reject)
@@ -314,6 +344,10 @@ async function main() {
 }
 
 main().catch((error) => {
-  console.error(error instanceof Error ? error.message : error)
+  const message = error instanceof Error ? error.message : String(error)
+  if (typeof process.send === "function" && process.connected) {
+    process.send({ type: "error", message })
+  }
+  console.error(message)
   process.exitCode = 1
 })

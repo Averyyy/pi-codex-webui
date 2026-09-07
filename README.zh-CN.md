@@ -79,7 +79,7 @@ npx pnpm@11.12.0 build
 npx pnpm@11.12.0 release:verify
 ```
 
-该命令会构建便携 standalone 目录，验证 NPM tarball 同时包含两个已编译 worker 且不含 TypeScript 业务源码，将其安装到临时全局目录，并通过健康检查启动已安装的 CLI。
+该命令会构建便携 standalone 目录，验证 NPM tarball 同时包含两个已编译 worker 且不含 TypeScript 业务源码，将其安装到临时全局目录，通过健康检查启动已安装的 CLI，初始化两个 runtime worker，并实际检查终端启动与输出。
 
 ## 扩展 Host
 

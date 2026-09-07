@@ -12,7 +12,6 @@ import {
   Minimize2Icon,
   RefreshCwIcon,
   SearchCodeIcon,
-  SparklesIcon,
   TargetIcon,
 } from "lucide-react"
 
@@ -89,22 +88,18 @@ const STARTERS = [
   {
     icon: SearchCodeIcon,
     labelKey: "home.starter.explore",
-    iconClassName: "bg-tool-read/10 text-tool-read",
   },
   {
     icon: HammerIcon,
     labelKey: "home.starter.build",
-    iconClassName: "bg-tool-execute/10 text-tool-execute",
   },
   {
     icon: GitPullRequestIcon,
     labelKey: "home.starter.review",
-    iconClassName: "bg-tool-web/10 text-tool-web",
   },
   {
     icon: BugIcon,
     labelKey: "home.starter.fix",
-    iconClassName: "bg-tool-write/10 text-tool-write",
   },
 ] as const
 
@@ -280,8 +275,7 @@ export function NewConversation({
   return (
     <div className="flex min-h-[calc(100svh-3rem)] flex-col px-4 py-6 md:min-h-svh md:px-8 md:py-8">
       <section className="mx-auto flex w-full max-w-5xl flex-1 flex-col items-center justify-center gap-8 py-8 text-center">
-        <div className="flex flex-col items-center gap-4">
-          <SparklesIcon className="size-7 text-primary" />
+        <div className="flex flex-col items-center">
           <h1 className="max-w-3xl text-3xl leading-tight font-medium tracking-tight sm:text-4xl">
             {selectedProject ? (
               <>
@@ -297,20 +291,18 @@ export function NewConversation({
           </h1>
         </div>
 
-        <div className="grid w-full max-w-4xl grid-cols-2 gap-3 lg:grid-cols-4">
-          {STARTERS.map(({ icon: Icon, labelKey, iconClassName }) => {
+        <div className="grid w-full max-w-4xl grid-cols-2 gap-2 lg:grid-cols-4">
+          {STARTERS.map(({ icon: Icon, labelKey }) => {
             const label = t(labelKey)
             return (
               <Button
                 key={labelKey}
                 type="button"
-                variant="secondary"
-                className="h-24 items-start justify-between rounded-2xl border bg-card p-4 text-left whitespace-normal shadow-sm shadow-foreground/5 hover:bg-accent sm:h-28 sm:flex-col"
+                variant="outline"
+                className="h-20 items-start justify-between rounded-xl p-3 text-left whitespace-normal shadow-none sm:h-24 sm:flex-col"
                 onClick={() => chooseStarter(label)}
               >
-                <span
-                  className={`flex size-9 items-center justify-center rounded-xl ${iconClassName}`}
-                >
+                <span className="flex size-8 items-center justify-center rounded-lg bg-muted text-muted-foreground">
                   <Icon />
                 </span>
                 <span>{label}</span>

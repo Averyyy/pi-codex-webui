@@ -131,7 +131,6 @@ export function ComposerCommandMenu({
     <Popover open={open} onOpenChange={onOpenChange} modal={false}>
       <PopoverTrigger asChild>
         <Button
-          data-liquid-glass="control"
           type="button"
           variant="secondary"
           size="icon"

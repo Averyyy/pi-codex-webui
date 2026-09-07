@@ -1,6 +1,6 @@
 {
   "name": "pi-web-codex",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "A local Web Host for Pi coding-agent workflows.",
   "license": "MIT",
   "keywords": [
@@ -48,7 +48,7 @@
     "build": "turbo build && node scripts/assemble-dist.mjs",
     "dev": "turbo dev --concurrency=32 --filter=web --filter=@workspace/worker-pi --filter=@workspace/worker-pi-client --filter=@pi-web-codex/extension-sdk --filter=pi-codex-conversion-webui --filter=pi-goal-webui --filter=pi-web-access-webui --filter=pi-prompt-template-model-webui --filter=pi-intercom-webui --filter=pi-dynamic-workflows-webui --filter=pi-ask-user-webui --filter=rpiv-ask-user-question-webui --filter=rpiv-todo-webui",
     "lint": "turbo lint",
-    "test": "tsx --tsconfig apps/web/tsconfig.json --conditions=react-server --test apps/web/lib/*.test.ts packages/extension-sdk/src/*.test.ts packages/worker-common/src/*.test.ts webui-extensions/builtin/*/src/*.test.ts",
+    "test": "tsx --tsconfig apps/web/tsconfig.json --conditions=react-server --test apps/web/lib/*.test.ts packages/extension-sdk/src/*.test.ts packages/worker-common/src/*.test.ts webui-extensions/builtin/*/src/*.test.ts scripts/cli.test.mjs",
     "release:verify": "pnpm build && node scripts/verify-release.mjs",
     "format": "turbo format && prettier --write \"bin/**/*.mjs\" \"scripts/**/*.mjs\"",
     "typecheck": "turbo typecheck"

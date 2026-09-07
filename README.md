@@ -79,7 +79,7 @@ For the complete packed-release check:
 npx pnpm@11.12.0 release:verify
 ```
 
-This builds the portable standalone tree, verifies the NPM tarball contains both compiled workers and no TypeScript business source, installs it into a temporary global prefix, and starts the installed CLI through its health check.
+This builds the portable standalone tree, verifies the NPM tarball contains both compiled workers and no TypeScript business source, installs it into a temporary global prefix, starts the installed CLI through its health check, initializes both runtime workers, and exercises terminal startup and output.
 
 ## Extending the host
 

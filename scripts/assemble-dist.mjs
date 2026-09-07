@@ -205,7 +205,7 @@ const productionFiles = await sourceFiles(path.join(root, "dist"))
 await Promise.all(
   productionFiles
     .filter((file) =>
-      /\/node-pty\/prebuilds\/darwin-[^/]+\/spawn-helper$/.test(
+      /\/node-pty(?:-[^/]+)?\/prebuilds\/darwin-[^/]+\/spawn-helper$/.test(
         file.split(path.sep).join("/")
       )
     )

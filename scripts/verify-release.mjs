@@ -9,7 +9,27 @@ import { promisify } from "node:util"
 
 const run = promisify(execFile)
 const root = process.cwd()
-const temporary = await mkdtemp(path.join(tmpdir(), "pi-web-release-"))
+const temporary = await mkdtemp(path.join(tmpdir(), "pi-web-release test-"))
+const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm"
+const requestedTarball =
+  process.argv[2] ?? process.env.PI_WEB_CODEX_RELEASE_TARBALL
+
+function quoteWindowsShellArg(value) {
+  return `"${String(value)}"`
+}
+
+function runCommand(command, args, options = {}) {
+  if (process.platform === "win32" && command.toLowerCase().endsWith(".cmd")) {
+    return run([command, ...args].map(quoteWindowsShellArg).join(" "), [], {
+      ...options,
+      shell: true,
+      windowsVerbatimArguments: true,
+    })
+  }
+  return run(command, args, {
+    ...options,
+  })
+}
 
 function availablePort() {
   return new Promise((resolve, reject) => {
@@ -104,6 +124,7 @@ async function requiredBuiltinReleaseFiles() {
 
 async function inspectTarball(tarball) {
   const required = new Set([
+    "package/package.json",
     "package/dist/app/apps/web/server.js",
     "package/extensions/pi-web-codex.ts",
     ...(await requiredBuiltinReleaseFiles()),
@@ -114,6 +135,9 @@ async function inspectTarball(tarball) {
   ])
   let leakedSource
   let staticAssets = false
+  let currentNativeModule
+  let currentSpawnHelper
+  const currentPlatform = `${process.platform}-${process.arch}`
   let stderr = ""
   const tar = spawn("tar", ["-tf", tarball], {
     stdio: ["ignore", "pipe", "pipe"],
@@ -131,6 +155,26 @@ async function inspectTarball(tarball) {
     if (file.startsWith("package/dist/app/apps/web/.next/static/")) {
       staticAssets = true
     }
+    if (
+      new RegExp(
+        `/node-pty(?:-[^/]+)?/prebuilds/${currentPlatform}/pty\\.node$`
+      ).test(file)
+    ) {
+      currentNativeModule = file
+    }
+    if (
+      new RegExp(
+        `/node-pty(?:-[^/]+)?/prebuilds/${currentPlatform}/spawn-helper$`
+      ).test(file)
+    ) {
+      currentSpawnHelper = file
+    }
+    if (
+      process.platform === "linux" &&
+      /\/node-pty(?:-[^/]+)?\/build\/Release\/pty\.node$/.test(file)
+    ) {
+      currentNativeModule = file
+    }
   }
   const code = await exited
   assert.equal(code, 0, stderr || "Could not inspect NPM tarball.")
@@ -145,6 +189,16 @@ async function inspectTarball(tarball) {
     true,
     "NPM tarball does not contain Next.js static assets."
   )
+  assert.ok(
+    currentNativeModule,
+    `NPM tarball does not contain node-pty for ${process.platform}-${process.arch}.`
+  )
+  if (process.platform === "darwin") {
+    assert.ok(
+      currentSpawnHelper,
+      `NPM tarball does not contain node-pty spawn-helper for ${process.platform}-${process.arch}.`
+    )
+  }
 }
 
 function installedPackageRoot(installRoot) {
@@ -160,6 +214,62 @@ async function assertRegularFile(file, label) {
   const stats = await lstat(file)
   assert.equal(stats.isSymbolicLink(), false, `${label} is a symlink: ${file}`)
   assert.equal(stats.isFile(), true, `${label} is missing: ${file}`)
+}
+
+async function assertExecutableFile(file, label) {
+  await assertRegularFile(file, label)
+  const stats = await lstat(file)
+  assert.notEqual(stats.mode & 0o111, 0, `${label} is not executable: ${file}`)
+}
+
+async function findNodePtyPackages(directory, packages = []) {
+  const entries = await readdir(directory, { withFileTypes: true })
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue
+    const target = path.join(directory, entry.name)
+    if (entry.name === "node-pty" || entry.name.startsWith("node-pty-")) {
+      packages.push(target)
+    }
+    await findNodePtyPackages(target, packages)
+  }
+  return packages
+}
+
+async function assertNodePtyNative(packageRoot) {
+  const candidates = await findNodePtyPackages(
+    path.join(packageRoot, "dist", "app")
+  )
+  const nativeRelativePath =
+    process.platform === "linux"
+      ? path.join("build", "Release", "pty.node")
+      : path.join(
+          "prebuilds",
+          `${process.platform}-${process.arch}`,
+          "pty.node"
+        )
+  for (const candidate of candidates) {
+    const nativeModule = path.join(candidate, nativeRelativePath)
+    try {
+      await assertRegularFile(nativeModule, "node-pty native module")
+      if (process.platform === "darwin") {
+        await assertExecutableFile(
+          path.join(path.dirname(nativeModule), "spawn-helper"),
+          "node-pty spawn-helper"
+        )
+      }
+      return
+    } catch (error) {
+      if (
+        error?.code !== "ENOENT" &&
+        !(error instanceof assert.AssertionError)
+      ) {
+        throw error
+      }
+    }
+  }
+  assert.fail(
+    `Installed package does not contain node-pty for ${process.platform}-${process.arch}.`
+  )
 }
 
 async function assertProductionInstall(packageRoot) {
@@ -195,6 +305,7 @@ async function assertProductionInstall(packageRoot) {
     path.join(packageRoot, "extensions/pi-web-codex.ts"),
     "Pi package extension"
   )
+  await assertNodePtyNative(packageRoot)
 }
 
 async function assertPageOk(url, pathname) {
@@ -220,29 +331,319 @@ async function assertPageOk(url, pathname) {
   )
 }
 
+async function expectOk(response, label) {
+  const body = await response.text()
+  assert.equal(
+    response.ok,
+    true,
+    `${label} returned ${response.status}: ${body.slice(0, 500)}`
+  )
+  return body
+}
+
+async function readSseUntil(reader, marker) {
+  let output = ""
+  const decoder = new TextDecoder()
+  while (true) {
+    let timer
+    try {
+      const result = await Promise.race([
+        reader.read(),
+        new Promise((_, reject) => {
+          timer = setTimeout(
+            () =>
+              reject(
+                new Error(`Timed out waiting for terminal output: ${marker}`)
+              ),
+            10_000
+          )
+        }),
+      ])
+      if (timer) clearTimeout(timer)
+      if (result.done) break
+      output += decoder.decode(result.value, { stream: true })
+      if (output.includes(marker)) return output
+    } catch (error) {
+      if (timer) clearTimeout(timer)
+      throw error
+    }
+  }
+  throw new Error(`Terminal stream ended before output: ${marker}`)
+}
+
+async function assertTaskTerminal(url, mutationHeaders, packageVersion) {
+  const taskResponse = await fetch(`${url}/api/v1/tasks`, {
+    method: "POST",
+    headers: mutationHeaders,
+    body: "{}",
+  })
+  const task = JSON.parse(await expectOk(taskResponse, "Task creation"))
+  assert.equal(
+    typeof task.sessionId,
+    "string",
+    "Task response has no session ID."
+  )
+  assert.equal(
+    task.snapshot?.webSessionId,
+    task.sessionId,
+    "Task response does not contain a ready worker snapshot."
+  )
+
+  const endpoint = `${url}/api/v1/sessions/${task.sessionId}/terminal`
+  let reader
+  try {
+    const startResponse = await fetch(endpoint, {
+      method: "POST",
+      headers: mutationHeaders,
+      body: JSON.stringify({ action: "start", columns: 80, rows: 24 }),
+    })
+    await expectOk(startResponse, "Terminal start")
+
+    const streamResponse = await fetch(endpoint)
+    assert.equal(
+      streamResponse.ok,
+      true,
+      `Terminal stream returned ${streamResponse.status}.`
+    )
+    assert.ok(streamResponse.body, "Terminal stream has no response body.")
+    reader = streamResponse.body.getReader()
+    await readSseUntil(reader, "event: snapshot")
+
+    const markerPrefix = `pi-web-codex-release-terminal-${packageVersion}-${Date.now()}`
+    const marker = `${markerPrefix}-output`
+    const inputResponse = await fetch(endpoint, {
+      method: "POST",
+      headers: mutationHeaders,
+      body: JSON.stringify({
+        action: "input",
+        data: `"${process.execPath}" -e "console.log('${markerPrefix}' + '-output')"\r`,
+      }),
+    })
+    await expectOk(inputResponse, "Terminal input")
+    const output = await readSseUntil(reader, marker)
+    assert.match(output, new RegExp(marker))
+  } finally {
+    if (reader) await reader.cancel().catch(() => undefined)
+    const stopResponse = await fetch(endpoint, {
+      method: "DELETE",
+      headers: mutationHeaders,
+    })
+    await expectOk(stopResponse, "Terminal cleanup")
+
+    const archiveResponse = await fetch(
+      `${url}/api/v1/sessions/${task.sessionId}/archive`,
+      {
+        method: "POST",
+        headers: mutationHeaders,
+      }
+    )
+    await expectOk(archiveResponse, "Task cleanup")
+
+    const deleteResponse = await fetch(
+      `${url}/api/v1/sessions/${task.sessionId}`,
+      {
+        method: "DELETE",
+        headers: mutationHeaders,
+      }
+    )
+    await expectOk(deleteResponse, "Task deletion")
+  }
+}
+
+async function assertPiClientTask(url, mutationHeaders) {
+  const runtimesResponse = await fetch(`${url}/api/v1/runtimes`)
+  const runtimes = JSON.parse(await expectOk(runtimesResponse, "Runtime list"))
+  const profile = runtimes.profiles?.find(
+    (candidate) => candidate.id === "pi-client-default"
+  )
+  assert.equal(
+    profile?.kind,
+    "pi-client",
+    "Installed package does not expose the Pi Client runtime profile."
+  )
+  assert.equal(
+    typeof runtimes.revision,
+    "number",
+    "Runtime list has no configuration revision."
+  )
+
+  const patchResponse = await fetch(
+    `${url}/api/v1/runtimes/pi-client-default`,
+    {
+      method: "PATCH",
+      headers: {
+        ...mutationHeaders,
+        "If-Match": `"revision-${runtimes.revision}"`,
+      },
+      body: JSON.stringify({
+        enabled: true,
+        serverUrl: "http://127.0.0.1:9",
+        defaultProfileId: "pi",
+      }),
+    }
+  )
+  const patched = JSON.parse(
+    await expectOk(patchResponse, "Pi Client settings")
+  )
+  const patchedProfile = patched.profiles?.find(
+    (candidate) => candidate.id === "pi-client-default"
+  )
+  assert.equal(patchedProfile?.enabled, true)
+
+  const taskResponse = await fetch(`${url}/api/v1/tasks`, {
+    method: "POST",
+    headers: mutationHeaders,
+    body: JSON.stringify({ runtimeProfileId: "pi-client-default" }),
+  })
+  const task = JSON.parse(await expectOk(taskResponse, "Pi Client task"))
+  assert.equal(
+    typeof task.sessionId,
+    "string",
+    "Pi Client task has no session ID."
+  )
+  assert.equal(
+    task.snapshot?.webSessionId,
+    task.sessionId,
+    "Pi Client task did not initialize a worker snapshot."
+  )
+
+  const sessionId = task.sessionId
+  const sessionResponse = await fetch(`${url}/api/v1/sessions/${sessionId}`)
+  const session = JSON.parse(
+    await expectOk(sessionResponse, "Pi Client session")
+  )
+  assert.equal(session.session?.runtimeKind, "pi-client")
+  assert.equal(session.session?.runtimeProfileId, "pi-client-default")
+  const archiveResponse = await fetch(
+    `${url}/api/v1/sessions/${sessionId}/archive`,
+    { method: "POST", headers: mutationHeaders }
+  )
+  await expectOk(archiveResponse, "Pi Client task cleanup")
+  const deleteResponse = await fetch(`${url}/api/v1/sessions/${sessionId}`, {
+    method: "DELETE",
+    headers: mutationHeaders,
+  })
+  await expectOk(deleteResponse, "Pi Client task deletion")
+}
+
+async function stopProcessTree(processHandle) {
+  const hasExited = () =>
+    processHandle.exitCode !== null || processHandle.signalCode !== null
+  if (!processHandle || hasExited()) return
+  if (process.platform === "win32") {
+    try {
+      await runCommand(
+        "taskkill.exe",
+        ["/pid", String(processHandle.pid), "/t", "/f"],
+        { windowsHide: true }
+      )
+    } catch (error) {
+      if (!hasExited()) throw error
+    }
+  } else {
+    if (!processHandle.kill("SIGTERM") && !hasExited()) {
+      throw new Error(
+        `Could not stop installed CLI (PID ${processHandle.pid}).`
+      )
+    }
+  }
+  try {
+    await new Promise((resolve, reject) => {
+      if (hasExited()) {
+        resolve()
+        return
+      }
+      const timeout = setTimeout(
+        () =>
+          reject(
+            new Error(`Installed CLI did not exit (PID ${processHandle.pid}).`)
+          ),
+        5_000
+      )
+      processHandle.once("exit", () => {
+        clearTimeout(timeout)
+        resolve()
+      })
+    })
+    return
+  } catch (error) {
+    if (process.platform === "win32" || hasExited()) throw error
+    if (!processHandle.kill("SIGKILL") && !hasExited()) throw error
+    await new Promise((resolve, reject) => {
+      if (hasExited()) {
+        resolve()
+        return
+      }
+      const timeout = setTimeout(
+        () =>
+          reject(
+            new Error(
+              `Installed CLI remained alive after forced termination (PID ${processHandle.pid}).`
+            )
+          ),
+        2_000
+      )
+      processHandle.once("exit", () => {
+        clearTimeout(timeout)
+        resolve()
+      })
+    })
+    throw error
+  }
+}
+
 let child
 try {
-  const filename = (
-    await run("npm", ["pack", "--silent", "--pack-destination", temporary], {
-      cwd: root,
-    })
-  ).stdout.trim()
+  const packageJson = JSON.parse(
+    await readFile(path.join(root, "package.json"), "utf8")
+  )
+  let filename
+  let tarball
+  if (requestedTarball) {
+    tarball = path.resolve(root, requestedTarball)
+    const stats = await lstat(tarball)
+    if (stats.isDirectory()) {
+      const candidates = (await readdir(tarball)).filter((file) =>
+        file.endsWith(".tgz")
+      )
+      assert.equal(
+        candidates.length,
+        1,
+        `Expected exactly one .tgz file in ${tarball}.`
+      )
+      filename = candidates[0]
+      tarball = path.join(tarball, filename)
+    } else {
+      filename = path.basename(tarball)
+    }
+  } else {
+    filename = (
+      await runCommand(
+        npmCommand,
+        ["pack", "--silent", "--pack-destination", temporary],
+        { cwd: root }
+      )
+    ).stdout.trim()
+    tarball = path.join(temporary, filename)
+  }
   assert.ok(filename.endsWith(".tgz"))
-  const tarball = path.join(temporary, filename)
   await inspectTarball(tarball)
 
   const installRoot = path.join(temporary, "global")
-  await run("npm", ["install", "--global", "--prefix", installRoot, tarball])
+  await runCommand(npmCommand, [
+    "install",
+    "--global",
+    "--prefix",
+    installRoot,
+    tarball,
+  ])
   const executable = path.join(
     installRoot,
     process.platform === "win32" ? "pi-web-codex.cmd" : "bin/pi-web-codex"
   )
   const installedRoot = installedPackageRoot(installRoot)
-  const packageJson = JSON.parse(
-    await readFile(path.join(root, "package.json"))
-  )
   assert.equal(
-    (await run(executable, ["--version"])).stdout.trim(),
+    (await runCommand(executable, ["--version"])).stdout.trim(),
     packageJson.version
   )
   await assertProductionInstall(installedRoot)
@@ -251,14 +652,29 @@ try {
   const configRoot = path.join(temporary, "config")
   const agentRoot = path.join(temporary, "agent")
   await Promise.all([mkdir(configRoot), mkdir(agentRoot)])
-  child = spawn(
-    executable,
-    ["--no-open", "--port", String(port), "--config-dir", configRoot],
-    {
-      env: { ...process.env, PI_CODING_AGENT_DIR: agentRoot },
-      stdio: ["ignore", "pipe", "pipe"],
-    }
-  )
+  const mutationToken = "pi-web-codex-release-verify"
+  const cliScript = path.join(installedRoot, "bin", "pi-web-codex.mjs")
+  const startupCommand =
+    process.platform === "win32" ? process.execPath : executable
+  const startupArgs =
+    process.platform === "win32"
+      ? [
+          cliScript,
+          "--no-open",
+          "--port",
+          String(port),
+          "--config-dir",
+          configRoot,
+        ]
+      : ["--no-open", "--port", String(port), "--config-dir", configRoot]
+  child = spawn(startupCommand, startupArgs, {
+    env: {
+      ...process.env,
+      PI_CODING_AGENT_DIR: agentRoot,
+      PI_WEB_CODEX_MUTATION_TOKEN: mutationToken,
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  })
   await waitForReady(child)
   const url = `http://127.0.0.1:${port}`
   const health = await fetch(`${url}/api/v1/health`)
@@ -269,12 +685,18 @@ try {
   await assertPageOk(url, "/")
   await assertPageOk(url, "/new")
   await assertPageOk(url, "/settings")
-  child.kill("SIGTERM")
-  await new Promise((resolve) => child.once("exit", resolve))
+  const mutationHeaders = {
+    "Content-Type": "application/json",
+    Origin: url,
+    "X-Pi-Web-Codex-Mutation-Token": mutationToken,
+  }
+  await assertTaskTerminal(url, mutationHeaders, packageJson.version)
+  await assertPiClientTask(url, mutationHeaders)
+  await stopProcessTree(child)
   child = undefined
 
   console.log(`Release verified: ${filename}`)
 } finally {
-  if (child?.exitCode === null) child.kill("SIGTERM")
+  await stopProcessTree(child)
   await rm(temporary, { recursive: true, force: true })
 }

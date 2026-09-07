@@ -2,19 +2,20 @@ import type { NextConfig } from "next"
 import { realpathSync } from "node:fs"
 import path from "node:path"
 
-const nodePtyPrebuilds = path
+const nodePtyPackage = path
   .relative(
     import.meta.dirname,
-    realpathSync(
-      path.join(import.meta.dirname, "node_modules/node-pty/prebuilds")
-    )
+    realpathSync(path.join(import.meta.dirname, "node_modules/node-pty"))
   )
   .split(path.sep)
   .join("/")
+const nodePtyPrebuilds = `${nodePtyPackage}/prebuilds`
+const nodePtyBuild = `${nodePtyPackage}/build/Release`
 
 const nextConfig: NextConfig = {
   output: "standalone",
   outputFileTracingRoot: path.join(import.meta.dirname, "../.."),
+  serverExternalPackages: ["node-pty"],
   outputFileTracingExcludes: {
     "/*": [
       "./app/**/*",
@@ -30,7 +31,11 @@ const nextConfig: NextConfig = {
     ],
   },
   outputFileTracingIncludes: {
-    "/api/v1/sessions/*/terminal": [`${nodePtyPrebuilds}/**/*`],
+    "/api/v1/sessions/*/terminal": [
+      `${nodePtyPrebuilds}/**/*`,
+      `${nodePtyBuild}/*.node`,
+      `${nodePtyBuild}/spawn-helper`,
+    ],
   },
   poweredByHeader: false,
   reactStrictMode: true,
