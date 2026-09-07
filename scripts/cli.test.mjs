@@ -57,7 +57,7 @@ function runCli(port, configDir) {
   child.stderr.on("data", (chunk) => (output += chunk.toString()))
   return new Promise((resolve, reject) => {
     child.once("error", reject)
-    child.once("exit", (code, signal) => resolve({ code, signal, output }))
+    child.once("close", (code, signal) => resolve({ code, signal, output }))
   })
 }
 

@@ -1,9 +1,11 @@
 import assert from "node:assert/strict"
 import { execFile } from "node:child_process"
+import { EventEmitter } from "node:events"
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import test from "node:test"
+import { PassThrough } from "node:stream"
 import { promisify } from "node:util"
 
 import {
@@ -17,6 +19,7 @@ import {
   projectFileTypeLabel,
 } from "./project-file-display"
 import {
+  collectGitResult,
   createProjectWorktree,
   readProjectGitDiff,
   readProjectGitStatus,
@@ -29,6 +32,55 @@ import { projectFileManager } from "./project-reveal"
 import { shellCommand } from "./shell-supervisor"
 
 const run = promisify(execFile)
+
+test("project Git commands wait for stdio after process exit", async () => {
+  const stdout = new PassThrough()
+  const stderr = new PassThrough()
+  const child = Object.assign(new EventEmitter(), {
+    stdout,
+    stderr,
+  })
+  let settled = false
+  const result = collectGitResult(child).finally(() => {
+    settled = true
+  })
+
+  child.emit("exit", 0)
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal(settled, false)
+
+  const stdoutEnded = new Promise<void>((resolve) =>
+    stdout.once("end", () => resolve())
+  )
+  const stderrEnded = new Promise<void>((resolve) =>
+    stderr.once("end", () => resolve())
+  )
+  stdout.end("2\t0\tfirst.txt\n")
+  stderr.end("git ok\n")
+  await Promise.all([stdoutEnded, stderrEnded])
+  child.emit("close", 0)
+
+  assert.deepEqual(await result, {
+    code: 0,
+    stdout: "2\t0\tfirst.txt\n",
+    stderr: "git ok\n",
+  })
+})
+
+test("project Git commands report spawn errors", async () => {
+  const child = Object.assign(new EventEmitter(), {
+    stdout: new PassThrough(),
+    stderr: new PassThrough(),
+  })
+  const error = new Error("git spawn failed")
+  const result = collectGitResult(child)
+
+  child.emit("error", error)
+  await assert.rejects(result, (value: unknown) => value === error)
+  child.stdout.end()
+  child.stderr.end()
+  child.emit("close", 1)
+})
 
 test("project file errors are localized from stable error codes", () => {
   assert.deepEqual(projectFileErrorCopy("InvalidPath", "zh-CN"), {

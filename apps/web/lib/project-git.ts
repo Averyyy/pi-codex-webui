@@ -1,6 +1,8 @@
 import "server-only"
 
 import { spawn } from "node:child_process"
+import type { EventEmitter } from "node:events"
+import type { Readable } from "node:stream"
 import { mkdtemp, realpath, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
@@ -40,22 +42,16 @@ type GitResult = { code: number; stdout: string; stderr: string }
 
 export class ProjectGitError extends Error {}
 
-function runGit(
-  cwd: string,
-  args: string[],
-  environment?: Record<string, string>
+export function collectGitResult(
+  child: EventEmitter & { stdout: Readable; stderr: Readable }
 ) {
   return new Promise<GitResult>((resolve, reject) => {
-    const child = spawn("git", ["-C", cwd, ...args], {
-      env: environment ? { ...process.env, ...environment } : undefined,
-      stdio: ["ignore", "pipe", "pipe"],
-    })
     const stdout: Buffer[] = []
     const stderr: Buffer[] = []
     child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk))
     child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk))
     child.once("error", reject)
-    child.once("exit", (code) =>
+    child.once("close", (code) =>
       resolve({
         code: code ?? 1,
         stdout: Buffer.concat(stdout).toString("utf8"),
@@ -63,6 +59,18 @@ function runGit(
       })
     )
   })
+}
+
+function runGit(
+  cwd: string,
+  args: string[],
+  environment?: Record<string, string>
+) {
+  const child = spawn("git", ["-C", cwd, ...args], {
+    env: environment ? { ...process.env, ...environment } : undefined,
+    stdio: ["ignore", "pipe", "pipe"],
+  })
+  return collectGitResult(child)
 }
 
 function commandValue(result: GitResult) {

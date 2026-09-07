@@ -76,6 +76,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Build release and workspace dependencies
+        run: pnpm build
+
       - name: Test release source
         run: pnpm test
 
@@ -84,9 +87,6 @@ jobs:
 
       - name: Typecheck release source
         run: pnpm typecheck
-
-      - name: Build release
-        run: pnpm build
 
       - name: Pack release artifact
         run: |
