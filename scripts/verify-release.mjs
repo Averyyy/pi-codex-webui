@@ -18,8 +18,13 @@ function quoteWindowsShellArg(value) {
   return `"${String(value)}"`
 }
 
-function runCommand(command, args, options = {}) {
+async function runCommand(command, args, options = {}) {
   if (process.platform === "win32" && command.toLowerCase().endsWith(".cmd")) {
+    if (!path.isAbsolute(command)) {
+      // Quoted bare batch names make cmd.exe expand %~dp0 from cwd, not PATH.
+      const { stdout } = await run("where.exe", [command], options)
+      command = stdout.trim().split(/\r?\n/)[0]
+    }
     return run([command, ...args].map(quoteWindowsShellArg).join(" "), [], {
       ...options,
       shell: true,

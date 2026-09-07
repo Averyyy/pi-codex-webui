@@ -44,6 +44,8 @@ Run Pi sessions, projects, extensions, and developer tools in a fast browser UI 
 
 Requires **Node.js 22.19+** or **Node.js 24+**. Node.js 23 is not supported.
 
+The release gate installs the same tarball on **Windows x64**, **macOS arm64**, and **Ubuntu 22.04 x64 (glibc)**, including both runtime workers and the terminal. Other CPU architectures and musl-based Linux distributions are not covered by this release matrix. The browser UI adapts to desktop, tablet, and mobile widths.
+
 ```bash
 npm install --global pi-web-codex
 pi-web-codex
@@ -55,7 +57,7 @@ Or install it as a Pi package and start it from a session:
 pi install npm:pi-web-codex
 ```
 
-Then run `/pi-web-codex` inside Pi. The host opens <http://127.0.0.1:1816> when the server is ready. Use `pi-web-codex --help` to see all CLI options.
+Then run `/pi-web-codex` inside Pi. The host opens its configured URL (default: <http://127.0.0.1:1816>) when the server is ready. Use `pi-web-codex --help` to see all CLI options.
 
 ## Development
 

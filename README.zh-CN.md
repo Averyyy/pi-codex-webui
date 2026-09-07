@@ -44,6 +44,8 @@
 
 需要 **Node.js 22.19+** 或 **Node.js 24+**。不支持 Node.js 23。
 
+发布门禁在 **Windows x64**、**macOS arm64** 和 **Ubuntu 22.04 x64（glibc）** 上安装同一个 tarball，验证两个 runtime worker 和真实终端。该矩阵尚未覆盖其他 CPU 架构及使用 musl 的 Linux 发行版。浏览器界面适配桌面、平板和手机宽度。
+
 ```bash
 npm install --global pi-web-codex
 pi-web-codex
@@ -55,7 +57,7 @@ pi-web-codex
 pi install npm:pi-web-codex
 ```
 
-然后在 Pi 中运行 `/pi-web-codex`。服务就绪后会打开 <http://127.0.0.1:1816>。使用 `pi-web-codex --help` 查看全部 CLI 选项。
+然后在 Pi 中运行 `/pi-web-codex`。服务就绪后会打开配置的地址（默认 <http://127.0.0.1:1816>）。使用 `pi-web-codex --help` 查看全部 CLI 选项。
 
 ## 本地开发
 
