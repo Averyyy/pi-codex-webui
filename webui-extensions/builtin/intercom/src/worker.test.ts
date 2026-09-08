@@ -29,6 +29,8 @@ function context() {
           scope: "user",
           origin: "package",
         },
+        packageName: "pi-intercom",
+        packageVersion: "0.13.0",
       },
       commands: new Set(["intercom"]),
       tools: new Set(["intercom"]),

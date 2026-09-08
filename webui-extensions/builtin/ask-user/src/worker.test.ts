@@ -34,7 +34,7 @@ function runtime(dialog: () => Promise<unknown>) {
       origin: "package" as const,
     },
     packageName: "pi-ask-user",
-    packageVersion: "0.14.0",
+    packageVersion: "0.15.0",
   }
   const value = {
     target: {
@@ -122,16 +122,49 @@ test("takes over ask_user with a native dialog and preserves its result", async 
       name: "ask:answered",
       payload: {
         question: PARAMS.question,
-        context: PARAMS.context,
-        response: {
-          kind: "selection",
-          selections: ["Native"],
-          comment: "Use this path.",
-        },
+        response: { kind: "selection" },
       },
     },
     { name: "herdr:blocked", payload: { active: false } },
   ])
+})
+
+test("restores full ask-user event payloads when explicitly enabled", async () => {
+  const previous = process.env.PI_ASK_USER_EMIT_FULL_EVENTS
+  process.env.PI_ASK_USER_EMIT_FULL_EVENTS = "true"
+  try {
+    const registrations = await loadWorkerExtensionForTest(initialize)
+    const adapter = registrations.toolExecutions.get("ask-user.execute")
+    assert.ok(adapter)
+    const current = runtime(async () => ({
+      cancelled: false,
+      response: { kind: "selection", selections: ["Native"] },
+    }))
+
+    await adapter.execute(current.request, current.value)
+    assert.deepEqual(current.events[1], {
+      name: "ask:answered",
+      payload: {
+        question: PARAMS.question,
+        context: PARAMS.context,
+        response: { kind: "selection", selections: ["Native"] },
+      },
+    })
+
+    const cancelled = runtime(async () => ({ cancelled: true }))
+    await adapter.execute(cancelled.request, cancelled.value)
+    assert.deepEqual(cancelled.events[1], {
+      name: "ask:cancelled",
+      payload: {
+        question: PARAMS.question,
+        context: PARAMS.context,
+        options: PARAMS.options,
+      },
+    })
+  } finally {
+    if (previous === undefined) delete process.env.PI_ASK_USER_EMIT_FULL_EVENTS
+    else process.env.PI_ASK_USER_EMIT_FULL_EVENTS = previous
+  }
 })
 
 test("restores blocked state and returns the canonical cancellation", async () => {
@@ -156,8 +189,6 @@ test("restores blocked state and returns the canonical cancellation", async () =
       name: "ask:cancelled",
       payload: {
         question: PARAMS.question,
-        context: PARAMS.context,
-        options: PARAMS.options,
       },
     },
     { name: "herdr:blocked", payload: { active: false } },

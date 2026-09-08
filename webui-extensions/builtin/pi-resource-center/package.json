@@ -29,8 +29,8 @@
         "target": {
           "packageName": "pi-resource-center",
           "extensionPath": "**/extensions/resource-center/index.ts",
-          "version": ">=0.3.0 <0.4.0",
-          "testedVersions": ["0.3.0"],
+          "version": ">=0.3.1 <0.4.0",
+          "testedVersions": ["0.3.1"],
           "compatibility": {
             "mode": "probe",
             "onUntestedVersion": "allow-if-probe-passes"

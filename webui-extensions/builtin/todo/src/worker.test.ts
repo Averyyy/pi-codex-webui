@@ -29,6 +29,8 @@ function runtime() {
           scope: "user",
           origin: "package",
         },
+        packageName: "@juicesharp/rpiv-todo",
+        packageVersion: "2.9.0",
       },
       commands: new Set(["todos"]),
       tools: new Set(["todo"]),

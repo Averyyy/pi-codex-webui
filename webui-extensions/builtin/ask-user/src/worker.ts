@@ -5,6 +5,8 @@ import {
   ASK_USER_BLOCKED_EVENT,
   ASK_USER_CANCELLED_EVENT,
   ASK_USER_TOOL,
+  askUserAnsweredEventPayload,
+  askUserCancelledEventPayload,
   buildToolResult,
   parseAskDialogResult,
   parseAskParams,
@@ -56,16 +58,8 @@ export default defineWorkerExtension((web) => {
         context.emitTargetEvent(
           result.cancelled ? ASK_USER_CANCELLED_EVENT : ASK_USER_ANSWERED_EVENT,
           result.cancelled
-            ? {
-                question: params.question,
-                context: params.context,
-                options: params.options,
-              }
-            : {
-                question: params.question,
-                context: params.context,
-                response: result.response,
-              }
+            ? askUserCancelledEventPayload(params)
+            : askUserAnsweredEventPayload(params, result.response!)
         )
         return { handled: true, result: buildToolResult(params, result) }
       } finally {

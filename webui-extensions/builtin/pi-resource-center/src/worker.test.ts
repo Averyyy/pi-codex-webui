@@ -23,7 +23,7 @@ function fixture(viewResult: unknown) {
           origin: "package",
         },
         packageName: "pi-resource-center",
-        packageVersion: "0.3.0",
+        packageVersion: "0.3.1",
       },
       commands: new Set(["resource"]),
       tools: new Set<string>(),
@@ -68,6 +68,13 @@ test("opens a category picker and delegates the selected category", async () => 
     args: "extensions",
   })
   assert.equal(opened()?.viewId, "resource-center.browser")
+  const categories = opened()?.state as {
+    categories: Array<{ value: string }>
+  }
+  assert.deepEqual(
+    categories.categories.map((category) => category.value),
+    ["packages", "skills", "extensions", "prompts", "themes", "tools"]
+  )
   assert.deepEqual(await adapter.handle(request("sync"), context), {
     handled: false,
   })

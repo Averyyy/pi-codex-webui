@@ -15,7 +15,7 @@ const owner: ExtensionOwner = {
   resolvedPath: "/pi-goal/dist/index.ts",
   sourceInfo: { source: "pi-goal", scope: "user", origin: "package" },
   packageName: "@narumitw/pi-goal",
-  packageVersion: "0.54.1",
+  packageVersion: "0.54.4",
 }
 
 const goal = {

@@ -33,13 +33,15 @@ function runtime(dialogResult: unknown = undefined) {
   const value = {
     target: {
       owner: {
-        extensionPath: "/dynamic/extensions/workflow.ts",
-        resolvedPath: "/dynamic/extensions/workflow.ts",
+        extensionPath: "/dynamic/dist/pi-extension.js",
+        resolvedPath: "/dynamic/dist/pi-extension.js",
         sourceInfo: {
           source: "@quintinshaw/pi-dynamic-workflows",
           scope: "user",
           origin: "package",
         },
+        packageName: "@quintinshaw/pi-dynamic-workflows",
+        packageVersion: "3.10.1",
       },
       commands: new Set(["workflows"]),
       tools: new Set(["workflow", "workflow_control"]),

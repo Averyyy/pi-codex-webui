@@ -24,6 +24,11 @@ export const RESOURCE_CATEGORIES = [
     label: "Themes",
     description: "Installed terminal themes.",
   },
+  {
+    value: "tools",
+    label: "Tools",
+    description: "Built-in and package-provided tools.",
+  },
 ] as const
 
 export type ResourceCategory = (typeof RESOURCE_CATEGORIES)[number]["value"]

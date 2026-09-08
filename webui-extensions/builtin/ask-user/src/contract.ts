@@ -76,6 +76,14 @@ function booleanPreference(value: string | undefined) {
   }
 }
 
+function emitFullEvents() {
+  const value =
+    typeof process === "undefined"
+      ? undefined
+      : process.env.PI_ASK_USER_EMIT_FULL_EVENTS
+  return booleanPreference(value) ?? false
+}
+
 function option(value: unknown): AskOption | null {
   if (
     typeof value === "string" ||
@@ -147,6 +155,25 @@ export function parseAskParams(value: unknown): AskParams {
     ),
     ...(timeout !== undefined && timeout > 0 ? { timeout } : {}),
   }
+}
+
+export function askUserAnsweredEventPayload(
+  params: AskParams,
+  response: AskResponse
+) {
+  return emitFullEvents()
+    ? { question: params.question, context: params.context, response }
+    : { question: params.question, response: { kind: response.kind } }
+}
+
+export function askUserCancelledEventPayload(params: AskParams) {
+  return emitFullEvents()
+    ? {
+        question: params.question,
+        context: params.context,
+        options: params.options,
+      }
+    : { question: params.question }
 }
 
 function parseResponse(value: unknown, params: AskParams): AskResponse {

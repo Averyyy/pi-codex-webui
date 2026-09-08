@@ -42,7 +42,7 @@ function runtime(dialog: () => Promise<unknown>) {
       origin: "package" as const,
     },
     packageName: "@juicesharp/rpiv-ask-user-question",
-    packageVersion: "2.2.0",
+    packageVersion: "2.9.0",
   }
   const value = {
     target: {

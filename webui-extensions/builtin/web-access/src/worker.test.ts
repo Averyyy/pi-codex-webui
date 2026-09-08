@@ -23,7 +23,7 @@ function fixture(viewResult: unknown) {
           origin: "package",
         },
         packageName: "pi-web-access",
-        packageVersion: "0.25.0",
+        packageVersion: "0.28.0",
       },
       commands: new Set(["websearch", "curator"]),
       tools: new Set(["web_search", "fetch_content", "get_search_content"]),
