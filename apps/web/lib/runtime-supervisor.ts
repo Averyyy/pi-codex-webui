@@ -66,6 +66,7 @@ import {
 import { getEventHub, type EventHub } from "@/lib/event-hub"
 import { getMcpService } from "@/lib/mcp-service"
 import type { PromptImage } from "@/lib/prompt-images"
+import { syncPiSessionFile } from "@/lib/session-index"
 import type {
   RuntimeCrash,
   RuntimeDiagnostics,
@@ -2004,6 +2005,7 @@ export class RuntimeSupervisor {
 
     if (message.eventType === "agent_settled") {
       void this.refreshSettledRuntimeSnapshot(runtime)
+        .then(() => syncPiSessionFile(runtime.nativeSessionFile))
         .then(() => markStoredSessionCompleted(runtime.webSessionId))
         .then((updated) => {
           if (!updated) {

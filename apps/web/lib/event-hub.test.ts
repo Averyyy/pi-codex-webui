@@ -44,16 +44,24 @@ test("streams every session through an explicit wildcard subscription", async ()
 
 test("replays retained events after Last-Event-ID", async () => {
   const hub = new EventHub()
-  hub.publish({ type: "first", sessionId: "session-a", payload: {} })
-  hub.publish({ type: "second", sessionId: "session-a", payload: {} })
+  const first = hub.publish({
+    type: "first",
+    sessionId: "session-a",
+    payload: {},
+  })
+  const second = hub.publish({
+    type: "second",
+    sessionId: "session-a",
+    payload: {},
+  })
   const controller = new AbortController()
   const reader = hub
-    .stream(["session-a"], "event-1", controller.signal)
+    .stream(["session-a"], first.id, controller.signal)
     .getReader()
 
   await reader.read()
   const replay = decoder.decode((await reader.read()).value)
-  assert.match(replay, /id: event-2/)
+  assert.match(replay, new RegExp(`id: ${second.id}`))
   assert.match(replay, /event: second/)
 
   controller.abort()
@@ -63,7 +71,7 @@ test("replays retained events after Last-Event-ID", async () => {
 test("replays events published after a server-render cursor", async () => {
   const hub = new EventHub()
   const cursor = hub.cursor()
-  hub.publish({
+  const event = hub.publish({
     type: "session.completed",
     sessionId: "session-a",
     payload: {},
@@ -74,7 +82,7 @@ test("replays events published after a server-render cursor", async () => {
 
   await reader.read()
   const replay = decoder.decode((await reader.read()).value)
-  assert.match(replay, /id: event-1/)
+  assert.match(replay, new RegExp(`id: ${event.id}`))
   assert.match(replay, /event: session\.completed/)
   await reader.cancel()
 })
@@ -84,16 +92,86 @@ test("requests an authoritative resync when replay history expired", async () =>
   for (let index = 0; index < 1_001; index += 1) {
     hub.publish({ type: "tick", sessionId: "session-a", payload: { index } })
   }
+  const cursor = hub.cursor().replace(/-\d+$/, "-0")
   const reader = hub
-    .stream(["session-a"], "event-0", new AbortController().signal)
+    .stream(["session-a"], cursor, new AbortController().signal)
     .getReader()
 
   await reader.read()
   const resync = decoder.decode((await reader.read()).value)
-  assert.match(resync, /id: event-1001/)
+  assert.match(resync, new RegExp(`id: ${hub.cursor()}`))
   assert.match(resync, /event: resync\.required/)
   assert.match(resync, /event-history-expired/)
 
+  await reader.cancel()
+})
+
+test("requests resync for cursors from every other event epoch", async () => {
+  const previous = new EventHub()
+  for (let index = 0; index < 3; index += 1) {
+    previous.publish({ type: "old", sessionId: "session-a", payload: {} })
+  }
+  const previousCursor = previous.cursor()
+
+  for (const currentEventCount of [0, 3, 4]) {
+    const hub = new EventHub()
+    for (let index = 0; index < currentEventCount; index += 1) {
+      hub.publish({ type: "current", sessionId: "session-a", payload: {} })
+    }
+    const reader = hub
+      .stream(["session-a"], previousCursor, new AbortController().signal)
+      .getReader()
+
+    await reader.read()
+    const resync = decoder.decode((await reader.read()).value)
+    assert.match(resync, new RegExp(`id: ${hub.cursor()}`))
+    assert.match(resync, /event: resync\.required/)
+    assert.match(resync, /event-epoch-changed/)
+    await reader.cancel()
+  }
+})
+
+test("requests resync for legacy, malformed, and future cursors", async () => {
+  const hub = new EventHub()
+  const cursors = ["event-42", "not-a-cursor", `${hub.cursor()}-bad`]
+  for (const cursor of cursors) {
+    const reader = hub
+      .stream(["session-a"], cursor, new AbortController().signal)
+      .getReader()
+
+    await reader.read()
+    const resync = decoder.decode((await reader.read()).value)
+    assert.match(resync, new RegExp(`id: ${hub.cursor()}`))
+    assert.match(resync, /event: resync\.required/)
+    assert.match(resync, /event-cursor-invalid/)
+    await reader.cancel()
+  }
+
+  hub.publish({ type: "now", sessionId: "session-a", payload: {} })
+  const future = hub.cursor().replace(/-\d+$/, "-2")
+  const reader = hub
+    .stream(["session-a"], future, new AbortController().signal)
+    .getReader()
+
+  await reader.read()
+  const resync = decoder.decode((await reader.read()).value)
+  assert.match(resync, /event: resync\.required/)
+  assert.match(resync, /event-cursor-ahead/)
+  await reader.cancel()
+})
+
+test("requests resync for an old epoch even when the current history is empty", async () => {
+  const previous = new EventHub()
+  previous.publish({ type: "old", sessionId: "session-a", payload: {} })
+  const hub = new EventHub()
+  const reader = hub
+    .stream(["session-a"], previous.cursor(), new AbortController().signal)
+    .getReader()
+
+  await reader.read()
+  const resync = decoder.decode((await reader.read()).value)
+  assert.match(resync, /event: resync\.required/)
+  assert.match(resync, /event-epoch-changed/)
   await reader.cancel()
 })
 

@@ -44,6 +44,7 @@ interface IndexedSessionRow {
 
 const decoder = new TextDecoder("utf-8", { fatal: true })
 const sessionTitleSearchEntryType = "session_title"
+const sessionIndexLocks = new Map<string, Promise<void>>()
 
 function hash(content: Uint8Array) {
   return createHash("sha256").update(content).digest("hex")
@@ -349,7 +350,7 @@ function appendSession(
   })
 }
 
-async function indexSessionFile(database: DatabaseSync, file: string) {
+async function indexSessionFileNow(database: DatabaseSync, file: string) {
   const existing = indexedSession(database, file)
   const fileStats = await stat(file, { bigint: true })
   const mtimeNs = fileStats.mtimeNs.toString()
@@ -382,6 +383,25 @@ async function indexSessionFile(database: DatabaseSync, file: string) {
   }
 
   await replaceSession(database, file, content, stable.mtimeNs, existing)
+}
+
+function indexSessionFile(database: DatabaseSync, file: string) {
+  const previous = sessionIndexLocks.get(file) ?? Promise.resolve()
+  const operation = previous.then(() => indexSessionFileNow(database, file))
+  const settled = operation.then(
+    () => {
+      if (sessionIndexLocks.get(file) === settled) {
+        sessionIndexLocks.delete(file)
+      }
+    },
+    () => {
+      if (sessionIndexLocks.get(file) === settled) {
+        sessionIndexLocks.delete(file)
+      }
+    }
+  )
+  sessionIndexLocks.set(file, settled)
+  return operation
 }
 
 function removeMissingSessions(database: DatabaseSync, files: Set<string>) {
@@ -417,15 +437,18 @@ async function performSync() {
     discoverSessionFiles(getPiSessionsRoot()),
     canonicalizeCwd(homedir()),
   ])
+  const registeredProjects = database
+    .prepare(
+      `SELECT project_registrations.project_id, projects.canonical_path
+       FROM project_registrations
+       JOIN projects ON projects.id = project_registrations.project_id`
+    )
+    .all() as { project_id: string; canonical_path: string }[]
+  const registeredProjectIds = new Set(
+    registeredProjects.map(({ project_id }) => project_id)
+  )
   const registeredPaths = new Set(
-    (
-      database
-        .prepare(
-          `SELECT projects.canonical_path FROM project_registrations
-           JOIN projects ON projects.id = project_registrations.project_id`
-        )
-        .all() as { canonical_path: string }[]
-    ).map(({ canonical_path }) => canonical_path)
+    registeredProjects.map(({ canonical_path }) => canonical_path)
   )
   const taskPaths = new Set(
     (
@@ -440,8 +463,12 @@ async function performSync() {
   for (const file of files) {
     const existing = indexedSession(database, file)
     if (existing) {
-      if (existing.project_id !== null) continue
-      await indexSessionFile(database, file)
+      if (
+        existing.project_id === null ||
+        registeredProjectIds.has(existing.project_id)
+      ) {
+        await indexSessionFile(database, file)
+      }
       continue
     }
     const header = await sessionFileHeader(file)
@@ -499,7 +526,9 @@ export async function syncPiProjectSessions(projectId: string) {
 }
 
 export async function syncPiSessionFile(file: string) {
-  await syncPiSessionIndex()
+  const runningSync = globalThis.piWebCodexIndexSync
+  if (runningSync) await runningSync
+
   const root = path.resolve(getPiSessionsRoot())
   const target = path.resolve(file)
   const [realRoot, realTarget] = await Promise.all([

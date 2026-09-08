@@ -553,6 +553,9 @@ export function SessionRuntime({
 
   const clearExtensionUi = useEffectEvent(() => {
     extensionRequestLoadGeneration.current += 1
+    for (const bufferedRequests of extensionRequestLoadBuffers.current) {
+      bufferedRequests.length = 0
+    }
     closedExtensionRequestIds.current.clear()
     setExtensionRequests([])
     setRespondingRequestId(null)
@@ -710,6 +713,7 @@ export function SessionRuntime({
       updateRuntimeStatus(nextStatus)
       setSnapshot(nextSnapshot)
       updateQueuedMessages(nextSnapshot?.queuedPrompts ?? [])
+      setExtensionStatuses(nextSnapshot?.extensionStatuses ?? {})
       setCompacting(nextSnapshot?.isCompacting ?? false)
       setCompactionNotice(nextSnapshot?.isCompacting ? "running" : null)
       agentRunActive.current = nextStatus === "busy"
@@ -1080,6 +1084,22 @@ export function SessionRuntime({
       if (event.type === "resync.required") {
         completedStreamRevision.current = null
         stream.clear(true)
+        agentRunActive.current = false
+        wasBusy.current = false
+        clearExtensionUi()
+        setTuiSurfaces({})
+        pendingSurfaceEvents.current.clear()
+        closingTuiSurfaceIds.current.clear()
+        for (const bufferedEvents of surfaceLoadBuffers.current) {
+          bufferedEvents.length = 0
+        }
+        surfaceLoadGeneration.current += 1
+        setCompacting(false)
+        setCompactionNotice(null)
+        setCompactQueuedOptimistic(false)
+        updateQueuedMessages([])
+        setRetrying(null)
+        setError(null)
         router.refresh()
         void Promise.all([
           loadRuntimeState(),
@@ -1280,11 +1300,14 @@ export function SessionRuntime({
           queuedMessagesRevision.current
         )
       )
-      setCompactQueuedOptimistic(
-        state.items.some(
-          (item) => item.kind === "control" && item.control?.type === "compact"
+      if (revisionAtStart === queuedMessagesRevision.current) {
+        setCompactQueuedOptimistic(
+          state.items.some(
+            (item) =>
+              item.kind === "control" && item.control?.type === "compact"
+          )
         )
-      )
+      }
     } catch (failure) {
       const error =
         failure instanceof ApiError && failure.code === "QueueConflict"

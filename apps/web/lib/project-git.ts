@@ -303,14 +303,11 @@ export async function readProjectGitStatus(
       "--symbolic-full-name",
       "@{upstream}",
     ]),
-    runGit(projectPath, [
-      "status",
-      "--porcelain=v1",
-      "-z",
-      "--untracked-files=all",
-      "--",
-      ".",
-    ]),
+    runGit(
+      projectPath,
+      ["status", "--porcelain=v1", "-z", "--untracked-files=all", "--", "."],
+      { GIT_OPTIONAL_LOCKS: "0" }
+    ),
   ])
   if (status.code !== 0) {
     return {

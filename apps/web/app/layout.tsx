@@ -10,6 +10,7 @@ import { ThemeProvider } from "@/components/theme-provider"
 import { I18nProvider } from "@/components/i18n-provider"
 import { KeyboardShortcutsProvider } from "@/components/keyboard-shortcuts-provider"
 import { PwaRegistration } from "@/components/pwa-registration"
+import { SessionComposerDraftProvider } from "@/components/session-composer-draft-context"
 import { getLocalizedConfig } from "@/lib/i18n-server"
 import { getMutationToken } from "@/lib/request-security"
 
@@ -50,7 +51,9 @@ export default async function RootLayout({
               >
                 {t("ui.skipToMain")}
               </a>
-              <TooltipProvider>{children}</TooltipProvider>
+              <SessionComposerDraftProvider>
+                <TooltipProvider>{children}</TooltipProvider>
+              </SessionComposerDraftProvider>
               <Toaster />
               <PwaRegistration />
             </KeyboardShortcutsProvider>

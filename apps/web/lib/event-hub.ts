@@ -1,5 +1,7 @@
 import "server-only"
 
+import { randomUUID } from "node:crypto"
+
 export interface WebEvent {
   id: string
   seq: number
@@ -18,6 +20,8 @@ type Subscriber = {
 
 const MAX_EVENTS = 1_000
 const encoder = new TextEncoder()
+const EVENT_CURSOR_PATTERN =
+  /^event-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-(\d+)$/i
 
 declare global {
   var piWebCodexEventHub: EventHub | undefined
@@ -37,20 +41,43 @@ function serialize(event: WebEvent, eventName = event.type) {
   )
 }
 
+function parseCursor(cursor: string) {
+  const match = cursor.match(EVENT_CURSOR_PATTERN)
+  if (!match) return null
+  const sequence = Number(match[2])
+  if (!Number.isSafeInteger(sequence)) return null
+  return { epoch: match[1]!, sequence }
+}
+
 export class EventHub {
+  private readonly epoch = randomUUID()
   private sequence = 0
   private readonly events: WebEvent[] = []
   private readonly subscribers = new Set<Subscriber>()
 
   cursor() {
-    return `event-${this.sequence}`
+    return this.eventId(this.sequence)
+  }
+
+  private eventId(sequence: number) {
+    return `event-${this.epoch}-${sequence}`
+  }
+
+  private resyncEvent(reason: string): WebEvent {
+    return {
+      id: this.cursor(),
+      seq: this.sequence,
+      type: "resync.required",
+      timestamp: new Date().toISOString(),
+      payload: { reason },
+    }
   }
 
   publish(input: EventInput) {
     this.sequence += 1
     const event: WebEvent = {
       ...input,
-      id: `event-${this.sequence}`,
+      id: this.eventId(this.sequence),
       seq: this.sequence,
       timestamp: new Date().toISOString(),
     }
@@ -101,22 +128,23 @@ export class EventHub {
           send: (event) => controller.enqueue(serialize(event, eventName)),
         }
 
-        const lastSequence = lastEventId?.match(/^event-(\d+)$/)?.[1]
-        if (lastSequence) {
-          const after = Number(lastSequence)
-          const oldest = this.events[0]?.seq
-          if (oldest !== undefined && after < oldest - 1) {
-            subscriber.send({
-              id: `event-${this.sequence}`,
-              seq: this.sequence,
-              type: "resync.required",
-              timestamp: new Date().toISOString(),
-              payload: { reason: "event-history-expired" },
-            })
+        if (lastEventId !== null) {
+          const parsed = parseCursor(lastEventId)
+          if (!parsed) {
+            subscriber.send(this.resyncEvent("event-cursor-invalid"))
+          } else if (parsed.epoch !== this.epoch) {
+            subscriber.send(this.resyncEvent("event-epoch-changed"))
+          } else if (parsed.sequence > this.sequence) {
+            subscriber.send(this.resyncEvent("event-cursor-ahead"))
           } else {
-            for (const event of this.events) {
-              if (event.seq > after && matches(subscriber, event)) {
-                subscriber.send(event)
+            const oldest = this.events[0]?.seq
+            if (oldest !== undefined && parsed.sequence < oldest - 1) {
+              subscriber.send(this.resyncEvent("event-history-expired"))
+            } else {
+              for (const event of this.events) {
+                if (event.seq > parsed.sequence && matches(subscriber, event)) {
+                  subscriber.send(event)
+                }
               }
             }
           }

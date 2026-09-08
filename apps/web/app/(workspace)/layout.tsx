@@ -9,7 +9,6 @@ import {
 import { WorkspaceNav } from "@/components/workspace-nav"
 import { PiBrand } from "@/components/pi-brand"
 import { SidebarShortcut } from "@/components/sidebar-shortcut"
-import { SessionComposerDraftProvider } from "@/components/session-composer-draft-context"
 import { listWorkspaceProjects, listWorkspaceTasks } from "@/lib/catalog"
 import { getMutationToken } from "@/lib/request-security"
 import { getRuntimeSupervisor } from "@/lib/runtime-supervisor"
@@ -32,33 +31,31 @@ export default async function WorkspaceLayout({
     .map((session) => session.id)
 
   return (
-    <SessionComposerDraftProvider>
-      <SidebarProvider
-        style={
-          {
-            "--sidebar-width": "var(--app-sidebar-width)",
-          } as CSSProperties
-        }
+    <SidebarProvider
+      style={
+        {
+          "--sidebar-width": "var(--app-sidebar-width)",
+        } as CSSProperties
+      }
+    >
+      <SidebarShortcut />
+      <WorkspaceNav
+        projects={projects}
+        tasks={tasks}
+        initialRunningSessionIds={initialRunningSessionIds}
+        mutationToken={getMutationToken()}
+      />
+      <SidebarInset
+        id="main-content"
+        tabIndex={-1}
+        className="min-h-svh overflow-hidden"
       >
-        <SidebarShortcut />
-        <WorkspaceNav
-          projects={projects}
-          tasks={tasks}
-          initialRunningSessionIds={initialRunningSessionIds}
-          mutationToken={getMutationToken()}
-        />
-        <SidebarInset
-          id="main-content"
-          tabIndex={-1}
-          className="min-h-svh overflow-hidden"
-        >
-          <header className="flex h-12 shrink-0 items-center border-b px-3 md:hidden">
-            <SidebarTrigger />
-            <PiBrand className="ml-2" />
-          </header>
-          {children}
-        </SidebarInset>
-      </SidebarProvider>
-    </SessionComposerDraftProvider>
+        <header className="flex h-12 shrink-0 items-center border-b px-3 md:hidden">
+          <SidebarTrigger />
+          <PiBrand className="ml-2" />
+        </header>
+        {children}
+      </SidebarInset>
+    </SidebarProvider>
   )
 }

@@ -39,7 +39,7 @@ import {
   setSessionPinned,
 } from "./catalog"
 import { getDatabase } from "./database"
-import { syncPiSessionIndex } from "./session-index"
+import { syncPiSessionFile, syncPiSessionIndex } from "./session-index"
 
 test("project availability treats missing and invalidated paths as unavailable", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "pi-web-codex-availability-"))
@@ -285,8 +285,142 @@ test("lazily indexes project sessions and treats home sessions as tasks", async 
       projectFile,
       `${JSON.stringify(projectHeader)}\n{invalid json}\n`
     )
-    const sessions = await listProjectSessions(project.id)
-    assert.equal(sessions[0]?.firstMessage, "project message")
+    await assert.rejects(
+      listProjectSessions(project.id),
+      /Expected property name or '}' in JSON/
+    )
+  } finally {
+    const database = await getDatabase()
+    database.close()
+    globalThis.piWebCodexDatabase = undefined
+    globalThis.piWebCodexIndexSync = undefined
+    globalThis.piWebCodexProjectRegistrations = undefined
+    if (previous.config === undefined)
+      delete process.env.PI_WEB_CODEX_CONFIG_DIR
+    else process.env.PI_WEB_CODEX_CONFIG_DIR = previous.config
+    if (previous.sessions === undefined)
+      delete process.env.PI_CODING_AGENT_SESSION_DIR
+    else process.env.PI_CODING_AGENT_SESSION_DIR = previous.sessions
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test("targeted session reindex does not scan unrelated session files", async () => {
+  const root = await mkdtemp(
+    path.join(tmpdir(), "pi-web-codex-targeted-index-")
+  )
+  const configRoot = path.join(root, "config")
+  const sessionRoot = path.join(root, "sessions")
+  const projectCwd = path.join(root, "project")
+  const previous = {
+    config: process.env.PI_WEB_CODEX_CONFIG_DIR,
+    sessions: process.env.PI_CODING_AGENT_SESSION_DIR,
+  }
+  process.env.PI_WEB_CODEX_CONFIG_DIR = configRoot
+  process.env.PI_CODING_AGENT_SESSION_DIR = sessionRoot
+  globalThis.piWebCodexDatabase = undefined
+  globalThis.piWebCodexIndexSync = undefined
+
+  try {
+    await Promise.all([
+      mkdir(sessionRoot, { recursive: true }),
+      mkdir(projectCwd, { recursive: true }),
+    ])
+    const targetFile = path.join(sessionRoot, "target.jsonl")
+    await writeFile(
+      targetFile,
+      sessionJsonl("native-target", projectCwd, "initial target", "Initial")
+    )
+    const project = await addWorkspaceProject(projectCwd)
+    const unrelatedFile = path.join(sessionRoot, "unrelated.jsonl")
+    await writeFile(
+      unrelatedFile,
+      `${JSON.stringify({
+        type: "session",
+        version: 3,
+        id: "native-unrelated",
+        timestamp: "2026-07-14T00:00:00.000Z",
+        cwd: homedir(),
+      })}\n{invalid json}\n`
+    )
+    await appendFile(
+      targetFile,
+      `${JSON.stringify({
+        type: "message",
+        id: "native-target-message-2",
+        parentId: "native-target-message",
+        timestamp: "2026-07-14T00:02:00.000Z",
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: "targeted reindex needle" }],
+          timestamp: Date.parse("2026-07-14T00:02:00.000Z"),
+        },
+      })}\n`
+    )
+
+    let releaseRunningSync!: () => void
+    globalThis.piWebCodexIndexSync = new Promise<void>((resolve) => {
+      releaseRunningSync = resolve
+    })
+    let targetedFinished = false
+    const targeted = syncPiSessionFile(targetFile).then(() => {
+      targetedFinished = true
+    })
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    assert.equal(targetedFinished, false)
+    releaseRunningSync()
+    await targeted
+    globalThis.piWebCodexIndexSync = undefined
+
+    const database = await getDatabase()
+    const indexedTarget = database
+      .prepare(
+        `SELECT id, title, message_count, updated_at
+         FROM sessions WHERE native_session_file = ?`
+      )
+      .get(targetFile) as
+      | {
+          id: string
+          title: string | null
+          message_count: number
+          updated_at: string
+        }
+      | undefined
+    assert.equal(indexedTarget?.title, "Initial")
+    assert.equal(indexedTarget?.message_count, 2)
+    assert.equal(indexedTarget?.updated_at, "2026-07-14T00:02:00.000Z")
+    assert.equal(
+      database
+        .prepare("SELECT id FROM sessions WHERE native_session_file = ?")
+        .get(unrelatedFile),
+      undefined
+    )
+
+    await rm(unrelatedFile)
+    await appendFile(
+      targetFile,
+      `${JSON.stringify({
+        type: "message",
+        id: "native-target-message-3",
+        parentId: "native-target-message-2",
+        timestamp: "2026-07-14T00:03:00.000Z",
+        message: {
+          role: "user",
+          content: [{ type: "text", text: "concurrent reindex needle" }],
+          timestamp: Date.parse("2026-07-14T00:03:00.000Z"),
+        },
+      })}\n`
+    )
+    await Promise.all([syncPiSessionFile(targetFile), syncPiSessionIndex()])
+    assert.equal((await listProjectSessions(project.id))[0]?.messageCount, 3)
+    assert.equal(
+      (await searchSessions("targeted reindex needle"))[0]?.sessionId,
+      indexedTarget?.id
+    )
+    assert.equal(
+      (await searchSessions("concurrent reindex needle"))[0]?.sessionId,
+      indexedTarget?.id
+    )
   } finally {
     const database = await getDatabase()
     database.close()
@@ -593,17 +727,49 @@ test("standalone sessions survive reindexing and remain outside projects", async
 
     await appendFile(
       projectFile,
-      `${JSON.stringify({
-        type: "session_info",
-        id: "native-project-title-updated",
-        parentId: "native-project-message",
-        timestamp: "2026-07-14T00:01:00.000Z",
-        name: "Updated launch title",
-      })}\n`
+      [
+        {
+          type: "session_info",
+          id: "native-project-title-updated",
+          parentId: "native-project-message",
+          timestamp: "2026-07-14T00:01:00.000Z",
+          name: "Updated launch title",
+        },
+        {
+          type: "message",
+          id: "native-project-message-2",
+          parentId: "native-project-title-updated",
+          timestamp: "2026-07-14T00:02:00.000Z",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "registered append needle" }],
+            timestamp: Date.parse("2026-07-14T00:02:00.000Z"),
+          },
+        },
+      ]
+        .map((entry) => JSON.stringify(entry))
+        .join("\n") + "\n"
     )
     await syncPiSessionIndex()
-    assert.deepEqual(await searchSessions("updated title"), [])
-    assert.equal((await searchSessions("release roadmap")).length, 1)
+    const [updatedTitle] = await searchSessions("updated title")
+    assert.equal(updatedTitle?.sessionId, projectSession.id)
+    assert.equal(updatedTitle?.entryType, "session_title")
+    assert.deepEqual(await searchSessions("release roadmap"), [])
+    const [updatedProject] = await listWorkspaceProjects()
+    assert.equal(updatedProject?.updatedAt, "2026-07-14T00:02:00.000Z")
+    const updatedSession = updatedProject?.sessions[0]
+    assert.equal(updatedSession?.id, projectSession.id)
+    assert.equal(updatedSession?.title, "Updated launch title")
+    assert.equal(updatedSession?.messageCount, 2)
+    assert.equal(updatedSession?.updatedAt, "2026-07-14T00:02:00.000Z")
+    const updatedSnapshot = await getSessionSnapshot(projectSession.id)
+    assert.equal(updatedSnapshot?.session.title, "Updated launch title")
+    assert.equal(updatedSnapshot?.session.messageCount, 2)
+    assert.equal(updatedSnapshot?.session.updatedAt, "2026-07-14T00:02:00.000Z")
+    assert.equal(
+      (await searchSessions("registered append needle"))[0]?.sessionId,
+      projectSession.id
+    )
 
     const sessionRowsBeforeRemoval = database
       .prepare("SELECT count(*) AS count FROM sessions WHERE project_id = ?")

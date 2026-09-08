@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 
+import { randomUUID } from "node:crypto"
 import { spawn } from "node:child_process"
 import { constants } from "node:fs"
-import { access, mkdir, open, readFile, rm } from "node:fs/promises"
+import { access, mkdir, open, readFile, rename, rm } from "node:fs/promises"
 import { createServer } from "node:net"
 import { homedir } from "node:os"
 import path from "node:path"
@@ -98,7 +99,13 @@ async function readHealth(url) {
       signal: AbortSignal.timeout(500),
     })
     if (!response.ok) return null
-    const body = await response.json()
+    let body
+    try {
+      body = await response.json()
+    } catch (error) {
+      if (error instanceof SyntaxError) return null
+      throw error
+    }
     return body?.name === APP_NAME ? body : null
   } catch (error) {
     if (
@@ -136,31 +143,126 @@ function processIsAlive(pid) {
   }
 }
 
+function lockDiagnostic(lockPath, detail) {
+  return new Error(
+    `Instance lock ${lockPath} contains ${detail}.\n\n` +
+      `This lock records the PID of the running ${APP_NAME} instance and prevents multiple instances. ` +
+      `Do not delete the config directory. Only remove this lock file after confirming that no ${APP_NAME} instance is running, then retry.`
+  )
+}
+
+function lockRecoveryDiagnostic(lockPath, recoveryPath) {
+  return new Error(
+    `Instance lock recovery marker ${recoveryPath} already exists for ${lockPath}. ` +
+      `It means another ${APP_NAME} process may be reclaiming the lock or recovery was interrupted.\n\n` +
+      `Do not delete the config directory. Only remove this recovery marker after confirming that no ${APP_NAME} instance is running, then retry.`
+  )
+}
+
+function validateLockOwner(lockPath, owner) {
+  if (
+    !owner ||
+    typeof owner !== "object" ||
+    Array.isArray(owner) ||
+    !Number.isSafeInteger(owner.pid) ||
+    owner.pid < 1 ||
+    owner.pid > 2 ** 31 - 1
+  ) {
+    throw lockDiagnostic(lockPath, "invalid PID metadata")
+  }
+  return owner
+}
+
+async function readLockOwner(lockPath) {
+  try {
+    return validateLockOwner(
+      lockPath,
+      JSON.parse(await readFile(lockPath, "utf8"))
+    )
+  } catch (error) {
+    if (error.code === "ENOENT") throw error
+    if (error instanceof SyntaxError) {
+      throw lockDiagnostic(lockPath, "empty or truncated JSON metadata")
+    }
+    throw error
+  }
+}
+
+function activeLockError(lockPath, pid) {
+  return new Error(
+    `Another ${APP_NAME} instance is already running (PID ${pid}).\n\n` +
+      `Instance lock: ${lockPath}\n` +
+      `Do not delete or replace this lock while that process is running.`
+  )
+}
+
+async function createLock(lockPath) {
+  const lock = await open(lockPath, "wx", 0o600)
+  try {
+    await lock.writeFile(`${JSON.stringify({ pid: process.pid })}\n`)
+    await lock.close()
+  } catch (error) {
+    try {
+      await lock.close()
+    } finally {
+      await rm(lockPath, { force: true })
+    }
+    throw error
+  }
+  return lockPath
+}
+
 async function acquireLock(root) {
   const lockDirectory = path.join(root, "locks")
   const lockPath = path.join(lockDirectory, "instance.lock")
+  const recoveryPath = `${lockPath}.recovery`
   await mkdir(lockDirectory, { recursive: true, mode: 0o700 })
 
-  try {
-    const lock = await open(lockPath, "wx", 0o600)
-    await lock.writeFile(`${JSON.stringify({ pid: process.pid })}\n`)
-    await lock.close()
-    return lockPath
-  } catch (error) {
-    if (error.code !== "EEXIST") throw error
-  }
+  for (;;) {
+    try {
+      await mkdir(recoveryPath, { mode: 0o700 })
+    } catch (error) {
+      if (error.code === "EEXIST") {
+        throw lockRecoveryDiagnostic(lockPath, recoveryPath)
+      }
+      throw error
+    }
 
-  const owner = JSON.parse(await readFile(lockPath, "utf8"))
-  if (Number.isInteger(owner.pid) && processIsAlive(owner.pid)) {
-    throw new Error(
-      `Another ${APP_NAME} instance is already running (PID ${owner.pid}).`
-    )
+    try {
+      try {
+        return await createLock(lockPath)
+      } catch (error) {
+        if (error.code !== "EEXIST") throw error
+      }
+
+      let owner
+      try {
+        owner = await readLockOwner(lockPath)
+      } catch (error) {
+        if (error.code === "ENOENT") continue
+        throw error
+      }
+      if (processIsAlive(owner.pid)) {
+        throw activeLockError(lockPath, owner.pid)
+      }
+
+      const staleLockPath = `${lockPath}.stale-${process.pid}-${randomUUID()}`
+      try {
+        await rename(lockPath, staleLockPath)
+      } catch (error) {
+        if (error.code === "ENOENT") continue
+        throw error
+      }
+      await rm(staleLockPath, { force: true })
+      try {
+        return await createLock(lockPath)
+      } catch (error) {
+        if (error.code !== "EEXIST") throw error
+      }
+    } finally {
+      await rm(recoveryPath, { recursive: true, force: true })
+    }
   }
-  await rm(lockPath)
-  const lock = await open(lockPath, "wx", 0o600)
-  await lock.writeFile(`${JSON.stringify({ pid: process.pid })}\n`)
-  await lock.close()
-  return lockPath
 }
 
 async function waitUntilHealthy(url, child, version) {
