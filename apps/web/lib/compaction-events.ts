@@ -1,3 +1,10 @@
+const emptyCompactionPattern =
+  /none\s*[—–-]\s*empty conversation|\(none\s*[—–-]\s*empty conversation\)/i
+
+export function isPlaceholderCompactionSummary(text: string) {
+  return emptyCompactionPattern.test(text)
+}
+
 export type CompactionEndOutcome =
   | { kind: "aborted" }
   | { kind: "complete" }

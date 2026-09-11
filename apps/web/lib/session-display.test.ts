@@ -1,7 +1,15 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 
-import { displaySessionTitle } from "@/lib/session-display"
+import { displaySessionTitle, formatInlinePreview } from "@/lib/session-display"
+
+test("inline previews can cap length without splitting Unicode code points", () => {
+  assert.equal(
+    formatInlinePreview("Command: echo hello Chunk ID: 63c2e3 Wall time: 0.2030 seconds", 24),
+    "Command: echo hello Chu…"
+  )
+  assert.equal(formatInlinePreview("😀😀😀", 2), "😀…")
+})
 
 test("session titles normalize whitespace and ANSI formatting", () => {
   assert.equal(

@@ -680,7 +680,7 @@ export class RuntimeSupervisor {
       options.runtimeProfileId
     )
     return this.configureNewRuntime(
-      await this.launchUnboundRuntime(target, { mode: "new" }, null),
+      await this.launchUnboundRuntime(target, { mode: "new" }, null, options),
       options
     )
   }
@@ -688,7 +688,7 @@ export class RuntimeSupervisor {
   async createTask(options: NewRuntimeOptions = {}) {
     const target = await resolveNewTaskRuntime(options.runtimeProfileId)
     return this.configureNewRuntime(
-      await this.launchUnboundRuntime(target, { mode: "new" }, null),
+      await this.launchUnboundRuntime(target, { mode: "new" }, null, options),
       options
     )
   }
@@ -698,14 +698,21 @@ export class RuntimeSupervisor {
   >(created: T, options: NewRuntimeOptions) {
     let snapshot = created.snapshot
     try {
-      if (options.model) {
+      if (
+        options.model &&
+        (snapshot.model?.provider !== options.model.provider ||
+          snapshot.model?.id !== options.model.modelId)
+      ) {
         snapshot = await this.setModel(
           created.sessionId,
           options.model.provider,
           options.model.modelId
         )
       }
-      if (options.thinkingLevel) {
+      if (
+        options.thinkingLevel &&
+        snapshot.thinkingLevel !== options.thinkingLevel
+      ) {
         snapshot = await this.setThinkingLevel(
           created.sessionId,
           options.thinkingLevel
@@ -1452,7 +1459,8 @@ export class RuntimeSupervisor {
       runtimeKind: "pi" | "pi-client"
     },
     initializationTarget: RuntimeInitializeTarget,
-    migratedFromSessionId: string | null
+    migratedFromSessionId: string | null,
+    options: Pick<NewRuntimeOptions, "model" | "thinkingLevel"> = {}
   ) {
     if (!target.cwd) {
       throw new RuntimeRequestError(
@@ -1560,6 +1568,10 @@ export class RuntimeSupervisor {
               mcpTools,
               webuiAdapters,
               target: initializationTarget,
+              ...(options.model ? { model: options.model } : {}),
+              ...(options.thinkingLevel
+                ? { thinkingLevel: options.thinkingLevel }
+                : {}),
             },
           })
         )

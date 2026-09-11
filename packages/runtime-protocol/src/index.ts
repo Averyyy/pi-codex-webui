@@ -773,6 +773,13 @@ const initializeMessageSchema = z.object({
         sourceSessionFile: z.string().min(1),
       }),
     ]),
+    model: z
+      .object({
+        provider: z.string().min(1),
+        modelId: z.string().min(1),
+      })
+      .optional(),
+    thinkingLevel: thinkingLevelSchema.optional(),
   }),
 })
 

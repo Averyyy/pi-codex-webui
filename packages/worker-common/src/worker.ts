@@ -778,15 +778,34 @@ async function initialize(
       savedProvider && savedModelId
         ? services.modelRuntime.getModel(savedProvider, savedModelId)
         : undefined
-    const initialScopedModel =
-      !hasExistingSession && scopedModels.length > 0
-        ? (scopedModels.find(
-            ({ model }) =>
-              savedModel !== undefined &&
-              model.provider === savedModel.provider &&
-              model.id === savedModel.id
-          ) ?? scopedModels[0])
-        : undefined
+    const requestedModel = message.payload.model
+      ? services.modelRuntime.getModel(
+          message.payload.model.provider,
+          message.payload.model.modelId
+        )
+      : undefined
+    const requestedThinkingLevel = message.payload.thinkingLevel
+    const initialScopedModel = !hasExistingSession
+      ? requestedModel
+        ? {
+            model: requestedModel,
+            thinkingLevel:
+              requestedThinkingLevel ??
+              scopedModels.find(
+                ({ model }) =>
+                  model.provider === requestedModel.provider &&
+                  model.id === requestedModel.id
+              )?.thinkingLevel,
+          }
+        : scopedModels.length > 0
+          ? (scopedModels.find(
+              ({ model }) =>
+                savedModel !== undefined &&
+                model.provider === savedModel.provider &&
+                model.id === savedModel.id
+            ) ?? scopedModels[0])
+          : undefined
+      : undefined
     await adapterHost.initialize(
       services.resourceLoader.getExtensions().extensions
     )
@@ -868,7 +887,9 @@ async function initialize(
       ...(initialScopedModel
         ? {
             model: initialScopedModel.model,
-            thinkingLevel: initialScopedModel.thinkingLevel,
+            ...(initialScopedModel.thinkingLevel
+              ? { thinkingLevel: initialScopedModel.thinkingLevel }
+              : {}),
           }
         : {}),
     })

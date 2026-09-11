@@ -70,6 +70,7 @@ import { useI18n } from "@/components/i18n-provider"
 import { PromptQueue } from "@/components/prompt-queue"
 import { GoalStatusBar } from "@/components/goal-status-bar"
 import { ConversationCompactionStatus } from "@/components/conversation-compaction-status"
+import { composerCommandDescription } from "@/lib/composer-command-text"
 import { ExtensionSlot } from "@/components/extension-slot"
 import {
   promptImages,
@@ -381,6 +382,7 @@ export function SessionRuntime({
   const [compactionNotice, setCompactionNotice] = useState<
     "running" | "complete" | null
   >(initialSnapshot?.isCompacting ? "running" : null)
+  const [commandNotice, setCommandNotice] = useState<string | null>(null)
   const compactRequestRef = useRef(false)
   const [compactQueuedOptimistic, setCompactQueuedOptimistic] = useState(false)
   const [treeOpen, setTreeOpen] = useState(false)
@@ -526,6 +528,8 @@ export function SessionRuntime({
     submittingRef.current = true
     setSubmitting(true)
     setError(null)
+    if (/^\/[^\s]+$/.test(text)) setCommandNotice(text)
+    else setCommandNotice(null)
     try {
       await mutate(`/api/v1/sessions/${sessionId}/messages`, "POST", {
         message: text || t("session.runtime.imageOnlyMessage"),
@@ -1501,7 +1505,9 @@ export function SessionRuntime({
     .map((command) => ({
       id: `slash:${command.name}`,
       label: `/${command.name}`,
-      description: command.description ?? `/${command.name}`,
+      description: composerCommandDescription(
+        command.description ?? `/${command.name}`
+      ),
       icon:
         command.source === "skill"
           ? SparklesIcon
@@ -1521,6 +1527,14 @@ export function SessionRuntime({
           {inlineSurfaces("header").map(renderTuiSurface)}
           {compactionNotice ? (
             <ConversationCompactionStatus state={compactionNotice} />
+          ) : null}
+          {commandNotice ? (
+            <p
+              role="status"
+              className="rounded-xl border bg-muted/40 px-3 py-2 text-sm text-muted-foreground"
+            >
+              {t("session.runtime.commandInvoked", { command: commandNotice })}
+            </p>
           ) : null}
           {inlineSurfaces("aboveEditor").map(renderTuiSurface)}
           {widgets
@@ -1724,7 +1738,11 @@ export function SessionRuntime({
                     </SelectContent>
                   </Select>
                 ) : (
-                  <span key={key} className="text-xs text-muted-foreground">
+                  <span
+                    key={key}
+                    className="max-w-[12rem] truncate text-xs text-muted-foreground"
+                    title={stripAnsi(text)}
+                  >
                     {stripAnsi(text)}
                   </span>
                 )
@@ -1849,7 +1867,6 @@ export function SessionRuntime({
               </pre>
             ))}
           {inlineSurfaces("belowEditor").map(renderTuiSurface)}
-          {inlineSurfaces("footer").map(renderTuiSurface)}
         </div>
       </div>
 

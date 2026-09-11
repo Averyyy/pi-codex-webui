@@ -47,6 +47,11 @@ function matchesFilter(
   if (filter === "all") return true
   if (filter === "user") return entry.role === "user"
   if (filter === "labeled") return Boolean(entry.label)
+  if (entry.role === "toolResult") return false
+  if (entry.type === "compaction" || entry.type === "branch_summary") {
+    return false
+  }
+  if (entry.role === "assistant" && !entry.text?.trim()) return false
   return true
 }
 

@@ -27,6 +27,11 @@ import { translate, type Locale } from "@/lib/i18n"
 import type { ToolResultView } from "@/lib/message-content"
 import type { TranscriptPart } from "@/lib/session-types"
 import {
+  isShellToolName,
+  parseShellToolResult,
+  shellToolCommand,
+} from "@/lib/shell-tool-result"
+import {
   isWebAccessToolName,
   webAccessToolPresentation,
   type WebAccessToolName,
@@ -37,11 +42,10 @@ function json(value: unknown) {
 }
 
 function toolSummary(name: string, args: Record<string, unknown>) {
+  const shellCommand = shellToolCommand(name, args)
+  if (shellCommand) return shellCommand
   let field: unknown
   switch (name) {
-    case "bash":
-      field = args.command
-      break
     case "Agent":
       field = args.description
       break
@@ -64,6 +68,8 @@ function toolAppearance(name: string): {
 } {
   switch (name) {
     case "bash":
+    case "exec_command":
+    case "shell":
       return { icon: <TerminalIcon />, tone: "execute" }
     case "Agent":
       return { icon: <BotIcon />, tone: "agent" }
@@ -192,6 +198,76 @@ function WebAccessToolCard({
   )
 }
 
+function resultText(result: ToolResultView) {
+  return result.parts
+    .map((part) => (part.type === "text" ? part.text : ""))
+    .join("")
+    .trim()
+}
+
+function ShellOrLiteralResult({
+  name,
+  result,
+  running,
+  locale,
+}: {
+  name: string
+  result: ToolResultView
+  running: boolean
+  locale: Locale
+}) {
+  const raw = resultText(result)
+  const parsed =
+    isShellToolName(name) && raw ? parseShellToolResult(raw) : undefined
+  const facts = parsed
+    ? [
+        parsed.exitCode
+          ? {
+              label: translate(locale, "session.tool.exitCode"),
+              value: parsed.exitCode,
+            }
+          : null,
+        parsed.wallTime
+          ? {
+              label: translate(locale, "session.tool.wallTime"),
+              value: parsed.wallTime,
+            }
+          : null,
+      ].filter((fact) => fact !== null)
+    : []
+
+  return (
+    <div>
+      <p className="mb-1.5 text-xs font-medium text-muted-foreground">
+        {running
+          ? translate(locale, "session.tool.liveResult")
+          : translate(locale, "session.tool.result")}
+      </p>
+      {facts.length ? (
+        <dl className="mb-2 flex flex-wrap gap-x-5 gap-y-2 text-xs">
+          {facts.map((fact) => (
+            <div key={fact.label} className="flex min-w-0 gap-1.5">
+              <dt className="shrink-0 text-muted-foreground">{fact.label}</dt>
+              <dd className="min-w-0 break-all">{fact.value}</dd>
+            </div>
+          ))}
+        </dl>
+      ) : null}
+      <div className="flex min-w-0 flex-col gap-2 text-sm">
+        <ConversationTextParts
+          parts={
+            parsed
+              ? [{ type: "text", text: parsed.output }]
+              : result.parts
+          }
+          literal
+          locale={locale}
+        />
+      </div>
+    </div>
+  )
+}
+
 export function ToolCallCard({
   part,
   persistedResult,
@@ -294,20 +370,12 @@ export function ToolCallCard({
             </pre>
           </section>
           {result ? (
-            <div>
-              <p className="mb-1.5 text-xs font-medium text-muted-foreground">
-                {running
-                  ? translate(locale, "session.tool.liveResult")
-                  : translate(locale, "session.tool.result")}
-              </p>
-              <div className="flex min-w-0 flex-col gap-2 text-sm">
-                <ConversationTextParts
-                  parts={result.parts}
-                  literal
-                  locale={locale}
-                />
-              </div>
-            </div>
+            <ShellOrLiteralResult
+              name={effectivePart.name}
+              result={result}
+              running={running}
+              locale={locale}
+            />
           ) : null}
         </div>
       </ConversationDisclosure>

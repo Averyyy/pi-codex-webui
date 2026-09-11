@@ -144,7 +144,7 @@ export function ComposerCommandMenu({
       <PopoverContent
         side="top"
         align="start"
-        className="w-[min(26rem,calc(100vw-2rem))] p-1"
+        className="w-[min(26rem,calc(100vw-2rem))] overflow-hidden p-1"
         onOpenAutoFocus={(event) => {
           preserveInputFocusOnCloseRef.current = preserveInputFocus
           if (preserveInputFocus) event.preventDefault()
@@ -161,7 +161,7 @@ export function ComposerCommandMenu({
           id={menuId}
           role="menu"
           aria-label={t("composer.commands")}
-          className="grid gap-0.5"
+          className="grid max-h-[min(20rem,50vh)] gap-0.5 overflow-y-auto overscroll-contain"
         >
           {visibleCommands.map((command) => {
             const Icon = command.icon
@@ -180,14 +180,14 @@ export function ComposerCommandMenu({
                 aria-current={active ? "true" : undefined}
                 data-active={active || undefined}
                 className={cn(
-                  "h-auto w-full justify-start gap-2 rounded-md px-2 py-1.5 text-left font-normal",
+                  "h-auto w-full min-w-0 justify-start gap-2 rounded-md px-2 py-1.5 text-left font-normal",
                   "hover:bg-accent hover:text-accent-foreground",
                   "data-[active=true]:bg-accent data-[active=true]:text-accent-foreground"
                 )}
               >
-                <Icon />
-                <span className="grid min-w-0 gap-0.5">
-                  <span>{command.label}</span>
+                <Icon className="size-4 shrink-0" />
+                <span className="grid min-w-0 flex-1 gap-0.5 overflow-hidden">
+                  <span className="truncate">{command.label}</span>
                   <span className="truncate text-xs text-muted-foreground">
                     {command.description}
                   </span>

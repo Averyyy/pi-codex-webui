@@ -15,9 +15,11 @@ import { useStreamingRuntimeStatus } from "@/components/session-streaming-contex
 import { UserMessage } from "@/components/user-message"
 import { WebUiMessageFallback } from "@/components/webui-message-fallback"
 import { stripAnsi } from "@/lib/ansi"
+import { isPlaceholderCompactionSummary } from "@/lib/compaction-events"
 import { createTranslator, type Locale, type Translator } from "@/lib/i18n"
 import type { ToolResultView } from "@/lib/message-content"
 import { formatInlinePreview, formatTimestamp } from "@/lib/session-display"
+import { shellToolCommand } from "@/lib/shell-tool-result"
 import type {
   SessionSnapshot,
   TranscriptEntry,
@@ -55,7 +57,8 @@ function Message({
   locale: Locale
   t: Translator
 }) {
-  if (parts.length === 0) return null
+  const aborted = entry.metadata?.stopReason === "aborted"
+  if (parts.length === 0 && !aborted) return null
   if (entry.role === "bashExecution") {
     const [command, output] = parts
     const commandText =
@@ -125,6 +128,11 @@ function Message({
         </div>
       ) : null}
       <div className="flex min-w-0 flex-col gap-2">{content}</div>
+      {aborted ? (
+        <p className="text-xs text-muted-foreground">
+          {t("session.transcript.aborted")}
+        </p>
+      ) : null}
     </article>
   )
 }
@@ -143,7 +151,13 @@ function Event({
       <div id={`entry-${entry.id}`} className={TRANSCRIPT_ITEM_CLASS}>
         <ConversationDisclosure
           label={entry.title}
-          preview={entry.text ? formatInlinePreview(entry.text) : undefined}
+          preview={
+            entry.text
+              ? isPlaceholderCompactionSummary(entry.text)
+                ? t("session.transcript.compactionEmpty")
+                : formatInlinePreview(entry.text, 80)
+              : undefined
+          }
           icon={<FileTextIcon />}
           tone="read"
           ariaLabel={t("session.tool.expand", { name: entry.title })}
@@ -291,6 +305,33 @@ function elapsedDuration(entries: TranscriptEntry[]) {
   return `${Math.floor(seconds / 60)}m ${seconds % 60}s`
 }
 
+function processPreview(entries: TranscriptEntry[]) {
+  for (const entry of entries) {
+    if (entry.kind === "event") {
+      if (
+        entry.eventType === "model_change" ||
+        entry.eventType === "thinking_level_change" ||
+        entry.eventType === "compaction" ||
+        entry.eventType === "branch_summary"
+      ) {
+        continue
+      }
+      if (entry.text) return formatInlinePreview(entry.text, 80)
+      continue
+    }
+    if (entry.role === "toolResult") continue
+    for (const part of entry.parts) {
+      if (part.type === "toolCall") {
+        return formatInlinePreview(
+          shellToolCommand(part.name, part.arguments) || part.name,
+          80
+        )
+      }
+    }
+  }
+  return undefined
+}
+
 function ProcessDisclosure({
   entries,
   active,
@@ -303,22 +344,14 @@ function ProcessDisclosure({
   children: React.ReactNode
 }) {
   if (!entries.length) return null
-  const preview = entries
-    .flatMap((entry) => {
-      if (entry.kind === "event") return entry.text ? [entry.text] : []
-      return entry.parts.flatMap((part) =>
-        part.type === "text" ? [part.text] : []
-      )
-    })
-    .map((value) => formatInlinePreview(value))
-    .find(Boolean)
-
+  const preview = processPreview(entries)
   const duration = elapsedDuration(entries)
+  const timed = Boolean(duration && duration !== "0s")
 
   return (
     <ConversationDisclosure
       label={
-        !active && duration
+        !active && timed && duration
           ? t("session.transcript.elapsed", { duration })
           : t("session.transcript.process")
       }
@@ -425,6 +458,7 @@ export function SessionTranscript({
         const userIndex = round.findIndex(
           (entry) => entry.kind === "message" && entry.role === "user"
         )
+        if (userIndex < 0 && round.every(isSettingEvent)) return null
         const user = userIndex >= 0 ? round[userIndex] : undefined
         const content = userIndex >= 0 ? round.slice(userIndex + 1) : round
         let finalIndex = -1
@@ -487,7 +521,14 @@ export function SessionTranscript({
             className="flex min-w-0 flex-col gap-5"
           >
             {roundEntries.map((entry) => renderEntry(entry))}
-            {processEntries.length ? (
+            {processEntries.length && processEntries.every(isSettingEvent) ? (
+              userIndex >= 0 ? (
+                <SettingChanges
+                  entries={processEntries.filter(isSettingEvent)}
+                  t={t}
+                />
+              ) : null
+            ) : processEntries.length ? (
               <ProcessDisclosure entries={processEntries} active={active} t={t}>
                 {transcriptBlocks(processEntries).map((block) =>
                   Array.isArray(block) ? (

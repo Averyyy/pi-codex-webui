@@ -75,6 +75,10 @@ const messages = {
     "zh-CN": "没有匹配的命令",
     "en-US": "No matching commands",
   },
+  "session.runtime.commandInvoked": {
+    "zh-CN": "已发送命令 {command}。若没有出现面板，该命令可能只支持 TUI。",
+    "en-US": "Sent {command}. If nothing appeared, this command may be TUI-only.",
+  },
   "composer.send": { "zh-CN": "发送", "en-US": "Send" },
   "composer.placeholder": {
     "zh-CN": "向 Pi 发送消息",
@@ -619,6 +623,11 @@ const messages = {
   "session.transcript.failed": { "zh-CN": "失败", "en-US": "Failed" },
   "session.transcript.running": { "zh-CN": "运行中", "en-US": "Running" },
   "session.transcript.complete": { "zh-CN": "完成", "en-US": "Complete" },
+  "session.transcript.aborted": { "zh-CN": "已中止", "en-US": "Stopped" },
+  "session.transcript.compactionEmpty": {
+    "zh-CN": "压缩后无额外摘要",
+    "en-US": "No additional summary",
+  },
   "session.transcript.process": {
     "zh-CN": "执行过程",
     "en-US": "Work performed",
@@ -688,6 +697,8 @@ const messages = {
   },
   "session.tool.result": { "zh-CN": "结果", "en-US": "Result" },
   "session.tool.arguments": { "zh-CN": "参数", "en-US": "Arguments" },
+  "session.tool.exitCode": { "zh-CN": "退出码", "en-US": "Exit code" },
+  "session.tool.wallTime": { "zh-CN": "耗时", "en-US": "Wall time" },
   "session.fileMutation.write": { "zh-CN": "write", "en-US": "write" },
   "session.fileMutation.edit": { "zh-CN": "edit", "en-US": "edit" },
   "session.fileMutation.insert": { "zh-CN": "insert", "en-US": "insert" },

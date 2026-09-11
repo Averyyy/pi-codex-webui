@@ -123,6 +123,18 @@ test("runtime initialization declares resume, new, or duplicate explicitly", () 
     }).success,
     false
   )
+  assert.equal(
+    hostToWorkerMessageSchema.parse({
+      ...base,
+      payload: {
+        ...base.payload,
+        target: { mode: "new" },
+        model: { provider: "xai", modelId: "grok-4.6" },
+        thinkingLevel: "low",
+      },
+    }).type,
+    "runtime.initialize"
+  )
 })
 
 test("subagent snapshots and stop requests remain protocol validated", () => {

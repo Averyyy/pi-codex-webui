@@ -28,9 +28,7 @@ import { cn } from "@workspace/ui/lib/utils"
 
 import {
   buildSessionTreeRows,
-  sessionTreeActiveCount,
   sessionTreeCurrentEntryId,
-  sessionTreeEntryCount,
   type SessionTreeFilter,
 } from "@/lib/session-tree"
 import { useI18n } from "@/components/i18n-provider"
@@ -127,7 +125,7 @@ export function SessionTreeDialog({
   const selectedEntry = tree?.entries.find(
     (entry) => entry.id === selectedEntryId
   )
-  const activeCount = tree ? sessionTreeActiveCount(tree) : 0
+  const activeCount = rows.filter((row) => row.active).length
   const currentEntryId = tree ? sessionTreeCurrentEntryId(tree) : null
 
   useEffect(() => {
@@ -154,11 +152,11 @@ export function SessionTreeDialog({
         <DialogDescription>
           {tree
             ? t(
-                sessionTreeEntryCount(tree) === 1
+                rows.length === 1
                   ? "session.tree.summaryOne"
                   : "session.tree.summary",
                 {
-                  count: sessionTreeEntryCount(tree),
+                  count: rows.length,
                   active: activeCount,
                 }
               )

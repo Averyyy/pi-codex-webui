@@ -39,6 +39,13 @@ export function formatTimestamp(value: string, locale = "zh-CN") {
   return formatter.format(new Date(value))
 }
 
-export function formatInlinePreview(value: string) {
-  return stripAnsi(value).replace(/\s+/g, " ").trim()
+export function formatInlinePreview(value: string, maxLength = Infinity) {
+  const text = stripAnsi(value).replace(/\s+/g, " ").trim()
+  if (!Number.isFinite(maxLength) || maxLength <= 0) return text
+  const characters = Array.from(text)
+  if (characters.length <= maxLength) return text
+  return `${characters
+    .slice(0, Math.max(1, maxLength - 1))
+    .join("")
+    .trimEnd()}…`
 }

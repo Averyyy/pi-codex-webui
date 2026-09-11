@@ -146,6 +146,45 @@ test("reconnects messages across internal state entries", () => {
   )
 })
 
+test("default filter hides tool results, compaction, and empty assistant replies", () => {
+  const noisyTree: SessionTree = {
+    entries: [
+      entry("user", null, { role: "user", text: "run echo" }),
+      entry("empty-assistant", "user", { role: "assistant" }),
+      entry("tool", "empty-assistant", {
+        role: "toolResult",
+        text: "hello-from-pi-client",
+      }),
+      entry("compaction", "tool", {
+        type: "compaction",
+        text: "## Goal (none — empty conversation)",
+      }),
+      entry("reply", "compaction", {
+        role: "assistant",
+        text: "hello-from-pi-client",
+      }),
+    ],
+    leafId: "reply",
+  }
+
+  assert.deepEqual(
+    buildSessionTreeRows(noisyTree, {
+      filter: "default",
+      query: "",
+      foldedIds: new Set(),
+    }).map((row) => row.entry.id),
+    ["user", "reply"]
+  )
+  assert.deepEqual(
+    buildSessionTreeRows(noisyTree, {
+      filter: "all",
+      query: "",
+      foldedIds: new Set(),
+    }).map((row) => row.entry.id),
+    ["user", "empty-assistant", "tool", "compaction", "reply"]
+  )
+})
+
 test("selects the latest user message on the active branch", () => {
   const branchedTree: SessionTree = {
     entries: [
