@@ -399,14 +399,14 @@ importers:
   packages/worker-pi-client:
     dependencies:
       '@earendil-works/pi-ai':
-        specifier: npm:@averyyy/pi-ai@0.85.1-piclient.4
-        version: '@averyyy/pi-ai@0.85.1-piclient.4(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)'
+        specifier: npm:@averyyy/pi-ai@0.85.1-piclient.5
+        version: '@averyyy/pi-ai@0.85.1-piclient.5(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)'
       '@earendil-works/pi-coding-agent':
-        specifier: npm:@averyyy/pi-coding-agent@0.85.1-piclient.4
-        version: '@averyyy/pi-coding-agent@0.85.1-piclient.4(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)'
+        specifier: npm:@averyyy/pi-coding-agent@0.85.1-piclient.5
+        version: '@averyyy/pi-coding-agent@0.85.1-piclient.5(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)'
       '@earendil-works/pi-tui':
-        specifier: npm:@averyyy/pi-tui@0.85.1-piclient.4
-        version: '@averyyy/pi-tui@0.85.1-piclient.4'
+        specifier: npm:@averyyy/pi-tui@0.85.1-piclient.5
+        version: '@averyyy/pi-tui@0.85.1-piclient.5'
       proper-lockfile:
         specifier: ^4.1.2
         version: 4.1.2
@@ -758,22 +758,22 @@ packages:
       zod:
         optional: true
 
-  '@averyyy/pi-agent-core@0.85.1-piclient.4':
-    resolution: {integrity: sha512-mdOTC2TFG0Twfcw4hpsPIoQitJYDL8AOPdgboyuWjq++pJ+bBVe8v7qPW0wXEcVPvwqOPUOyyVc9VHYLcIiVjQ==}
+  '@averyyy/pi-agent-core@0.85.1-piclient.5':
+    resolution: {integrity: sha512-QfM70fdOS3xL2lETWD/aQtli2Y54B5qth8x4ISK457sKlB0leY43qpsY+je7tZ0A3tub8JHfZuAntKIsOi1XlA==}
     engines: {node: '>=22.19.0'}
 
-  '@averyyy/pi-ai@0.85.1-piclient.4':
-    resolution: {integrity: sha512-QLlJTFtfUPBWbKc4wWfC97v9i5getdisjQleI7+KmwTYttQpEBAwMVPt1U6RK1Bevz9gbb2NxXqTS0dsotI1VQ==}
-    engines: {node: '>=22.19.0'}
-    hasBin: true
-
-  '@averyyy/pi-coding-agent@0.85.1-piclient.4':
-    resolution: {integrity: sha512-/TGdMgvI1JvxOP6plbnEv+PZ46fNA1mPOABeOSE1XuKiCgQeL5kzuGBfLi/etXuen+/rSWAAEn/4ztUQhX2+ZA==}
+  '@averyyy/pi-ai@0.85.1-piclient.5':
+    resolution: {integrity: sha512-JdBCRxSDp+Cq7LR61Jhc/nHugP3MQaHl0+Gl0wUCgU7zxv+Ft1SgqO++fcYtuzv90mIA87bFmfEmjb6rkBaN+Q==}
     engines: {node: '>=22.19.0'}
     hasBin: true
 
-  '@averyyy/pi-tui@0.85.1-piclient.4':
-    resolution: {integrity: sha512-8u2dnqCdjulFDyBvJMYH2SXzCQrgQUwmLfFOysbFnsMpiM5QPR2/K6yoMY4GbwpZLy5D63/4s+sluITNp6hkIw==}
+  '@averyyy/pi-coding-agent@0.85.1-piclient.5':
+    resolution: {integrity: sha512-sbA+hdBB+LUBFSrLvXjizkIf1CW4swwCZOeGJf2yy4LLsgCGfS4U9bC0NXsnrcGPavNgWUgfV5WJs+dN1rNOeg==}
+    engines: {node: '>=22.19.0'}
+    hasBin: true
+
+  '@averyyy/pi-tui@0.85.1-piclient.5':
+    resolution: {integrity: sha512-hdflI/My9ax5Ra9SJD2oOTDmVOgS4t1DbLGE/yf9n4niU9Rdr/IGc8aHqAD9MCxZB80aFzEdv2ZbfSyItfdtKg==}
     engines: {node: '>=22.19.0'}
 
   '@aws-crypto/sha256-browser@5.2.0':
@@ -6195,10 +6195,10 @@ snapshots:
     optionalDependencies:
       zod: 4.4.3
 
-  '@averyyy/pi-agent-core@0.85.1-piclient.4(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)':
+  '@averyyy/pi-agent-core@0.85.1-piclient.5(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)':
     dependencies:
       '@earendil-works/chord': 0.85.1
-      '@earendil-works/pi-ai': '@averyyy/pi-ai@0.85.1-piclient.4(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)'
+      '@earendil-works/pi-ai': '@averyyy/pi-ai@0.85.1-piclient.5(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)'
       '@earendil-works/pi-telemetry': 0.85.1
       diff: 8.0.4
       ignore: 7.0.5
@@ -6212,7 +6212,7 @@ snapshots:
       - ws
       - zod
 
-  '@averyyy/pi-ai@0.85.1-piclient.4(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)':
+  '@averyyy/pi-ai@0.85.1-piclient.5(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)':
     dependencies:
       '@anthropic-ai/sdk': 0.123.0(zod@4.4.3)
       '@aws-sdk/client-bedrock-runtime': 3.1048.0
@@ -6232,12 +6232,12 @@ snapshots:
       - ws
       - zod
 
-  '@averyyy/pi-coding-agent@0.85.1-piclient.4(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)':
+  '@averyyy/pi-coding-agent@0.85.1-piclient.5(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)':
     dependencies:
       '@earendil-works/chord': 0.85.1
-      '@earendil-works/pi-agent-core': '@averyyy/pi-agent-core@0.85.1-piclient.4(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)'
-      '@earendil-works/pi-ai': '@averyyy/pi-ai@0.85.1-piclient.4(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)'
-      '@earendil-works/pi-tui': '@averyyy/pi-tui@0.85.1-piclient.4'
+      '@earendil-works/pi-agent-core': '@averyyy/pi-agent-core@0.85.1-piclient.5(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)'
+      '@earendil-works/pi-ai': '@averyyy/pi-ai@0.85.1-piclient.5(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)'
+      '@earendil-works/pi-tui': '@averyyy/pi-tui@0.85.1-piclient.5'
       '@silvia-odwyer/photon-node': 0.3.4
       chalk: 5.6.2
       cross-spawn: 7.0.6
@@ -6263,7 +6263,7 @@ snapshots:
       - ws
       - zod
 
-  '@averyyy/pi-tui@0.85.1-piclient.4':
+  '@averyyy/pi-tui@0.85.1-piclient.5':
     dependencies:
       get-east-asian-width: 1.6.0
       marked: 18.0.5
