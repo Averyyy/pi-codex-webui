@@ -54,21 +54,76 @@ function isPiSessionFileName(name: string) {
   return name.endsWith(".jsonl") && !name.includes(".jsonl.")
 }
 
-async function discoverSessionFiles(root: string) {
-  let rootEntries: Dirent[]
+function logSkippedSessionFile(file: string, error: unknown) {
+  console.error(`Skipping session file ${file}:`, error)
+}
+
+function encodedSessionDirectoryName(canonicalPath: string) {
+  return `--${canonicalPath.replace(/^[\\/]/, "").replace(/[\\/:]/g, "-")}--`
+}
+
+function directoryLooksEncoded(name: string) {
+  return name.startsWith("--") && name.endsWith("--") && name.length > 4
+}
+
+function sessionDirectoryNameMatches(name: string, encoded: string) {
+  return process.platform === "win32"
+    ? name.toLowerCase() === encoded.toLowerCase()
+    : name === encoded
+}
+
+async function readDirectoryEntries(directory: string) {
   try {
-    rootEntries = await readdir(root, { withFileTypes: true })
+    return await readdir(directory, { withFileTypes: true })
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return []
     throw error
   }
+}
 
+async function discoverSessionFiles(root: string) {
   const files: string[] = []
-  async function visit(directory: string, entries = rootEntries) {
+  async function visit(directory: string) {
+    const entries = await readDirectoryEntries(directory)
     for (const entry of entries) {
       const target = path.join(directory, entry.name)
       if (entry.isDirectory()) {
-        await visit(target, await readdir(target, { withFileTypes: true }))
+        await visit(target)
+      } else if (entry.isFile() && isPiSessionFileName(entry.name)) {
+        files.push(target)
+      }
+    }
+  }
+
+  await visit(root)
+  return files.sort()
+}
+
+async function discoverProjectSessionCandidates(
+  root: string,
+  canonicalPath: string
+) {
+  const encoded = encodedSessionDirectoryName(canonicalPath)
+  const files: string[] = []
+
+  async function visit(directory: string) {
+    let entries: Dirent[]
+    try {
+      entries = await readDirectoryEntries(directory)
+    } catch (error) {
+      logSkippedSessionFile(directory, error)
+      return
+    }
+    for (const entry of entries) {
+      const target = path.join(directory, entry.name)
+      if (entry.isDirectory()) {
+        if (
+          directoryLooksEncoded(entry.name) &&
+          !sessionDirectoryNameMatches(entry.name, encoded)
+        ) {
+          continue
+        }
+        await visit(target)
       } else if (entry.isFile() && isPiSessionFileName(entry.name)) {
         files.push(target)
       }
@@ -461,26 +516,30 @@ async function performSync() {
     ).map(({ cwd }) => cwd)
   )
   for (const file of files) {
-    const existing = indexedSession(database, file)
-    if (existing) {
-      if (
-        existing.project_id === null ||
-        registeredProjectIds.has(existing.project_id)
-      ) {
-        await indexSessionFile(database, file)
+    try {
+      const existing = indexedSession(database, file)
+      if (existing) {
+        if (
+          existing.project_id === null ||
+          registeredProjectIds.has(existing.project_id)
+        ) {
+          await indexSessionFile(database, file)
+        }
+        continue
       }
-      continue
+      const header = await sessionFileHeader(file)
+      const cwd = await canonicalizeCwd(header.cwd)
+      if (
+        !isWithinDirectory(homeDirectory, cwd) &&
+        !registeredPaths.has(cwd) &&
+        !taskPaths.has(cwd)
+      ) {
+        continue
+      }
+      await indexSessionFile(database, file)
+    } catch (error) {
+      logSkippedSessionFile(file, error)
     }
-    const header = await sessionFileHeader(file)
-    const cwd = await canonicalizeCwd(header.cwd)
-    if (
-      !isWithinDirectory(homeDirectory, cwd) &&
-      !registeredPaths.has(cwd) &&
-      !taskPaths.has(cwd)
-    ) {
-      continue
-    }
-    await indexSessionFile(database, file)
   }
   removeMissingSessions(database, new Set(files))
 }
@@ -506,7 +565,6 @@ export function syncPiSessionIndex() {
 }
 
 export async function syncPiProjectSessions(projectId: string) {
-  await syncPiSessionIndex()
   const database = await getDatabase()
   const project = database
     .prepare(
@@ -517,20 +575,27 @@ export async function syncPiProjectSessions(projectId: string) {
     .get(projectId) as { canonical_path: string } | undefined
   if (!project) throw new Error(`Project not found: ${projectId}`)
 
-  const files = await discoverSessionFiles(getPiSessionsRoot())
+  const files = await discoverProjectSessionCandidates(
+    getPiSessionsRoot(),
+    project.canonical_path
+  )
   for (const file of files) {
-    if ((await sessionFileCwd(file)) === project.canonical_path) {
+    try {
+      const cwd = await sessionFileCwd(file)
+      if (cwd !== project.canonical_path) continue
       await indexSessionFile(database, file)
+    } catch (error) {
+      logSkippedSessionFile(file, error)
     }
   }
 }
 
 export async function syncPiSessionFile(file: string) {
-  const runningSync = globalThis.piWebCodexIndexSync
-  if (runningSync) await runningSync
-
   const root = path.resolve(getPiSessionsRoot())
   const target = path.resolve(file)
+  if (!isPiSessionFileName(path.basename(target))) {
+    throw new Error(`Not a Pi session file: ${target}`)
+  }
   const [realRoot, realTarget] = await Promise.all([
     realpath(root),
     realpath(target),

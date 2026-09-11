@@ -14,7 +14,6 @@ import {
 import {
   syncPiProjectSessions,
   syncPiSessionFile,
-  syncPiSessionIndex,
 } from "@/lib/session-index"
 import { createSessionSearchPlan } from "@/lib/session-search-query"
 import type {
@@ -313,7 +312,6 @@ export async function removeWorkspaceProject(projectId: string) {
 }
 
 export async function listWorkspaceProjects(): Promise<WorkspaceProject[]> {
-  await syncPiSessionIndex()
   const database = await getDatabase()
   const projects = database
     .prepare(
@@ -368,7 +366,6 @@ export async function listWorkspaceProjects(): Promise<WorkspaceProject[]> {
 }
 
 export async function getProject(projectId: string) {
-  await syncPiSessionIndex()
   const database = await getDatabase()
   const row = database
     .prepare(
@@ -389,7 +386,6 @@ export async function getProject(projectId: string) {
 }
 
 export async function listProjectSessions(projectId: string) {
-  await syncPiSessionIndex()
   const database = await getDatabase()
   return (
     database
@@ -410,7 +406,6 @@ export async function listProjectSessions(projectId: string) {
 }
 
 export async function listSubagentSessions(sessionId: string) {
-  await syncPiSessionIndex()
   const database = await getDatabase()
   const rows = database
     .prepare(
@@ -441,7 +436,6 @@ export async function listSubagentSessions(sessionId: string) {
 }
 
 export async function listWorkspaceTasks(): Promise<SessionSummary[]> {
-  await syncPiSessionIndex()
   const database = await getDatabase()
   return (
     database
@@ -462,7 +456,6 @@ export async function listWorkspaceTasks(): Promise<SessionSummary[]> {
 }
 
 export async function listArchivedSessions(): Promise<ArchivedSession[]> {
-  await syncPiSessionIndex()
   const database = await getDatabase()
   const rows = database
     .prepare(
@@ -531,7 +524,6 @@ export async function archiveProjectSessions(
 }
 
 export async function isSessionArchived(sessionId: string) {
-  await syncPiSessionIndex()
   const database = await getDatabase()
   return Boolean(
     database
@@ -544,7 +536,6 @@ export async function isSessionArchived(sessionId: string) {
 }
 
 export async function restoreArchivedSession(sessionId: string) {
-  await syncPiSessionIndex()
   const database = await getDatabase()
   return (
     database
@@ -557,7 +548,6 @@ export async function restoreArchivedSession(sessionId: string) {
 }
 
 export async function deleteArchivedSession(sessionId: string) {
-  await syncPiSessionIndex()
   const database = await getDatabase()
   const row = database
     .prepare(
@@ -586,24 +576,29 @@ export async function getSessionSnapshot(
   sessionId: string,
   activeLeafId?: string | null
 ) {
-  await syncPiSessionIndex()
   const database = await getDatabase()
-  const row = database
-    .prepare(
-      `SELECT sessions.id, project_id, sessions.cwd, native_session_id,
-              native_session_file, parent_session_file, title,
-              sessions.created_at, sessions.updated_at, message_count,
-              first_message, archived_at, sessions.pinned_at,
-              sessions.completion_unread,
-              runtime_kind, runtime_profile_id,
-              migrated_from_session_id,
-              projects.canonical_path AS project_path,
-              projects.display_name AS project_name
-       FROM sessions
-       LEFT JOIN projects ON projects.id = sessions.project_id
-       WHERE sessions.id = ? AND sessions.archived_at IS NULL`
-    )
-    .get(sessionId) as unknown as SnapshotRow | undefined
+  const loadSnapshotRow = () =>
+    database
+      .prepare(
+        `SELECT sessions.id, project_id, sessions.cwd, native_session_id,
+                native_session_file, parent_session_file, title,
+                sessions.created_at, sessions.updated_at, message_count,
+                first_message, archived_at, sessions.pinned_at,
+                sessions.completion_unread,
+                runtime_kind, runtime_profile_id,
+                migrated_from_session_id,
+                projects.canonical_path AS project_path,
+                projects.display_name AS project_name
+         FROM sessions
+         LEFT JOIN projects ON projects.id = sessions.project_id
+         WHERE sessions.id = ? AND sessions.archived_at IS NULL`
+      )
+      .get(sessionId) as unknown as SnapshotRow | undefined
+
+  const indexed = loadSnapshotRow()
+  if (!indexed) return null
+  await syncPiSessionFile(indexed.native_session_file)
+  const row = loadSnapshotRow()
   if (!row) return null
 
   const { content } = await readStablePiSessionFile(row.native_session_file)
@@ -638,7 +633,6 @@ export async function getSessionSnapshot(
 }
 
 export async function getSessionRuntimeTarget(sessionId: string) {
-  await syncPiSessionIndex()
   const database = await getDatabase()
   const row = database
     .prepare(
@@ -662,7 +656,6 @@ export async function getSessionRuntimeTarget(sessionId: string) {
 }
 
 export async function getProjectRuntimeTarget(projectId: string) {
-  await syncPiSessionIndex()
   const database = await getDatabase()
   const row = database
     .prepare(
@@ -762,7 +755,6 @@ export async function getSessionIdentityByNativeFile(
 }
 
 export async function searchSessions(query: string) {
-  await syncPiSessionIndex()
   const search = createSessionSearchPlan(query)
   if (
     !search.normalizedQuery ||

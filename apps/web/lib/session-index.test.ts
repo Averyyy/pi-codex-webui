@@ -188,13 +188,6 @@ test("lazily indexes project sessions and treats home sessions as tasks", async 
     await mkdir(sessionRoot, { recursive: true })
     const homeTaskFile = path.join(sessionRoot, "home-task.jsonl")
     const projectFile = path.join(sessionRoot, "project.jsonl")
-    const projectHeader = {
-      type: "session",
-      version: 3,
-      id: "native-lazy-project",
-      timestamp: "2026-07-14T00:00:00.000Z",
-      cwd: projectCwd,
-    }
     await Promise.all([
       writeFile(
         homeTaskFile,
@@ -202,31 +195,31 @@ test("lazily indexes project sessions and treats home sessions as tasks", async 
       ),
       writeFile(
         projectFile,
-        `${JSON.stringify(projectHeader)}\n{invalid json}\n`
+        sessionJsonl("native-lazy-project", projectCwd, "project message")
       ),
     ])
 
-    await syncPiSessionIndex()
-
-    const [homeTask] = await listWorkspaceTasks()
-    assert.equal(homeTask?.nativeSessionId, "native-home-task")
-    assert.equal(homeTask?.projectId, null)
-    assert.equal(homeTask?.cwd, homeTaskCwd)
+    assert.deepEqual(await listWorkspaceProjects(), [])
+    assert.deepEqual(await listWorkspaceTasks(), [])
     const database = await getDatabase()
+    assert.equal(
+      database.prepare("SELECT count(*) AS count FROM sessions").get()?.count,
+      0
+    )
+
+    const project = await addWorkspaceProject(projectCwd)
+    assert.equal(project.sessionCount, 1)
+    assert.equal((await listProjectSessions(project.id)).length, 1)
+    assert.deepEqual(await listWorkspaceTasks(), [])
     assert.equal(
       database.prepare("SELECT count(*) AS count FROM sessions").get()?.count,
       1
     )
 
-    await assert.rejects(addWorkspaceProject(projectCwd))
-
-    await writeFile(
-      projectFile,
-      sessionJsonl("native-lazy-project", projectCwd, "project message")
-    )
-    const project = await addWorkspaceProject(projectCwd)
-    assert.equal(project.sessionCount, 1)
-    assert.equal((await listProjectSessions(project.id)).length, 1)
+    const homeTask = await getSessionIdentityByNativeFile(homeTaskFile)
+    assert.equal(homeTask?.nativeSessionId, "native-home-task")
+    assert.equal(homeTask?.projectId, null)
+    assert.equal((await listWorkspaceTasks())[0]?.nativeSessionId, "native-home-task")
 
     const externalTaskFile = path.join(sessionRoot, "external-task.jsonl")
     await writeFile(
@@ -262,7 +255,9 @@ test("lazily indexes project sessions and treats home sessions as tasks", async 
         sessionJsonl("native-new-project", projectCwd, "new project message")
       ),
     ])
-    await syncPiSessionIndex()
+    await addWorkspaceProject(projectCwd)
+    await getSessionIdentityByNativeFile(newHomeTaskFile)
+    await getSessionIdentityByNativeFile(newExternalTaskFile)
     assert.deepEqual(
       (await listWorkspaceTasks())
         .map(({ nativeSessionId }) => nativeSessionId)
@@ -281,12 +276,24 @@ test("lazily indexes project sessions and treats home sessions as tasks", async 
       ["native-lazy-project", "native-new-project"]
     )
 
+    const projectHeader = {
+      type: "session",
+      version: 3,
+      id: "native-lazy-project",
+      timestamp: "2026-07-14T00:00:00.000Z",
+      cwd: projectCwd,
+    }
     await writeFile(
       projectFile,
       `${JSON.stringify(projectHeader)}\n{invalid json}\n`
     )
+    assert.equal((await listProjectSessions(project.id)).length, 2)
     await assert.rejects(
-      listProjectSessions(project.id),
+      getSessionSnapshot(
+        (await listProjectSessions(project.id)).find(
+          (session) => session.nativeSessionId === "native-lazy-project"
+        )?.id ?? "missing"
+      ),
       /Expected property name or '}' in JSON/
     )
   } finally {
@@ -366,10 +373,9 @@ test("targeted session reindex does not scan unrelated session files", async () 
     const targeted = syncPiSessionFile(targetFile).then(() => {
       targetedFinished = true
     })
-    await new Promise<void>((resolve) => setImmediate(resolve))
-    assert.equal(targetedFinished, false)
-    releaseRunningSync()
     await targeted
+    assert.equal(targetedFinished, true)
+    releaseRunningSync()
     globalThis.piWebCodexIndexSync = undefined
 
     const database = await getDatabase()
@@ -653,15 +659,13 @@ test("standalone sessions survive reindexing and remain outside projects", async
     assert.deepEqual(await listWorkspaceProjects(), [])
     assert.deepEqual(await listWorkspaceTasks(), [])
 
-    const failedRegistrations = await Promise.allSettled([
+    const [failedProject, duplicateFailedProject] = await Promise.all([
       addWorkspaceProject(failingCwd),
       addWorkspaceProject(failingCwd),
     ])
-    assert.deepEqual(
-      failedRegistrations.map(({ status }) => status),
-      ["rejected", "rejected"]
-    )
-    assert.deepEqual(await listWorkspaceProjects(), [])
+    assert.equal(duplicateFailedProject.id, failedProject.id)
+    assert.equal(failedProject.sessionCount, 0)
+    assert.equal((await listWorkspaceProjects())[0]?.id, failedProject.id)
     assert.equal(globalThis.piWebCodexProjectRegistrations?.size, 0)
     await rm(failingFile)
     const [recoveredProject, duplicateRegistration] = await Promise.all([
@@ -669,6 +673,7 @@ test("standalone sessions survive reindexing and remain outside projects", async
       addWorkspaceProject(failingCwd),
     ])
     assert.equal(duplicateRegistration.id, recoveredProject.id)
+    assert.equal(recoveredProject.id, failedProject.id)
     assert.equal(recoveredProject.sessionCount, 0)
     assert.equal(globalThis.piWebCodexProjectRegistrations?.size, 0)
     const database = await getDatabase()
@@ -1010,4 +1015,146 @@ test("standalone sessions survive reindexing and remain outside projects", async
     else process.env.PI_CODING_AGENT_SESSION_DIR = previous.sessions
     await rm(root, { recursive: true, force: true })
   }
+})
+
+async function withSessionIndexHarness(
+  prefix: string,
+  run: (paths: {
+    root: string
+    sessionRoot: string
+    projectCwd: string
+  }) => Promise<void>
+) {
+  const root = await mkdtemp(path.join(tmpdir(), prefix))
+  const configRoot = path.join(root, "config")
+  const sessionRoot = path.join(root, "sessions")
+  const projectCwd = path.join(root, "project")
+  const previous = {
+    config: process.env.PI_WEB_CODEX_CONFIG_DIR,
+    sessions: process.env.PI_CODING_AGENT_SESSION_DIR,
+  }
+  process.env.PI_WEB_CODEX_CONFIG_DIR = configRoot
+  process.env.PI_CODING_AGENT_SESSION_DIR = sessionRoot
+  globalThis.piWebCodexDatabase = undefined
+  globalThis.piWebCodexIndexSync = undefined
+  try {
+    await Promise.all([
+      mkdir(sessionRoot, { recursive: true }),
+      mkdir(projectCwd, { recursive: true }),
+    ])
+    await run({ root, sessionRoot, projectCwd })
+  } finally {
+    const database = await getDatabase()
+    database.close()
+    globalThis.piWebCodexDatabase = undefined
+    globalThis.piWebCodexIndexSync = undefined
+    globalThis.piWebCodexProjectRegistrations = undefined
+    if (previous.config === undefined)
+      delete process.env.PI_WEB_CODEX_CONFIG_DIR
+    else process.env.PI_WEB_CODEX_CONFIG_DIR = previous.config
+    if (previous.sessions === undefined)
+      delete process.env.PI_CODING_AGENT_SESSION_DIR
+    else process.env.PI_CODING_AGENT_SESSION_DIR = previous.sessions
+    await rm(root, { recursive: true, force: true })
+  }
+}
+
+async function indexedSessionFiles() {
+  const database = await getDatabase()
+  return (
+    database
+      .prepare("SELECT native_session_file FROM sessions")
+      .all() as { native_session_file: string }[]
+  ).map((row) => row.native_session_file)
+}
+
+test("home page reads do not scan the sessions root", async () => {
+  await withSessionIndexHarness("pi-web-codex-home-read-", async ({
+    sessionRoot,
+    projectCwd,
+  }) => {
+    const validFile = path.join(sessionRoot, "valid.jsonl")
+    const brokenFile = path.join(sessionRoot, "broken.jsonl")
+    const hugeUnrelatedFile = path.join(sessionRoot, "huge-unrelated.jsonl")
+    const homeCwd = path.join(homedir(), "pi-web-codex-unread-home")
+    await Promise.all([
+      writeFile(
+        validFile,
+        sessionJsonl("native-valid", homeCwd, "home page should not index me")
+      ),
+      writeFile(brokenFile, "{not a session header}\n"),
+      writeFile(
+        hugeUnrelatedFile,
+        `${JSON.stringify({
+          type: "session",
+          version: 3,
+          id: "native-huge-unrelated",
+          timestamp: "2026-07-14T00:00:00.000Z",
+          cwd: projectCwd,
+        })}\n{invalid json}\n`
+      ),
+      writeFile(
+        `${validFile}.pi-server-compacts.jsonl`,
+        `${JSON.stringify({ payload: "...kind:compact..." })}\n`
+      ),
+    ])
+
+    assert.deepEqual(await listWorkspaceProjects(), [])
+    assert.deepEqual(await listWorkspaceTasks(), [])
+    assert.deepEqual(await indexedSessionFiles(), [])
+  })
+})
+
+test("broken project sessions are skipped during discovery", async () => {
+  await withSessionIndexHarness("pi-web-codex-broken-project-", async ({
+    sessionRoot,
+    projectCwd,
+  }) => {
+    const goodFile = path.join(sessionRoot, "project-good.jsonl")
+    const brokenFile = path.join(sessionRoot, "project-broken.jsonl")
+    await Promise.all([
+      writeFile(
+        goodFile,
+        sessionJsonl("native-project-good", projectCwd, "good project message")
+      ),
+      writeFile(
+        brokenFile,
+        `${JSON.stringify({
+          type: "session",
+          version: 3,
+          id: "native-project-broken",
+          timestamp: "2026-07-14T00:00:00.000Z",
+          cwd: projectCwd,
+        })}\n{invalid json}\n`
+      ),
+    ])
+
+    const project = await addWorkspaceProject(projectCwd)
+    assert.equal(project.sessionCount, 1)
+    assert.deepEqual(await indexedSessionFiles(), [goodFile])
+    await assert.rejects(
+      syncPiSessionFile(brokenFile),
+      /Expected property name or '}' in JSON/
+    )
+    assert.deepEqual(await indexedSessionFiles(), [goodFile])
+  })
+})
+
+test("search does not discover disk-only sessions", async () => {
+  await withSessionIndexHarness("pi-web-codex-search-disk-", async ({
+    sessionRoot,
+  }) => {
+    const diskOnlyFile = path.join(sessionRoot, "disk-only.jsonl")
+    await writeFile(
+      diskOnlyFile,
+      sessionJsonl(
+        "native-disk-only",
+        path.join(homedir(), "pi-web-codex-disk-only"),
+        "disk-only needle"
+      )
+    )
+
+    assert.deepEqual(await searchSessions("needle"), [])
+    assert.deepEqual(await indexedSessionFiles(), [])
+  })
 })
