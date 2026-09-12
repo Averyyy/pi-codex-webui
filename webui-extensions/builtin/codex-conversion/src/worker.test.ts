@@ -26,7 +26,7 @@ test("Codex quick settings hand the selected option to the original command", as
           origin: "package",
         },
         packageName: "@howaboua/pi-codex-conversion",
-        packageVersion: "3.0.31",
+        packageVersion: "3.0.33",
       },
       commands: new Set(["codex"]),
       tools: new Set<string>(),
