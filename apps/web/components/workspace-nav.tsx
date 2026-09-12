@@ -9,7 +9,7 @@ import {
   useState,
 } from "react"
 import Link from "next/link"
-import { usePathname, useRouter } from "next/navigation"
+import { useParams, usePathname, useRouter } from "next/navigation"
 import {
   ChevronDownIcon,
   ChevronRightIcon,
@@ -47,9 +47,15 @@ import { PiBrand } from "@/components/pi-brand"
 import { useI18n } from "@/components/i18n-provider"
 import { useKeyboardShortcuts } from "@/components/keyboard-shortcuts-provider"
 import { useSessionIndicators } from "@/hooks/use-session-indicators"
+import { useSessionPage } from "@/hooks/use-session-page"
+import { SessionPageSentinel } from "@/components/session-page-sentinel"
 import type { ShortcutCommandId } from "@/lib/keyboard-shortcuts"
 import { pickWorkspaceProject } from "@/lib/project-picker-client"
-import type { SessionSummary, WorkspaceProject } from "@/lib/session-types"
+import type {
+  SessionPage,
+  SessionSummary,
+  WorkspaceProject,
+} from "@/lib/session-types"
 import {
   isWorkspaceNavItemVisible,
   workspaceNavFocusTarget,
@@ -72,12 +78,14 @@ function sessionHref(session: SessionSummary) {
 
 export function WorkspaceNav({
   projects,
-  tasks,
+  tasks: initialTasks,
+  pinned: initialPinned,
   initialRunningSessionIds,
   mutationToken,
 }: {
   projects: WorkspaceProject[]
-  tasks: SessionSummary[]
+  tasks: SessionPage
+  pinned: SessionPage
   initialRunningSessionIds: string[]
   mutationToken: string
 }) {
@@ -92,34 +100,58 @@ export function WorkspaceNav({
   const [projectsExpanded, setProjectsExpanded] = useState(false)
   const [projectOpen, setProjectOpen] = useState<Record<string, boolean>>({})
   const [tasksOpen, setTasksOpen] = useState(true)
+  const taskPage = useSessionPage({
+    scope: "tasks",
+    initialPage: initialTasks,
+    enabled: tasksOpen,
+  })
+  const pinnedPage = useSessionPage({
+    scope: "pinned",
+    initialPage: initialPinned,
+  })
+  const tasks = taskPage.sessions
+  const [loadedProjectSessions, setLoadedProjectSessions] = useState<
+    Record<string, SessionSummary[]>
+  >({})
+  const onProjectSessions = useCallback(
+    (projectId: string, sessions: SessionSummary[]) => {
+      setLoadedProjectSessions((current) =>
+        current[projectId] === sessions
+          ? current
+          : { ...current, [projectId]: sessions }
+      )
+    },
+    []
+  )
   const [addingProject, setAddingProject] = useState(false)
   const [shortcutState, setShortcutState] =
     useState<ConversationShortcutState | null>(null)
   const pendingFocusRef = useRef<WorkspaceNavFocusTarget | null>(null)
   const [focusRevision, setFocusRevision] = useState(0)
   const allSessions = useMemo(
-    () => [...projects.flatMap((project) => project.sessions), ...tasks],
-    [projects, tasks]
+    () => [
+      ...new Map(
+        [
+          ...projects.flatMap(
+            (project) => loadedProjectSessions[project.id] ?? project.sessions
+          ),
+          ...tasks,
+          ...pinnedPage.sessions,
+        ].map((session) => [session.id, session])
+      ).values(),
+    ],
+    [projects, tasks, pinnedPage.sessions, loadedProjectSessions]
   )
-  const sessionIdsByHref = useMemo(
-    () =>
-      new Map(allSessions.map((session) => [sessionHref(session), session.id])),
-    [allSessions]
-  )
-  const activeSessionId = sessionIdsByHref.get(pathname) ?? null
+  const { sessionId: activeSessionId = null } = useParams<{
+    sessionId?: string
+  }>()
   const { runningSessionIds, unreadSessionIds } = useSessionIndicators({
     sessions: allSessions,
     activeSessionId,
     initialRunningSessionIds,
     mutationToken,
   })
-  const pinnedSessions = useMemo(
-    () =>
-      [...projects.flatMap((project) => project.sessions), ...tasks]
-        .filter((session) => session.isPinned)
-        .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)),
-    [projects, tasks]
-  )
+  const pinnedSessions = pinnedPage.sessions
   const unpinnedTasks = tasks.filter((task) => !task.isPinned)
   const collapsedProjects = projects.slice(0, COLLAPSED_PROJECT_COUNT)
   const activeProject = projects.find((project) =>
@@ -403,6 +435,11 @@ export function WorkspaceNav({
                         onMutationFocus={requestSessionMutationFocus}
                       />
                     ))}
+                    {pinnedPage.hasMore || pinnedPage.error ? (
+                      <li>
+                        <SessionPageSentinel {...pinnedPage} />
+                      </li>
+                    ) : null}
                   </SidebarMenu>
                 </SidebarGroupContent>
               </SidebarGroup>
@@ -452,6 +489,7 @@ export function WorkspaceNav({
                         }))
                       }
                       onSessionMutationFocus={requestSessionMutationFocus}
+                      onSessionsLoaded={onProjectSessions}
                     />
                   ))}
                   {projects.length > COLLAPSED_PROJECT_COUNT ? (
@@ -512,6 +550,11 @@ export function WorkspaceNav({
                             onMutationFocus={requestSessionMutationFocus}
                           />
                         ))}
+                        {taskPage.hasMore || taskPage.error ? (
+                          <li>
+                            <SessionPageSentinel {...taskPage} />
+                          </li>
+                        ) : null}
                       </SidebarMenu>
                     </SidebarGroupContent>
                   </CollapsibleContent>

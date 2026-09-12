@@ -58,20 +58,6 @@ function logSkippedSessionFile(file: string, error: unknown) {
   console.error(`Skipping session file ${file}:`, error)
 }
 
-function encodedSessionDirectoryName(canonicalPath: string) {
-  return `--${canonicalPath.replace(/^[\\/]/, "").replace(/[\\/:]/g, "-")}--`
-}
-
-function directoryLooksEncoded(name: string) {
-  return name.startsWith("--") && name.endsWith("--") && name.length > 4
-}
-
-function sessionDirectoryNameMatches(name: string, encoded: string) {
-  return process.platform === "win32"
-    ? name.toLowerCase() === encoded.toLowerCase()
-    : name === encoded
-}
-
 async function readDirectoryEntries(directory: string) {
   try {
     return await readdir(directory, { withFileTypes: true })
@@ -99,11 +85,7 @@ async function discoverSessionFiles(root: string) {
   return files.sort()
 }
 
-async function discoverProjectSessionCandidates(
-  root: string,
-  canonicalPath: string
-) {
-  const encoded = encodedSessionDirectoryName(canonicalPath)
+async function discoverProjectSessionCandidates(root: string) {
   const files: string[] = []
 
   async function visit(directory: string) {
@@ -117,12 +99,8 @@ async function discoverProjectSessionCandidates(
     for (const entry of entries) {
       const target = path.join(directory, entry.name)
       if (entry.isDirectory()) {
-        if (
-          directoryLooksEncoded(entry.name) &&
-          !sessionDirectoryNameMatches(entry.name, encoded)
-        ) {
-          continue
-        }
+        // Pi accepts custom session directories and cwd aliases. A directory
+        // name cannot rule out a session; the canonical header cwd decides.
         await visit(target)
       } else if (entry.isFile() && isPiSessionFileName(entry.name)) {
         files.push(target)
@@ -575,10 +553,7 @@ export async function syncPiProjectSessions(projectId: string) {
     .get(projectId) as { canonical_path: string } | undefined
   if (!project) throw new Error(`Project not found: ${projectId}`)
 
-  const files = await discoverProjectSessionCandidates(
-    getPiSessionsRoot(),
-    project.canonical_path
-  )
+  const files = await discoverProjectSessionCandidates(getPiSessionsRoot())
   for (const file of files) {
     try {
       const cwd = await sessionFileCwd(file)

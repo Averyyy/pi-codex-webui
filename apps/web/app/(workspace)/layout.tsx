@@ -9,7 +9,7 @@ import {
 import { WorkspaceNav } from "@/components/workspace-nav"
 import { PiBrand } from "@/components/pi-brand"
 import { SidebarShortcut } from "@/components/sidebar-shortcut"
-import { listWorkspaceProjects, listWorkspaceTasks } from "@/lib/catalog"
+import { listWorkspaceProjects, listSessionPage } from "@/lib/catalog"
 import { getMutationToken } from "@/lib/request-security"
 import { getRuntimeSupervisor } from "@/lib/runtime-supervisor"
 
@@ -18,14 +18,16 @@ export default async function WorkspaceLayout({
 }: {
   children: React.ReactNode
 }) {
-  const [projects, tasks] = await Promise.all([
+  const [projects, tasks, pinned] = await Promise.all([
     listWorkspaceProjects(),
-    listWorkspaceTasks(),
+    listSessionPage({ scope: "tasks" }),
+    listSessionPage({ scope: "pinned" }),
   ])
   const runtimeSupervisor = getRuntimeSupervisor()
   const initialRunningSessionIds = [
     ...projects.flatMap((project) => project.sessions),
-    ...tasks,
+    ...tasks.sessions,
+    ...pinned.sessions,
   ]
     .filter((session) => runtimeSupervisor.state(session.id).status === "busy")
     .map((session) => session.id)
@@ -42,6 +44,7 @@ export default async function WorkspaceLayout({
       <WorkspaceNav
         projects={projects}
         tasks={tasks}
+        pinned={pinned}
         initialRunningSessionIds={initialRunningSessionIds}
         mutationToken={getMutationToken()}
       />

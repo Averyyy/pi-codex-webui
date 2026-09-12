@@ -24,6 +24,7 @@ export interface SessionSummary {
   isPinned: boolean
   hasUnreadCompletion: boolean
   runtimeKind: "pi" | "pi-client"
+  isRunning?: boolean
   runtimeProfileId: string
   migratedFromSessionId: string | null
 }
@@ -34,6 +35,13 @@ export interface ArchivedSession extends SessionSummary {
 
 export interface WorkspaceProject extends ProjectSummary {
   sessions: SessionSummary[]
+}
+
+export type SessionListScope = "tasks" | "pinned" | "project"
+
+export interface SessionPage {
+  sessions: SessionSummary[]
+  nextCursor: string | null
 }
 
 export type TranscriptPart =

@@ -4,6 +4,10 @@ export type Locale = (typeof locales)[number]
 export const DEFAULT_LOCALE: Locale = "zh-CN"
 
 const messages = {
+  "session.list.loading": {
+    "zh-CN": "正在加载对话",
+    "en-US": "Loading conversations",
+  },
   "ui.close": { "zh-CN": "关闭", "en-US": "Close" },
   "ui.skipToMain": {
     "zh-CN": "跳到主要内容",

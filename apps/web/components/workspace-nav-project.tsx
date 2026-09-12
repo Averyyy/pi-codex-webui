@@ -1,6 +1,6 @@
 "use client"
 
-import { Fragment, useRef, useState, type FormEvent } from "react"
+import { Fragment, useEffect, useRef, useState, type FormEvent } from "react"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import {
@@ -59,21 +59,21 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarMenuSub,
-  SidebarMenuSubButton,
-  SidebarMenuSubItem,
 } from "@workspace/ui/components/sidebar"
 import {
   rememberFocusTarget,
   restoreFocusTarget,
 } from "@workspace/ui/lib/focus-restoration"
 
-import type { WorkspaceProject } from "@/lib/session-types"
+import type { SessionSummary, WorkspaceProject } from "@/lib/session-types"
+import { useSessionPage } from "@/hooks/use-session-page"
+import { SessionPageSentinel } from "@/components/session-page-sentinel"
 import type { WorkspaceSessionMutationFocusRequest } from "@/lib/workspace-nav-focus"
 import { responseJson } from "@/lib/api-response"
 import { WorkspaceNavSession } from "@/components/workspace-nav-session"
 import { useI18n } from "@/components/i18n-provider"
+import { SESSION_CATALOG_CHANGED } from "@/lib/session-catalog-events"
 
-const VISIBLE_PROJECT_SESSIONS = 5
 const pendingProjectMutations = new Set<string>()
 
 type DialogKind = "archive" | "rename" | "worktree" | "remove"
@@ -97,6 +97,7 @@ export function WorkspaceNavProject({
   open,
   onOpenChange,
   onSessionMutationFocus,
+  onSessionsLoaded,
 }: {
   project: WorkspaceProject
   mutationToken: string
@@ -109,14 +110,23 @@ export function WorkspaceNavProject({
   onSessionMutationFocus: (
     request: WorkspaceSessionMutationFocusRequest
   ) => void
+  onSessionsLoaded: (projectId: string, sessions: SessionSummary[]) => void
 }) {
   const pathname = usePathname()
   const router = useRouter()
   const { locale, t } = useI18n()
   const projectPath = `/projects/${project.id}`
   const active = pathname.startsWith(projectPath)
-  const sessions = project.sessions.filter((session) => !session.isPinned)
-  const recent = sessions.slice(0, VISIBLE_PROJECT_SESSIONS)
+  const page = useSessionPage({
+    scope: "project",
+    projectId: project.id,
+    enabled: open,
+    revision: JSON.stringify(project),
+  })
+  const sessions = page.sessions.filter((session) => !session.isPinned)
+  useEffect(() => {
+    onSessionsLoaded(project.id, page.sessions)
+  }, [project.id, page.sessions, onSessionsLoaded])
   const [dialog, setDialog] = useState<DialogKind | null>(null)
   const [name, setName] = useState(project.name)
   const [worktreePath, setWorktreePath] = useState("")
@@ -151,6 +161,7 @@ export function WorkspaceNavProject({
               : JSON.stringify(options.body),
         })
       )
+      window.dispatchEvent(new Event(SESSION_CATALOG_CHANGED))
       router.refresh()
       return true
     } catch (failure) {
@@ -353,7 +364,7 @@ export function WorkspaceNavProject({
                   </HoverCardContent>
                 </HoverCard>
 
-                {sessions.length > 0 ? (
+                {project.sessionCount > 0 ? (
                   <CollapsibleTrigger asChild>
                     <Button
                       variant="ghost"
@@ -427,7 +438,7 @@ export function WorkspaceNavProject({
 
           <CollapsibleContent>
             <SidebarMenuSub>
-              {recent.map((session) => (
+              {sessions.map((session) => (
                 <WorkspaceNavSession
                   key={session.id}
                   session={session}
@@ -445,16 +456,10 @@ export function WorkspaceNavProject({
                   nested
                 />
               ))}
-              {sessions.length > recent.length ? (
-                <SidebarMenuSubItem>
-                  <SidebarMenuSubButton asChild>
-                    <Link href={projectPath}>
-                      {t("workspace.project.viewAll", {
-                        count: sessions.length.toLocaleString(locale),
-                      })}
-                    </Link>
-                  </SidebarMenuSubButton>
-                </SidebarMenuSubItem>
+              {page.hasMore || page.error ? (
+                <li>
+                  <SessionPageSentinel {...page} />
+                </li>
               ) : null}
             </SidebarMenuSub>
           </CollapsibleContent>
