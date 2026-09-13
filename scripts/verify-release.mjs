@@ -1,6 +1,15 @@
 import assert from "node:assert/strict"
 import { execFile, spawn } from "node:child_process"
-import { lstat, mkdtemp, mkdir, readFile, readdir, rm } from "node:fs/promises"
+import { existsSync } from "node:fs"
+import {
+  access,
+  lstat,
+  mkdtemp,
+  mkdir,
+  readFile,
+  readdir,
+  rm,
+} from "node:fs/promises"
 import { createServer } from "node:net"
 import { tmpdir } from "node:os"
 import path from "node:path"
@@ -16,6 +25,28 @@ const requestedTarball =
 
 function quoteWindowsShellArg(value) {
   return `"${String(value)}"`
+}
+
+async function exists(target) {
+  try {
+    await access(target)
+    return true
+  } catch (error) {
+    if (error.code === "ENOENT") return false
+    throw error
+  }
+}
+
+// An msys GNU tar on PATH treats the drive letter of an absolute Windows
+// tarball path as a remote host; prefer the native bsdtar shipped with Windows.
+function resolveTarCommand() {
+  if (process.platform !== "win32" || !process.env.SystemRoot) return "tar"
+  const systemTar = path.join(
+    process.env.SystemRoot,
+    "System32",
+    "tar.exe"
+  )
+  return existsSync(systemTar) ? systemTar : "tar"
 }
 
 async function runCommand(command, args, options = {}) {
@@ -91,6 +122,12 @@ async function requiredBuiltinReleaseFiles() {
       directory.name,
       "package.json"
     )
+    if (!(await exists(packageJsonPath))) {
+      console.warn(
+        `Skipping builtin extension directory without package.json: ${packageJsonPath}`
+      )
+      continue
+    }
     const packageJson = JSON.parse(await readFile(packageJsonPath, "utf8"))
     const extensions = packageJson.piWebCodex?.extensions
     if (!Array.isArray(extensions)) continue
@@ -147,7 +184,7 @@ async function inspectTarball(tarball) {
   let currentSpawnHelper
   const currentPlatform = `${process.platform}-${process.arch}`
   let stderr = ""
-  const tar = spawn("tar", ["-tf", tarball], {
+  const tar = spawn(resolveTarCommand(), ["-tf", tarball], {
     stdio: ["ignore", "pipe", "pipe"],
   })
   tar.stderr.on("data", (chunk) => (stderr += chunk.toString("utf8")))
