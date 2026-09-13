@@ -1,7 +1,11 @@
 import { z } from "zod"
 import { thinkingLevelSchema } from "@workspace/runtime-protocol"
 
-import { getProject, listProjectSessions } from "@/lib/catalog"
+import { getProject, listSessionPage } from "@/lib/catalog"
+import {
+  parseSessionPageQuery,
+  type SessionPageQuery,
+} from "@/lib/session-pagination"
 import { promptImagesSchema } from "@/lib/prompt-images"
 import { validateLocalMutation } from "@/lib/request-security"
 import { runtimeErrorResponse } from "@/lib/runtime-api"
@@ -23,7 +27,7 @@ const createSchema = z.object({
 })
 
 export async function GET(
-  _request: Request,
+  request: Request,
   context: RouteContext<"/api/v1/projects/[projectId]/sessions">
 ) {
   const { projectId } = await context.params
@@ -31,8 +35,23 @@ export async function GET(
   if (!project) {
     return Response.json({ error: "Project not found." }, { status: 404 })
   }
+  const params = new URL(request.url).searchParams
+  let query: SessionPageQuery
+  try {
+    query = parseSessionPageQuery({
+      scope: "project",
+      projectId,
+      cursor: params.get("cursor") ?? undefined,
+      limit: params.get("limit") ?? undefined,
+    })
+  } catch {
+    return Response.json(
+      { error: "Invalid session pagination parameters." },
+      { status: 400 }
+    )
+  }
   return Response.json(
-    { project, sessions: await listProjectSessions(projectId) },
+    { project, ...(await listSessionPage(query)) },
     { headers: { "Cache-Control": "no-store" } }
   )
 }

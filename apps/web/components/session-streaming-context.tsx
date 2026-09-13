@@ -9,131 +9,119 @@ import {
   useSyncExternalStore,
   type ReactNode,
 } from "react"
+import { SessionViewController } from "@/lib/session-view-controller"
+import type { SessionView } from "@/lib/session-view-types"
+import type { SessionSnapshot } from "@/lib/session-types"
 
-import {
-  EMPTY_STREAMING_ACTIVE_TOOLS,
-  EMPTY_STREAMING_MESSAGES,
-  SessionStreamStore,
-} from "@/lib/session-stream-store"
-import { SessionEventStream } from "@/lib/session-event-stream"
-import type { RuntimeStatus } from "@workspace/runtime-protocol"
+const Context = createContext<SessionViewController | null>(null)
+const cachedSessions = new Map<string, SessionViewController>()
+const EMPTY_METADATA = { loadingEarlier: false, error: null as string | null }
 
-interface SessionStreamingContextValue {
-  events: SessionEventStream
-  store: SessionStreamStore
-}
-
-const SessionStreamingContext =
-  createContext<SessionStreamingContextValue | null>(null)
-
-interface CachedSessionStreamingValue {
-  events: SessionEventStream
-  store: SessionStreamStore
-}
-
-const cachedSessions = new Map<string, CachedSessionStreamingValue>()
-
-function cachedSession(sessionId: string, initialEventCursor: string) {
-  const existing = cachedSessions.get(sessionId)
-  if (existing) return existing
-  const value = {
-    events: new SessionEventStream(
-      sessionId,
-      initialEventCursor,
-      undefined,
-      true
-    ),
-    store: new SessionStreamStore(),
+function acquire(sessionId: string, view: SessionView) {
+  if (typeof window === "undefined")
+    return new SessionViewController(sessionId, view)
+  const previous = cachedSessions.get(sessionId)
+  if (previous) return previous
+  const controller = new SessionViewController(sessionId, view)
+  cachedSessions.set(sessionId, controller)
+  const idle = [...cachedSessions.values()]
+    .filter(
+      (entry) =>
+        entry.lastUsed > 0 &&
+        !entry.users &&
+        !entry.active() &&
+        entry !== controller
+    )
+    .sort((a, b) => a.lastUsed - b.lastUsed)
+  while (cachedSessions.size > 8 && idle.length) {
+    const oldest = idle.shift()!
+    oldest.dispose()
+    cachedSessions.delete(oldest.sessionId)
   }
-  cachedSessions.set(sessionId, value)
-  return value
+  return controller
 }
 
 export function SessionStreamingProvider({
   sessionId,
-  initialEventCursor,
-  initialStatus,
+  initialView,
   children,
 }: {
   sessionId: string
-  initialEventCursor: string
-  initialStatus: RuntimeStatus
+  initialView: SessionView
   children: ReactNode
 }) {
-  const [value] = useState(() => cachedSession(sessionId, initialEventCursor))
-
+  const [controller] = useState(() => acquire(sessionId, initialView))
   useEffect(() => {
-    value.events.open()
-    return () => {
-      if (value.store.getRuntimeStatus() === "busy") return
-      value.events.close()
-      value.store.dispose()
-      if (cachedSessions.get(sessionId) === value)
-        cachedSessions.delete(sessionId)
-    }
-  }, [sessionId, value])
-
+    controller.retain()
+    return () => controller.release()
+  }, [controller])
   useEffect(() => {
-    value.store.setRuntimeStatus(initialStatus)
-    if (initialStatus !== "busy") {
-      value.events.clearPending()
-      value.store.clear(true)
-    }
-  }, [initialStatus, value])
-
-  return (
-    <SessionStreamingContext value={value}>{children}</SessionStreamingContext>
-  )
+    controller.acceptInitial(initialView)
+  }, [controller, initialView])
+  return <Context value={controller}>{children}</Context>
 }
 
-function useSessionStreamingContext() {
-  const value = useContext(SessionStreamingContext)
-  if (!value) {
-    throw new Error("Session streaming requires SessionStreamingProvider.")
-  }
+export function useSessionViewController() {
+  const value = useContext(Context)
+  if (!value) throw new Error("Session view requires SessionStreamingProvider.")
   return value
 }
-
 export function useSessionStreaming() {
-  return useSessionStreamingContext().store
+  return useSessionViewController().store
 }
-
+export function useStreamingSessionId() {
+  return useSessionViewController().sessionId
+}
 export function useSessionEvents() {
-  return useSessionStreamingContext().events
+  return useSessionViewController().events
 }
 
+export function useSessionTranscript(fallback: SessionSnapshot) {
+  const controller = useSessionViewController()
+  return (
+    useSyncExternalStore(
+      controller.store.subscribe,
+      controller.store.getTranscript,
+      () => fallback
+    ) ?? fallback
+  )
+}
+export function useSessionHistoryMetadata() {
+  const controller = useSessionViewController()
+  return useSyncExternalStore(
+    controller.subscribe,
+    controller.getMetadata,
+    () => EMPTY_METADATA
+  )
+}
 export function useStreamingMessages() {
-  const store = useSessionStreaming()
+  const controller = useSessionViewController()
   return useSyncExternalStore(
-    store.subscribe,
-    store.getMessages,
-    () => EMPTY_STREAMING_MESSAGES
+    controller.store.subscribe,
+    controller.store.getMessages,
+    () => controller.initialView.live.messages
   )
 }
-
 export function useStreamingActiveTools() {
-  const store = useSessionStreaming()
+  const controller = useSessionViewController()
   return useSyncExternalStore(
-    store.subscribe,
-    store.getActiveTools,
-    () => EMPTY_STREAMING_ACTIVE_TOOLS
+    controller.store.subscribe,
+    controller.store.getActiveTools,
+    () => controller.store.getActiveTools()
   )
 }
-
 export function useStreamingFollowRequest() {
   const store = useSessionStreaming()
   return useSyncExternalStore(store.subscribe, store.getFollowRequest, () => 0)
 }
-
 export function useStreamingRuntimeStatus() {
-  const store = useSessionStreaming()
+  const controller = useSessionViewController()
   return useSyncExternalStore(
-    store.subscribe,
-    store.getRuntimeStatus,
-    () => null
+    controller.store.subscribe,
+    controller.store.getRuntimeStatus,
+    () => controller.initialView.runtime.status
   )
 }
-
 export function useStreamingTool(toolCallId: string) {
   const store = useSessionStreaming()
   const getTool = useCallback(

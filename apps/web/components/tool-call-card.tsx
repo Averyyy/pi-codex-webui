@@ -15,12 +15,17 @@ import {
 
 import {
   ConversationDisclosure,
+  ConversationAnchorContext,
   type ConversationDisclosureTone,
 } from "@/components/conversation-disclosure"
 import { ConversationTextParts } from "@/components/conversation-text-parts"
 import { FileMutationToolCard } from "@/components/file-mutation-tool-card"
 import { HashlineEditToolCard } from "@/components/hashline-edit-tool-card"
-import { useStreamingTool } from "@/components/session-streaming-context"
+import {
+  useStreamingTool,
+  useStreamingRuntimeStatus,
+} from "@/components/session-streaming-context"
+import { toolCallStatus } from "@/lib/tool-call-status"
 import { fileMutationToolKind } from "@/lib/file-mutation-tool"
 import { hashlineEditToolKind } from "@/lib/hashline-edit-tool"
 import { translate, type Locale } from "@/lib/i18n"
@@ -101,9 +106,11 @@ function ToolResultAnchor({
   children: React.ReactNode
 }) {
   return entryId ? (
-    <div id={`entry-${entryId}`} className="min-w-0">
-      {children}
-    </div>
+    <ConversationAnchorContext value={entryId}>
+      <div id={`entry-${entryId}`} className="min-w-0">
+        {children}
+      </div>
+    </ConversationAnchorContext>
   ) : (
     children
   )
@@ -115,6 +122,7 @@ function WebAccessToolCard({
   result,
   running,
   failed,
+  incomplete,
   locale,
 }: {
   name: WebAccessToolName
@@ -122,6 +130,7 @@ function WebAccessToolCard({
   result?: ToolResultView
   running: boolean
   failed: boolean
+  incomplete: boolean
   locale: Locale
 }) {
   const presentation = webAccessToolPresentation(
@@ -143,9 +152,22 @@ function WebAccessToolCard({
           ? translate(locale, "session.transcript.failed")
           : running
             ? translate(locale, "session.transcript.running")
-            : translate(locale, "session.transcript.complete")
+            : translate(
+                locale,
+                incomplete
+                  ? "session.transcript.incomplete"
+                  : "session.transcript.complete"
+              )
       }
-      statusTone={hasFailed ? "destructive" : running ? "running" : "success"}
+      statusTone={
+        hasFailed
+          ? "destructive"
+          : running
+            ? "running"
+            : incomplete
+              ? "muted"
+              : "success"
+      }
       ariaLabel={translate(locale, "session.tool.expand", {
         name: presentation.label,
       })}
@@ -256,9 +278,7 @@ function ShellOrLiteralResult({
       <div className="flex min-w-0 flex-col gap-2 text-sm">
         <ConversationTextParts
           parts={
-            parsed
-              ? [{ type: "text", text: parsed.output }]
-              : result.parts
+            parsed ? [{ type: "text", text: parsed.output }] : result.parts
           }
           literal
           locale={locale}
@@ -278,6 +298,7 @@ export function ToolCallCard({
   locale: Locale
 }) {
   const live = useStreamingTool(part.id)
+  const runtimeStatus = useStreamingRuntimeStatus()
   const result = useDeferredValue(live?.result ?? persistedResult)
   const effectivePart = live
     ? {
@@ -286,10 +307,11 @@ export function ToolCallCard({
         arguments: live.arguments,
       }
     : part
-  const running = live ? live.status === "running" : !persistedResult
-  const failed = live
-    ? live.status === "error"
-    : persistedResult?.isError === true
+  const { running, failed, incomplete } = toolCallStatus(
+    live,
+    persistedResult,
+    runtimeStatus
+  )
 
   if (isWebAccessToolName(effectivePart.name)) {
     return (
@@ -300,6 +322,7 @@ export function ToolCallCard({
           result={result}
           running={running}
           failed={failed}
+          incomplete={incomplete}
           locale={locale}
         />
       </ToolResultAnchor>
@@ -318,6 +341,7 @@ export function ToolCallCard({
           result={result}
           running={running}
           failed={failed}
+          incomplete={incomplete}
           locale={locale}
         />
       </ToolResultAnchor>
@@ -333,6 +357,7 @@ export function ToolCallCard({
           result={result}
           running={running}
           failed={failed}
+          incomplete={incomplete}
           locale={locale}
         />
       </ToolResultAnchor>
@@ -353,9 +378,22 @@ export function ToolCallCard({
             ? translate(locale, "session.transcript.failed")
             : running
               ? translate(locale, "session.transcript.running")
-              : translate(locale, "session.transcript.complete")
+              : translate(
+                  locale,
+                  incomplete
+                    ? "session.transcript.incomplete"
+                    : "session.transcript.complete"
+                )
         }
-        statusTone={failed ? "destructive" : running ? "running" : "success"}
+        statusTone={
+          failed
+            ? "destructive"
+            : running
+              ? "running"
+              : incomplete
+                ? "muted"
+                : "success"
+        }
         ariaLabel={translate(locale, "session.tool.expand", {
           name: effectivePart.name,
         })}

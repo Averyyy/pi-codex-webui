@@ -13,7 +13,7 @@ declare global {
   var piWebCodexDatabase: Promise<DatabaseSync> | undefined
 }
 
-const SCHEMA_VERSION = 11
+const SCHEMA_VERSION = 12
 
 async function openDatabase() {
   const paths = getAppPaths()
@@ -64,6 +64,7 @@ async function openDatabase() {
         indexed_lines INTEGER NOT NULL,
         ends_with_newline INTEGER NOT NULL CHECK (ends_with_newline IN (0, 1)),
         content_hash TEXT NOT NULL,
+        index_generation INTEGER NOT NULL DEFAULT 0,
         last_entry_id TEXT,
         archived_at TEXT,
         pinned_at TEXT,
@@ -81,6 +82,11 @@ async function openDatabase() {
         parent_id TEXT,
         entry_type TEXT NOT NULL,
         timestamp TEXT NOT NULL,
+        byte_offset INTEGER,
+        byte_length INTEGER,
+        line_number INTEGER,
+        message_role TEXT,
+        custom_type TEXT,
         PRIMARY KEY (session_id, entry_id),
         FOREIGN KEY (session_id, parent_id)
           REFERENCES session_entries(session_id, entry_id)
@@ -95,6 +101,9 @@ async function openDatabase() {
         text,
         tokenize = 'trigram'
       );
+
+      CREATE INDEX session_entries_parent ON session_entries(session_id, parent_id, message_role, byte_offset);
+      CREATE INDEX session_entries_kind ON session_entries(session_id, entry_type, custom_type);
 
       PRAGMA user_version = ${SCHEMA_VERSION};
       COMMIT;
@@ -320,9 +329,50 @@ async function openDatabase() {
       FROM session_search_v10;
 
       DROP TABLE session_search_v10;
-      PRAGMA user_version = ${SCHEMA_VERSION};
+      PRAGMA user_version = 11;
       COMMIT;
     `)
+    version = 11
+  }
+
+  if (version === 11) {
+    const hasSessions = Boolean(
+      database
+        .prepare(
+          "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'sessions'"
+        )
+        .get()
+    )
+    const hasSessionEntries = Boolean(
+      database
+        .prepare(
+          "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'session_entries'"
+        )
+        .get()
+    )
+    database.exec("BEGIN IMMEDIATE;")
+    if (hasSessionEntries) {
+      database.exec(`
+        ALTER TABLE session_entries ADD COLUMN byte_offset INTEGER;
+        ALTER TABLE session_entries ADD COLUMN byte_length INTEGER;
+        ALTER TABLE session_entries ADD COLUMN line_number INTEGER;
+        ALTER TABLE session_entries ADD COLUMN message_role TEXT;
+        ALTER TABLE session_entries ADD COLUMN custom_type TEXT;
+        CREATE INDEX session_entries_parent
+          ON session_entries(session_id, parent_id, message_role, byte_offset);
+        CREATE INDEX session_entries_kind
+          ON session_entries(session_id, entry_type, custom_type);
+      `)
+    }
+    if (hasSessions) {
+      database.exec(`
+        ALTER TABLE sessions ADD COLUMN index_generation INTEGER NOT NULL DEFAULT 0;
+        UPDATE sessions
+        SET first_message = substr(first_message, 1, 512)
+        WHERE length(first_message) > 512;
+      `)
+    }
+    database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}; COMMIT;`)
     version = SCHEMA_VERSION
   }
 

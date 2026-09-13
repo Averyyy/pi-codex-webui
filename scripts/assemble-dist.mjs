@@ -8,6 +8,7 @@ import {
   mkdir,
   readFile,
   readdir,
+  readlink,
   realpath,
   rename as fsRename,
   rm,
@@ -46,7 +47,11 @@ async function copyPortable(source, destination, ancestors = new Set()) {
   if (sourceStats.isSymbolicLink()) {
     let resolved
     try {
-      resolved = await realpath(source)
+      // Next can emit a Windows file symlink whose target is a directory.
+      // Resolve the recorded target directly; traversing that link is EPERM.
+      resolved = await realpath(
+        path.resolve(path.dirname(source), await readlink(source))
+      )
     } catch (error) {
       if (error.code === "ENOENT") return
       throw error
@@ -121,6 +126,12 @@ await copyPortable(
 )
 
 const appRoot = path.join(outputRoot, "apps", "web")
+// Turbopack can copy entire native dependencies into this directory on Windows.
+// Keep their compiled runtime while applying the same source stripping as workers.
+const bundledNativeDependencies = path.join(appRoot, ".next", "node_modules")
+if (await exists(bundledNativeDependencies)) {
+  await removeTypeScript(bundledNativeDependencies)
+}
 await mkdir(path.join(appRoot, ".next"), { recursive: true })
 await cp(path.join(nextRoot, "static"), path.join(appRoot, ".next", "static"), {
   recursive: true,
@@ -184,9 +195,14 @@ await Promise.all(
     .filter((entry) => entry.isDirectory())
     .map(async (entry) => {
       const source = path.join(builtinSourceRoot, entry.name)
-      const packageJson = JSON.parse(
-        await readFile(path.join(source, "package.json"), "utf8")
-      )
+      const packagePath = path.join(source, "package.json")
+      if (!(await exists(packagePath))) {
+        console.warn(
+          `Skipping builtin extension directory without package.json: ${source}`
+        )
+        return
+      }
+      const packageJson = JSON.parse(await readFile(packagePath, "utf8"))
       if (!packageJson.piWebCodex) return
       const destination = path.join(builtinOutputRoot, entry.name)
       await mkdir(destination, { recursive: true })

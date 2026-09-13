@@ -72,7 +72,16 @@ import { SubagentsPanel } from "@/components/subagents"
 import { useI18n } from "@/components/i18n-provider"
 import { responseJson } from "@/lib/api-response"
 import type { ProjectGitStatus } from "@/lib/project-git"
-import { shouldScrollToSessionTail } from "@/lib/session-scroll"
+import {
+  captureSessionScroll,
+  restoreSessionScroll,
+  shouldScrollToSessionTail,
+} from "@/lib/session-scroll"
+import {
+  useSessionTranscript,
+  useSessionViewController,
+  useStreamingFollowRequest,
+} from "@/components/session-streaming-context"
 import type { Translator } from "@/lib/i18n"
 
 const ProjectReviewPanel = dynamic(
@@ -377,6 +386,10 @@ export function SessionWorkspace({
   const workspaceElementRef = useRef<HTMLDivElement>(null)
   const conversationScrollRef = useRef<HTMLDivElement>(null)
   const conversationContentRef = useRef<HTMLDivElement>(null)
+  const viewController = useSessionViewController()
+  const transcript = useSessionTranscript(viewController.initialView.snapshot)
+  const followRequest = useStreamingFollowRequest()
+  const followingRef = useRef(true)
   const bottomTerminalToggleRef = useRef<HTMLButtonElement>(null)
   const sidebarToggleRef = useRef<HTMLButtonElement>(null)
   const restoreSidebarToggleFocusRef = useRef(false)
@@ -406,22 +419,23 @@ export function SessionWorkspace({
   const [terminalPlacement, setTerminalPlacement] =
     useState<TerminalPlacement>(null)
 
-  useEffect(() => {
-    if (!shouldScrollToSessionTail(window.location.hash)) return
-
+  useLayoutEffect(() => {
     const scrollContainer = conversationScrollRef.current
     const content = conversationContentRef.current
     if (!scrollContainer || !content) return
 
     let scrollFrame: number | undefined
     let releaseFrame: number | undefined
-    let following = true
+    followingRef.current =
+      viewController.scroll?.following ??
+      shouldScrollToSessionTail(window.location.hash)
     let adjusting = false
 
     const scrollToLatest = () => {
-      if (!following || scrollFrame !== undefined) return
+      if (!followingRef.current || scrollFrame !== undefined) return
       scrollFrame = requestAnimationFrame(() => {
         scrollFrame = undefined
+        if (!followingRef.current) return
         adjusting = true
         scrollContainer.scrollTop = scrollContainer.scrollHeight
         releaseFrame = requestAnimationFrame(() => {
@@ -432,25 +446,80 @@ export function SessionWorkspace({
     }
     const handleScroll = () => {
       if (adjusting) return
-      following =
+      followingRef.current =
         scrollContainer.scrollHeight -
           scrollContainer.clientHeight -
           scrollContainer.scrollTop <=
         1
+      viewController.scroll = captureSessionScroll(
+        scrollContainer,
+        followingRef.current
+      )
     }
 
-    const resize = new ResizeObserver(scrollToLatest)
+    const stopFollowing = (event: WheelEvent) => {
+      if (event.deltaY < 0) {
+        followingRef.current = false
+        adjusting = false
+      }
+    }
+    const capture = () =>
+      captureSessionScroll(scrollContainer, followingRef.current)
+    viewController.captureAnchor = capture
+
+    const resize = new ResizeObserver(() => {
+      if (followingRef.current) scrollToLatest()
+      else if (viewController.scroll)
+        restoreSessionScroll(scrollContainer, viewController.scroll)
+    })
     resize.observe(content)
     scrollContainer.addEventListener("scroll", handleScroll, { passive: true })
-    scrollToLatest()
+    scrollContainer.addEventListener("wheel", stopFollowing, { passive: true })
+    if (viewController.scroll)
+      restoreSessionScroll(scrollContainer, viewController.scroll)
+    else scrollToLatest()
+    const revealHash = () => {
+      if (
+        window.location.hash.startsWith("#entry-") &&
+        viewController.revealedHash !== window.location.hash
+      )
+        followingRef.current = false
+      void viewController.revealHash(window.location.hash)
+    }
+    revealHash()
+    window.addEventListener("hashchange", revealHash)
 
     return () => {
       resize.disconnect()
+      viewController.scroll = capture()
+      viewController.captureAnchor = null
+      window.removeEventListener("hashchange", revealHash)
       scrollContainer.removeEventListener("scroll", handleScroll)
+      scrollContainer.removeEventListener("wheel", stopFollowing)
       if (scrollFrame !== undefined) cancelAnimationFrame(scrollFrame)
       if (releaseFrame !== undefined) cancelAnimationFrame(releaseFrame)
     }
-  }, [sessionId])
+  }, [sessionId, viewController])
+
+  useLayoutEffect(() => {
+    const container = conversationScrollRef.current
+    if (!container) return
+    if (viewController.pendingAnchor) {
+      followingRef.current = viewController.pendingAnchor.following
+      restoreSessionScroll(container, viewController.pendingAnchor)
+      viewController.pendingAnchor = null
+      viewController.scroll = captureSessionScroll(
+        container,
+        followingRef.current
+      )
+    }
+    if (followRequest !== viewController.followedRequest) {
+      viewController.followedRequest = followRequest
+      followingRef.current = true
+      container.scrollTop = container.scrollHeight
+      viewController.scroll = captureSessionScroll(container, true)
+    }
+  }, [transcript, followRequest, viewController])
 
   useLayoutEffect(() => {
     const element = workspaceElementRef.current
@@ -817,7 +886,8 @@ export function SessionWorkspace({
 
                 <div
                   ref={conversationScrollRef}
-                  className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto"
+                  data-session-scroll={sessionId}
+                  className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto [overflow-anchor:none]"
                 >
                   <div
                     ref={conversationContentRef}

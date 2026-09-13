@@ -4,7 +4,7 @@ import { mkdir } from "node:fs/promises"
 
 import {
   getProjectRuntimeTarget,
-  getSessionSnapshot,
+  getSessionRuntimeTarget,
   listWorkspaceProjects,
 } from "@/lib/catalog"
 import { getAppPaths } from "@/lib/app-paths"
@@ -13,8 +13,8 @@ import { getRuntimeSupervisor } from "@/lib/runtime-supervisor"
 
 export async function resolveModelSettingsCwd(sessionId?: string) {
   if (sessionId) {
-    const session = await getSessionSnapshot(sessionId)
-    return session?.session.cwd ?? null
+    const session = await getSessionRuntimeTarget(sessionId)
+    return session?.cwd ?? null
   }
 
   const projects = await listWorkspaceProjects()

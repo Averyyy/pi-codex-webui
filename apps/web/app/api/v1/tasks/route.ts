@@ -1,7 +1,11 @@
 import { z } from "zod"
 import { thinkingLevelSchema } from "@workspace/runtime-protocol"
 
-import { listWorkspaceTasks } from "@/lib/catalog"
+import { listSessionPage } from "@/lib/catalog"
+import {
+  parseSessionPageQuery,
+  type SessionPageQuery,
+} from "@/lib/session-pagination"
 import { promptImagesSchema } from "@/lib/prompt-images"
 import { validateLocalMutation } from "@/lib/request-security"
 import { runtimeErrorResponse } from "@/lib/runtime-api"
@@ -23,9 +27,24 @@ const createSchema = z.object({
     .optional(),
 })
 
-export async function GET() {
+export async function GET(request: Request) {
+  const params = new URL(request.url).searchParams
+  let query: SessionPageQuery
+  try {
+    query = parseSessionPageQuery({
+      scope: "tasks",
+      cursor: params.get("cursor") ?? undefined,
+      limit: params.get("limit") ?? undefined,
+    })
+  } catch {
+    return Response.json(
+      { error: "Invalid session pagination parameters." },
+      { status: 400 }
+    )
+  }
+  const page = await listSessionPage(query)
   return Response.json(
-    { tasks: await listWorkspaceTasks() },
+    { tasks: page.sessions, nextCursor: page.nextCursor },
     { headers: { "Cache-Control": "no-store" } }
   )
 }

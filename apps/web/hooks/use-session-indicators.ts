@@ -67,7 +67,14 @@ export function useSessionIndicators({
     [sessionKey]
   )
   const hasSessions = sessionIdSet.size > 0
-  const initialRunningKey = [...initialRunningSessionIds].sort().join("\0")
+  const initialRunningKey = [
+    ...initialRunningSessionIds,
+    ...sessions
+      .filter((session) => session.isRunning)
+      .map((session) => session.id),
+  ]
+    .sort()
+    .join("\0")
   const initialUnreadKey = useMemo(
     () =>
       sessions

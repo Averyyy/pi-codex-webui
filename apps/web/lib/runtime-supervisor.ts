@@ -67,6 +67,7 @@ import { getEventHub, type EventHub } from "@/lib/event-hub"
 import { getMcpService } from "@/lib/mcp-service"
 import type { PromptImage } from "@/lib/prompt-images"
 import { syncPiSessionFile } from "@/lib/session-index"
+import { RuntimeLiveState } from "@/lib/runtime-live"
 import type {
   RuntimeCrash,
   RuntimeDiagnostics,
@@ -112,6 +113,7 @@ interface PendingRequest {
 }
 
 interface ManagedRuntime {
+  live?: RuntimeLiveState
   webSessionId: string
   projectId: string | null
   runtimeKind: "pi" | "pi-client"
@@ -267,6 +269,16 @@ function requestId() {
 
 export class RuntimeSupervisor {
   private readonly runtimes = new Map<string, ManagedRuntime>()
+  private readonly knownResources = new Map<string, ResourceCatalog>()
+
+  liveState(sessionId: string) {
+    const runtime = this.runtimes.get(sessionId)
+    return runtime?.live?.capture(runtime.status) ?? null
+  }
+
+  knownResourceCatalog(cwd: string) {
+    return this.knownResources.get(cwd) ?? null
+  }
   private readonly activations = new Map<string, Promise<ManagedRuntime>>()
   private sessionClosures?: Map<string, Promise<unknown>>
   private readonly failures = new Map<string, RuntimeCrash>()
@@ -609,6 +621,7 @@ export class RuntimeSupervisor {
       runtime,
       result.snapshot
     )
+    runtime.live = new RuntimeLiveState(result.leafId)
     if (options.publishEvent !== false) {
       this.eventHub.publish({
         type: "session.leaf.changed",
@@ -1027,7 +1040,7 @@ export class RuntimeSupervisor {
   }
 
   async resourceCatalog(cwd: string) {
-    return this.annotateResourceReload(
+    const catalog = this.annotateResourceReload(
       cwd,
       resourceCatalogSchema.parse(
         await this.resourceRequest({
@@ -1037,6 +1050,8 @@ export class RuntimeSupervisor {
         })
       )
     )
+    this.knownResources.set(cwd, catalog)
+    return catalog
   }
 
   async modelSettings(cwd: string) {
@@ -1951,7 +1966,8 @@ export class RuntimeSupervisor {
         runtime,
         message.payload
       )
-      runtime.status = "ready"
+      runtime.status = runtime.snapshot.isStreaming || runtime.snapshot.isCompacting ? "busy" : "ready"
+      runtime.live = new RuntimeLiveState(runtime.snapshot.leafId)
       this.resolvePending(runtime, message.requestId, runtime.snapshot)
       this.eventHub.publish({
         type: "runtime.ready",
@@ -2008,15 +2024,19 @@ export class RuntimeSupervisor {
         queuedPrompts: queueUpdatedEventSchema.parse(message.payload).items,
       }
     }
-    const publishDomainEvent = () =>
-      this.eventHub.publish({
+    const publishDomainEvent = () => {
+      const event = this.eventHub.publish({
         type: DOMAIN_EVENT_TYPES[message.eventType] ?? "session.event",
         sessionId: runtime.webSessionId,
         payload: message.payload,
       })
+      runtime.live?.apply(event)
+      return event
+    }
 
     if (message.eventType === "agent_settled") {
-      void this.refreshSettledRuntimeSnapshot(runtime)
+      const revision = runtime.live?.revision
+      void this.refreshSettledRuntimeSnapshot(runtime, revision)
         .then(() => syncPiSessionFile(runtime.nativeSessionFile))
         .then(() => markStoredSessionCompleted(runtime.webSessionId))
         .then((updated) => {
@@ -2026,6 +2046,9 @@ export class RuntimeSupervisor {
               `Cannot mark missing Web session ${runtime.webSessionId} completed.`
             )
           }
+          if (revision !== runtime.live?.revision) return
+          if (runtime.snapshot)
+            runtime.live?.checkpoint(revision!, runtime.snapshot.leafId)
           publishDomainEvent()
           this.eventHub.publish({
             type: "session.completed",
@@ -2353,6 +2376,8 @@ export class RuntimeSupervisor {
   }
 
   private async reloadResources(cwd: string, global: boolean) {
+    if (global) this.knownResources.clear()
+    else this.knownResources.delete(cwd)
     const reloads: Promise<RuntimeSnapshot>[] = []
     for (const runtime of this.runtimes.values()) {
       if (!global && path.resolve(runtime.cwd) !== path.resolve(cwd)) continue
@@ -2557,7 +2582,10 @@ export class RuntimeSupervisor {
     }
   }
 
-  private async refreshSettledRuntimeSnapshot(runtime: ManagedRuntime) {
+  private async refreshSettledRuntimeSnapshot(
+    runtime: ManagedRuntime,
+    revision = runtime.live?.revision
+  ) {
     const snapshot = this.snapshotWithExtensionStatuses(
       runtime,
       runtimeSnapshotSchema.parse(
@@ -2577,6 +2605,7 @@ export class RuntimeSupervisor {
         "The settled Pi runtime is no longer active."
       )
     }
+    if (revision !== runtime.live?.revision) return
     runtime.snapshot = this.snapshotWithExtensionStatuses(runtime, snapshot)
     runtime.status =
       snapshot.isStreaming || snapshot.isCompacting ? "busy" : "ready"

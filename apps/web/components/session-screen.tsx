@@ -14,9 +14,8 @@ import {
 import { SessionWorkspace } from "@/components/session-workspace"
 import { SubagentsProvider } from "@/components/subagents"
 import { SessionTranscript } from "@/components/transcript"
-import { getSessionSnapshot } from "@/lib/catalog"
+import { getSessionView } from "@/lib/session-view"
 import { loadConfig } from "@/lib/config"
-import { getEventHub } from "@/lib/event-hub"
 import { createTranslator } from "@/lib/i18n"
 import { readProjectGitStatus } from "@/lib/project-git"
 import { projectFileManager } from "@/lib/project-reveal"
@@ -42,27 +41,23 @@ export async function SessionScreen({
   sessionId: string
   projectId: string | null
 }) {
-  const eventCursor = getEventHub().cursor()
   const supervisor = getRuntimeSupervisor()
-  try {
-    await supervisor.activate(sessionId)
-  } catch {
-    // Keep the historical transcript readable when runtime startup is unavailable.
-  }
-  const runtime = supervisor.state(sessionId)
-  const activeLeafId =
-    runtime.status === "busy" ? undefined : runtime.snapshot?.leafId
-  const [snapshot, config, initialWebUiViews] = await Promise.all([
-    getSessionSnapshot(sessionId, activeLeafId),
+  const [view, config] = await Promise.all([
+    getSessionView(sessionId),
     loadConfig(),
-    runtime.snapshot ? supervisor.webUiViews(sessionId) : Promise.resolve([]),
   ])
+  if (!view) notFound()
+  const { snapshot, runtime } = view
+  const initialWebUiViews = runtime.snapshot
+    ? await supervisor.webUiViews(sessionId)
+    : []
   if (!snapshot || snapshot.session.projectId !== projectId) notFound()
 
   const standalone = projectId === null
   const workspaceAvailable = await directoryAvailable(snapshot.session.cwd)
   const resources = workspaceAvailable
-    ? await supervisor.resourceCatalog(snapshot.session.cwd)
+    ? (supervisor.knownResourceCatalog(snapshot.session.cwd) ??
+      (await supervisor.resourceCatalog(snapshot.session.cwd)))
     : null
   const [git, webUiExtensions] = await Promise.all([
     !standalone && workspaceAvailable
@@ -96,8 +91,7 @@ export async function SessionScreen({
     <SessionStreamingProvider
       key={sessionId}
       sessionId={sessionId}
-      initialEventCursor={eventCursor}
-      initialStatus={runtime.status}
+      initialView={view}
     >
       <SessionExtensionProvider
         sessionId={sessionId}
@@ -217,7 +211,6 @@ export async function SessionScreen({
                   key="session-runtime"
                   sessionId={sessionId}
                   mutationToken={mutationToken}
-                  initialEventCursor={eventCursor}
                   initialStatus={runtime.status}
                   initialSnapshot={runtime.snapshot}
                   initialGoalState={snapshot.goalState}

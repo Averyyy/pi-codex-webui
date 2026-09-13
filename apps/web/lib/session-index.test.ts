@@ -1,4 +1,6 @@
 import assert from "node:assert/strict"
+import fsPromises from "node:fs/promises"
+import { syncBuiltinESMExports } from "node:module"
 import {
   appendFile,
   mkdir,
@@ -6,11 +8,12 @@ import {
   realpath,
   rm,
   stat,
+  symlink,
   writeFile,
 } from "node:fs/promises"
 import { homedir, tmpdir } from "node:os"
 import path from "node:path"
-import test from "node:test"
+import test, { mock } from "node:test"
 
 import { GET as getProjectRoute } from "../app/api/v1/projects/[projectId]/route"
 import {
@@ -29,6 +32,7 @@ import {
   listSubagentSessions,
   listWorkspaceProjects,
   listWorkspaceTasks,
+  listSessionPage,
   markSessionCompleted,
   markSessionRead,
   markSessionStandalone,
@@ -40,6 +44,7 @@ import {
 } from "./catalog"
 import { getDatabase } from "./database"
 import { syncPiSessionFile, syncPiSessionIndex } from "./session-index"
+import { GET as getSessionCatalog } from "../app/api/v1/session-catalog/route"
 
 test("project availability treats missing and invalidated paths as unavailable", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "pi-web-codex-availability-"))
@@ -219,7 +224,10 @@ test("lazily indexes project sessions and treats home sessions as tasks", async 
     const homeTask = await getSessionIdentityByNativeFile(homeTaskFile)
     assert.equal(homeTask?.nativeSessionId, "native-home-task")
     assert.equal(homeTask?.projectId, null)
-    assert.equal((await listWorkspaceTasks())[0]?.nativeSessionId, "native-home-task")
+    assert.equal(
+      (await listWorkspaceTasks())[0]?.nativeSessionId,
+      "native-home-task"
+    )
 
     const externalTaskFile = path.join(sessionRoot, "external-task.jsonl")
     await writeFile(
@@ -999,7 +1007,8 @@ test("standalone sessions survive reindexing and remain outside projects", async
     )
 
     await rm(projectCwd, { recursive: true })
-    assert.deepEqual(await listWorkspaceProjects(), [])
+    // Catalog reads retain the indexed metadata even when a project is offline.
+    assert.equal((await listWorkspaceProjects())[0]?.id, projectId)
     assert.equal((await getProject(projectId))?.path, canonicalProjectCwd)
   } finally {
     const database = await getDatabase()
@@ -1062,99 +1071,281 @@ async function withSessionIndexHarness(
 async function indexedSessionFiles() {
   const database = await getDatabase()
   return (
-    database
-      .prepare("SELECT native_session_file FROM sessions")
-      .all() as { native_session_file: string }[]
+    database.prepare("SELECT native_session_file FROM sessions").all() as {
+      native_session_file: string
+    }[]
   ).map((row) => row.native_session_file)
 }
 
 test("home page reads do not scan the sessions root", async () => {
-  await withSessionIndexHarness("pi-web-codex-home-read-", async ({
-    sessionRoot,
-    projectCwd,
-  }) => {
-    const validFile = path.join(sessionRoot, "valid.jsonl")
-    const brokenFile = path.join(sessionRoot, "broken.jsonl")
-    const hugeUnrelatedFile = path.join(sessionRoot, "huge-unrelated.jsonl")
-    const homeCwd = path.join(homedir(), "pi-web-codex-unread-home")
-    await Promise.all([
-      writeFile(
-        validFile,
-        sessionJsonl("native-valid", homeCwd, "home page should not index me")
-      ),
-      writeFile(brokenFile, "{not a session header}\n"),
-      writeFile(
-        hugeUnrelatedFile,
-        `${JSON.stringify({
-          type: "session",
-          version: 3,
-          id: "native-huge-unrelated",
-          timestamp: "2026-07-14T00:00:00.000Z",
-          cwd: projectCwd,
-        })}\n{invalid json}\n`
-      ),
-      writeFile(
-        `${validFile}.pi-server-compacts.jsonl`,
-        `${JSON.stringify({ payload: "...kind:compact..." })}\n`
-      ),
-    ])
+  await withSessionIndexHarness(
+    "pi-web-codex-home-read-",
+    async ({ sessionRoot, projectCwd }) => {
+      const validFile = path.join(sessionRoot, "valid.jsonl")
+      const brokenFile = path.join(sessionRoot, "broken.jsonl")
+      const hugeUnrelatedFile = path.join(sessionRoot, "huge-unrelated.jsonl")
+      const homeCwd = path.join(homedir(), "pi-web-codex-unread-home")
+      await Promise.all([
+        writeFile(
+          validFile,
+          sessionJsonl("native-valid", homeCwd, "home page should not index me")
+        ),
+        writeFile(brokenFile, "{not a session header}\n"),
+        writeFile(
+          hugeUnrelatedFile,
+          `${JSON.stringify({
+            type: "session",
+            version: 3,
+            id: "native-huge-unrelated",
+            timestamp: "2026-07-14T00:00:00.000Z",
+            cwd: projectCwd,
+          })}\n{invalid json}\n`
+        ),
+        writeFile(
+          `${validFile}.pi-server-compacts.jsonl`,
+          `${JSON.stringify({ payload: "...kind:compact..." })}\n`
+        ),
+      ])
 
-    assert.deepEqual(await listWorkspaceProjects(), [])
-    assert.deepEqual(await listWorkspaceTasks(), [])
-    assert.deepEqual(await indexedSessionFiles(), [])
-  })
+      assert.deepEqual(await listWorkspaceProjects(), [])
+      assert.deepEqual(await listWorkspaceTasks(), [])
+      assert.deepEqual(await indexedSessionFiles(), [])
+    }
+  )
 })
 
 test("broken project sessions are skipped during discovery", async () => {
-  await withSessionIndexHarness("pi-web-codex-broken-project-", async ({
-    sessionRoot,
-    projectCwd,
-  }) => {
-    const goodFile = path.join(sessionRoot, "project-good.jsonl")
-    const brokenFile = path.join(sessionRoot, "project-broken.jsonl")
-    await Promise.all([
-      writeFile(
-        goodFile,
-        sessionJsonl("native-project-good", projectCwd, "good project message")
-      ),
-      writeFile(
-        brokenFile,
-        `${JSON.stringify({
-          type: "session",
-          version: 3,
-          id: "native-project-broken",
-          timestamp: "2026-07-14T00:00:00.000Z",
-          cwd: projectCwd,
-        })}\n{invalid json}\n`
-      ),
-    ])
+  await withSessionIndexHarness(
+    "pi-web-codex-broken-project-",
+    async ({ sessionRoot, projectCwd }) => {
+      const goodFile = path.join(sessionRoot, "project-good.jsonl")
+      const brokenFile = path.join(sessionRoot, "project-broken.jsonl")
+      await Promise.all([
+        writeFile(
+          goodFile,
+          sessionJsonl(
+            "native-project-good",
+            projectCwd,
+            "good project message"
+          )
+        ),
+        writeFile(
+          brokenFile,
+          `${JSON.stringify({
+            type: "session",
+            version: 3,
+            id: "native-project-broken",
+            timestamp: "2026-07-14T00:00:00.000Z",
+            cwd: projectCwd,
+          })}\n{invalid json}\n`
+        ),
+      ])
 
-    const project = await addWorkspaceProject(projectCwd)
-    assert.equal(project.sessionCount, 1)
-    assert.deepEqual(await indexedSessionFiles(), [goodFile])
-    await assert.rejects(
-      syncPiSessionFile(brokenFile),
-      /Expected property name or '}' in JSON/
-    )
-    assert.deepEqual(await indexedSessionFiles(), [goodFile])
-  })
+      const project = await addWorkspaceProject(projectCwd)
+      assert.equal(project.sessionCount, 1)
+      assert.deepEqual(await indexedSessionFiles(), [goodFile])
+      await assert.rejects(
+        syncPiSessionFile(brokenFile),
+        /Expected property name or '}' in JSON/
+      )
+      assert.deepEqual(await indexedSessionFiles(), [goodFile])
+    }
+  )
 })
 
 test("search does not discover disk-only sessions", async () => {
-  await withSessionIndexHarness("pi-web-codex-search-disk-", async ({
-    sessionRoot,
-  }) => {
-    const diskOnlyFile = path.join(sessionRoot, "disk-only.jsonl")
-    await writeFile(
-      diskOnlyFile,
-      sessionJsonl(
-        "native-disk-only",
-        path.join(homedir(), "pi-web-codex-disk-only"),
-        "disk-only needle"
+  await withSessionIndexHarness(
+    "pi-web-codex-search-disk-",
+    async ({ sessionRoot }) => {
+      const diskOnlyFile = path.join(sessionRoot, "disk-only.jsonl")
+      await writeFile(
+        diskOnlyFile,
+        sessionJsonl(
+          "native-disk-only",
+          path.join(homedir(), "pi-web-codex-disk-only"),
+          "disk-only needle"
+        )
       )
-    )
 
-    assert.deepEqual(await searchSessions("needle"), [])
-    assert.deepEqual(await indexedSessionFiles(), [])
-  })
+      assert.deepEqual(await searchSessions("needle"), [])
+      assert.deepEqual(await indexedSessionFiles(), [])
+    }
+  )
+})
+
+test("project discovery uses headers even when the directory encodes a path alias", async () => {
+  await withSessionIndexHarness(
+    "pi-web-codex-project-alias-",
+    async ({ root, sessionRoot, projectCwd }) => {
+      const alias = path.join(root, "project-alias")
+      await symlink(
+        projectCwd,
+        alias,
+        process.platform === "win32" ? "junction" : "dir"
+      )
+      const directory = path.join(
+        sessionRoot,
+        `--${alias.replace(/^[\\/]/, "").replace(/[\\/:]/g, "-")}--`
+      )
+      await mkdir(directory)
+      const file = path.join(directory, "alias.jsonl")
+      await writeFile(
+        file,
+        sessionJsonl("native-alias", alias, "alias session")
+      )
+      const project = await addWorkspaceProject(projectCwd)
+      assert.equal(project.sessionCount, 1)
+      assert.deepEqual(await indexedSessionFiles(), [file])
+    }
+  )
+})
+
+test("catalog reads never access session files or project directories", async () => {
+  await withSessionIndexHarness(
+    "pi-web-codex-catalog-io-",
+    async ({ projectCwd }) => {
+      await addWorkspaceProject(projectCwd)
+      const forbidden = () => {
+        throw new Error("Catalog attempted filesystem access")
+      }
+      const mocks = ["readdir", "open", "stat", "realpath"].map((method) =>
+        mock.method(fsPromises, method as "open", forbidden)
+      )
+      syncBuiltinESMExports()
+      try {
+        assert.equal((await listWorkspaceProjects()).length, 1)
+        assert.deepEqual(await listWorkspaceTasks(), [])
+        assert.deepEqual(await listSessionPage({ scope: "tasks" }), {
+          sessions: [],
+          nextCursor: null,
+        })
+        assert.deepEqual(await searchSessions("needle"), [])
+        for (const method of mocks) assert.equal(method.mock.callCount(), 0)
+      } finally {
+        for (const method of mocks) method.mock.restore()
+        syncBuiltinESMExports()
+      }
+    }
+  )
+})
+
+test("session pagination returns 1000 conversations exactly once with tied timestamps and bounded previews", async () => {
+  await withSessionIndexHarness(
+    "pi-web-codex-1000-pages-",
+    async ({ projectCwd, sessionRoot }) => {
+      const project = await addWorkspaceProject(projectCwd)
+      const file = path.join(sessionRoot, "seed.jsonl")
+      await writeFile(
+        file,
+        sessionJsonl("native-page-seed", projectCwd, "x".repeat(20_000))
+      )
+      await syncPiSessionFile(file)
+      const database = await getDatabase()
+      const seed = database.prepare("SELECT * FROM sessions").get()!
+      const columns = Object.keys(seed)
+      const insert = database.prepare(
+        `INSERT INTO sessions (${columns.join(",")}) VALUES (${columns.map(() => "?").join(",")})`
+      )
+      database.exec("BEGIN")
+      try {
+        database.prepare("DELETE FROM sessions").run()
+        for (let index = 0; index < 1000; index++) {
+          const row = {
+            ...seed,
+            id: `page-${String(index).padStart(4, "0")}`,
+            native_session_id: `native-page-${index}`,
+            native_session_file: path.join(sessionRoot, `page-${index}.jsonl`),
+            pinned_at: index < 4 ? "2026-09-12T00:00:00.000Z" : null,
+          }
+          insert.run(
+            ...columns.map((column) => row[column as keyof typeof row])
+          )
+        }
+        database.exec("COMMIT")
+      } catch (error) {
+        database.exec("ROLLBACK")
+        throw error
+      }
+      const seen: string[] = []
+      let cursor: string | undefined
+      let requests = 0
+      do {
+        const page = await listSessionPage({
+          scope: "project",
+          projectId: project.id,
+          cursor,
+        })
+        assert.equal(page.sessions.length, 40)
+        assert.ok(
+          page.sessions.every((session) => session.firstMessage.length === 512)
+        )
+        seen.push(...page.sessions.map((session) => session.id))
+        cursor = page.nextCursor ?? undefined
+        requests++
+      } while (cursor)
+      assert.equal(requests, 25)
+      assert.equal(new Set(seen).size, 1000)
+      assert.deepEqual(
+        seen,
+        database
+          .prepare(
+            "SELECT id FROM sessions ORDER BY coalesce(pinned_at, '') DESC, updated_at DESC, id DESC"
+          )
+          .all()
+          .map((row) => row.id)
+      )
+      assert.equal((await listWorkspaceProjects())[0]?.sessions.length, 5)
+      assert.equal(
+        (await listSessionPage({ scope: "pinned" })).sessions.length,
+        4
+      )
+
+      const first = await listSessionPage({
+        scope: "project",
+        projectId: project.id,
+      })
+      await assert.rejects(
+        listSessionPage({ scope: "tasks", cursor: first.nextCursor! }),
+        /different list/
+      )
+      // Deleting the cursor row must not invalidate its ordering boundary.
+      database
+        .prepare("DELETE FROM sessions WHERE id = ?")
+        .run(first.sessions.at(-1)!.id)
+      const second = await listSessionPage({
+        scope: "project",
+        projectId: project.id,
+        cursor: first.nextCursor!,
+      })
+      assert.deepEqual(
+        second.sessions.map((session) => session.id),
+        seen.slice(40, 80)
+      )
+      await database.prepare("UPDATE sessions SET project_id = NULL").run()
+      assert.equal(
+        (await listSessionPage({ scope: "tasks" })).sessions.length,
+        40
+      )
+      assert.ok(
+        (await listSessionPage({ scope: "tasks" })).sessions.every(
+          (session) => !session.isPinned
+        )
+      )
+    }
+  )
+})
+
+test("session catalog rejects invalid page parameters without database access", async () => {
+  for (const query of [
+    "scope=tasks&limit=0",
+    "scope=tasks&limit=101",
+    "scope=tasks&cursor=broken",
+    "scope=project",
+    "scope=tasks&projectId=another",
+  ]) {
+    const response = await getSessionCatalog(
+      new Request(`http://localhost:1816/api/v1/session-catalog?${query}`)
+    )
+    assert.equal(response.status, 400)
+  }
 })

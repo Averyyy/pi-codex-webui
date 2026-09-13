@@ -28,6 +28,23 @@ class TestFrames implements FrameScheduler {
   }
 }
 
+test("streaming preserves explicit phase and stop reason for transcript folding", () => {
+  const frames = new TestFrames()
+  const store = new SessionStreamStore(frames)
+  store.startMessage({ role: "assistant", content: [], phase: "final_answer" })
+  store.endMessage({
+    role: "assistant",
+    content: [{ type: "text", text: "Done" }],
+    stopReason: "stop",
+  })
+  frames.flush()
+  assert.equal(store.getMessages()[0]?.phase, "final_answer")
+  assert.equal(store.getMessages()[0]?.stopReason, "stop")
+  store.endMessage({ role: "assistant", content: [], stopReason: "aborted" })
+  frames.flush()
+  assert.equal(store.getMessages()[1]?.stopReason, "aborted")
+})
+
 test("coalesces assistant token updates into one browser frame", () => {
   const frames = new TestFrames()
   const store = new SessionStreamStore(frames)

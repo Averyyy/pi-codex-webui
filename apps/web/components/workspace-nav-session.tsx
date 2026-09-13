@@ -30,6 +30,7 @@ import { responseJson } from "@/lib/api-response"
 import type { SessionSummary } from "@/lib/session-types"
 import type { WorkspaceSessionMutationFocusRequest } from "@/lib/workspace-nav-focus"
 import { useI18n } from "@/components/i18n-provider"
+import { SESSION_CATALOG_CHANGED } from "@/lib/session-catalog-events"
 
 export function WorkspaceNavSession({
   session,
@@ -88,6 +89,7 @@ export function WorkspaceNavSession({
         })
       )
       onSuccess?.()
+      window.dispatchEvent(new Event(SESSION_CATALOG_CHANGED))
       router.refresh()
       return true
     } catch (error) {
@@ -217,7 +219,10 @@ export function WorkspaceNavSession({
 
   if (nested) {
     return (
-      <SidebarMenuSubItem className="group/session">
+      <SidebarMenuSubItem
+        className="group/session"
+        style={{ contentVisibility: "auto", containIntrinsicSize: "auto 28px" }}
+      >
         <SidebarMenuSubButton
           asChild
           isActive={pathname === href}
@@ -245,7 +250,10 @@ export function WorkspaceNavSession({
   }
 
   return (
-    <SidebarMenuItem className="group/session">
+    <SidebarMenuItem
+      className="group/session"
+      style={{ contentVisibility: "auto", containIntrinsicSize: "auto 32px" }}
+    >
       <SidebarMenuButton
         asChild
         isActive={pathname === href}
