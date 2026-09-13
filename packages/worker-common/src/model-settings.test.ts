@@ -254,10 +254,11 @@ test("stale model scope mutations cannot overwrite a newer scope", async () => {
     const initiallyEnabled = initial.models
       .filter((model) => model.enabled)
       .map((model) => `${model.provider}/${model.id}`)
-    assert.deepEqual(initiallyEnabled, [
-      "scope-provider/model-a",
-      "scope-provider/model-b",
-    ])
+    // The catalog can contain additional available models (built-in providers
+    // are machine-dependent), so assert the saved provider's models are enabled
+    // and keep using the full list as the scope baseline below.
+    assert.ok(initiallyEnabled.includes("scope-provider/model-a"))
+    assert.ok(initiallyEnabled.includes("scope-provider/model-b"))
 
     const saved = await handleModelSettingsMessage(
       codingAgent,

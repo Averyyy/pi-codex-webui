@@ -377,7 +377,14 @@ test("CLI recovers a dead instance lock and serializes concurrent startup", asyn
     } finally {
       await Promise.all(instances.map((instance) => stopCli(instance)))
     }
-    await assert.rejects(readFile(lockPath, "utf8"), { code: "ENOENT" })
+    if (process.platform === "win32") {
+      // Windows terminates the process without running SIGTERM handlers, so
+      // the lock file cannot be removed programmatically; stale locks are
+      // recovered on the next startup instead.
+      await assert.doesNotReject(readFile(lockPath, "utf8"))
+    } else {
+      await assert.rejects(readFile(lockPath, "utf8"), { code: "ENOENT" })
+    }
   } finally {
     await rm(temporary, { recursive: true, force: true })
     if (fixture) await rm(fixture.root, { recursive: true, force: true })

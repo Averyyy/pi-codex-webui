@@ -280,6 +280,17 @@ test("Pi Client worker speaks the authenticated pi-server protocol", async () =>
       })
     )
 
+    // Pin the default model so the initial snapshot does not depend on the
+    // machine's model catalog (built-in providers such as huggingface can be
+    // available without configuration and would otherwise win the default).
+    await writeFile(
+      path.join(agentDir, "settings.json"),
+      JSON.stringify({
+        defaultProvider: "fixture",
+        defaultModel: "fixture-model",
+      })
+    )
+
     child = startWorker("packages/worker-pi-client/src/worker.ts", {
       ...process.env,
       PI_CODING_AGENT_DIR: agentDir,
