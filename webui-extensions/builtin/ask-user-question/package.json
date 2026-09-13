@@ -38,7 +38,8 @@
           "testedVersions": [
             "2.7.1",
             "2.9.0",
-            "2.10.0"
+            "2.10.0",
+            "2.10.1"
           ],
           "compatibility": {
             "mode": "probe",
