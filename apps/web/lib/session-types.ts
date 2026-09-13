@@ -24,6 +24,7 @@ export interface SessionSummary {
   isPinned: boolean
   hasUnreadCompletion: boolean
   runtimeKind: "pi" | "pi-client"
+  isRunning?: boolean
   runtimeProfileId: string
   migratedFromSessionId: string | null
 }
@@ -34,6 +35,13 @@ export interface ArchivedSession extends SessionSummary {
 
 export interface WorkspaceProject extends ProjectSummary {
   sessions: SessionSummary[]
+}
+
+export type SessionListScope = "tasks" | "pinned" | "project"
+
+export interface SessionPage {
+  sessions: SessionSummary[]
+  nextCursor: string | null
 }
 
 export type TranscriptPart =
@@ -76,6 +84,7 @@ export type TranscriptEntry =
       title: string
       text?: string
       value?: unknown
+      deferred?: { byteLength: number }
     }
 
 export interface SessionSnapshot {
@@ -86,6 +95,17 @@ export interface SessionSnapshot {
   }
   entries: TranscriptEntry[]
   goalState: PiGoalState | null
+  history?: {
+    leafId: string | null
+    nextCursor: string | null
+    boundary: "compaction" | "page"
+    entryIds: string[]
+    extendsLeaf?: boolean
+    sourceHash: string
+    anchorCursor: string
+    generation: number
+    atLatest: boolean
+  }
 }
 
 export interface SessionSearchResult {

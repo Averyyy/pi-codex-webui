@@ -87,7 +87,7 @@ test("database v1 migration preserves sessions and adds runtime bindings", async
   legacy.close()
 
   const migrated = await getDatabase()
-  assert.equal(migrated.prepare("PRAGMA user_version").get()?.user_version, 11)
+  assert.equal(migrated.prepare("PRAGMA user_version").get()?.user_version, 12)
   assert.equal(
     migrated
       .prepare("SELECT indexed_lines FROM sessions WHERE id = 'session-1'")
@@ -149,7 +149,10 @@ test("database v1 migration preserves sessions and adds runtime bindings", async
   const reference = await writeSecret("top-secret")
   const secretFile = path.join(root, "secrets", `${reference}.secret`)
   assert.equal(await readFile(secretFile, "utf8"), "top-secret")
-  assert.equal((await stat(secretFile)).mode & 0o777, 0o600)
+  assert.equal(
+    (await stat(secretFile)).mode & 0o777,
+    process.platform === "win32" ? 0o666 : 0o600
+  )
   await rm(root, { recursive: true, force: true })
   if (previousConfigDir === undefined)
     delete process.env.PI_WEB_CODEX_CONFIG_DIR
@@ -237,7 +240,7 @@ test("database v2 migration backfills cwd and permits standalone sessions", asyn
   legacy.close()
 
   const migrated = await getDatabase()
-  assert.equal(migrated.prepare("PRAGMA user_version").get()?.user_version, 11)
+  assert.equal(migrated.prepare("PRAGMA user_version").get()?.user_version, 12)
   assert.equal(
     migrated
       .prepare("SELECT indexed_lines FROM sessions WHERE id = 'session-2'")
@@ -363,7 +366,7 @@ test("database v10 migration rebuilds existing search rows with trigram indexing
   legacy.close()
 
   const migrated = await getDatabase()
-  assert.equal(migrated.prepare("PRAGMA user_version").get()?.user_version, 11)
+  assert.equal(migrated.prepare("PRAGMA user_version").get()?.user_version, 12)
   assert.deepEqual(
     {
       ...migrated

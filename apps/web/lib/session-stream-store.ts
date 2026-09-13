@@ -3,7 +3,8 @@ import {
   normalizeTranscriptParts,
   type ToolResultView,
 } from "@/lib/message-content"
-import type { TranscriptPart } from "@/lib/session-types"
+import type { SessionSnapshot, TranscriptPart } from "@/lib/session-types"
+import { isPiGoalControlMessage } from "@/lib/pi-goal"
 import type { RuntimeStatus } from "@workspace/runtime-protocol"
 
 export interface RuntimeStreamMessage {
@@ -17,6 +18,8 @@ export interface RuntimeStreamMessage {
   isError?: boolean
   errorMessage?: string
   display?: boolean
+  stopReason?: string
+  phase?: string
 }
 
 export interface StreamingMessageView {
@@ -27,6 +30,8 @@ export interface StreamingMessageView {
   errorMessage?: string
   customType?: string
   timestamp?: number
+  stopReason?: string
+  phase?: string
 }
 
 export interface StreamingToolView {
@@ -48,6 +53,15 @@ interface SessionStreamingSnapshot {
   activeTools: ActiveStreamingTool[]
   followRequest: number
   runtimeStatus: RuntimeStatus | null
+  transcript: SessionSnapshot | null
+}
+
+export interface SessionLiveSnapshot {
+  messages: StreamingMessageView[]
+  tools: StreamingToolView[]
+  activeMessageIds: [string, number][]
+  nextMessageId: number
+  runtimeStatus: RuntimeStatus | null
 }
 
 export interface FrameScheduler {
@@ -68,6 +82,7 @@ function emptySnapshot(
     activeTools: EMPTY_ACTIVE_TOOLS,
     followRequest: 0,
     runtimeStatus,
+    transcript: null,
   }
 }
 
@@ -118,6 +133,42 @@ export class SessionStreamStore {
   getActiveTools = () => this.committed.activeTools
   getFollowRequest = () => this.committed.followRequest
   getRuntimeStatus = () => this.committed.runtimeStatus
+  getTranscript = () => this.committed.transcript
+  capture = (): SessionLiveSnapshot => ({
+    messages: this.pending.messages,
+    tools: [...this.pending.tools.values()],
+    activeMessageIds: [...this.activeMessageIds],
+    nextMessageId: this.nextMessageId,
+    runtimeStatus: this.pending.runtimeStatus,
+  })
+
+  restore = (
+    snapshot: SessionLiveSnapshot,
+    transcript?: SessionSnapshot,
+    synchronous = true
+  ) => {
+    this.activeMessageIds.clear()
+    for (const [role, id] of snapshot.activeMessageIds)
+      this.activeMessageIds.set(role, id)
+    this.nextMessageId = snapshot.nextMessageId
+    const tools = new Map(snapshot.tools.map((tool) => [tool.id, tool]))
+    this.pending = {
+      ...this.pending,
+      messages: snapshot.messages,
+      tools,
+      activeTools: activeTools(tools, this.pending.activeTools),
+      runtimeStatus: snapshot.runtimeStatus,
+      transcript: transcript ?? this.pending.transcript,
+    }
+    if (synchronous) this.commit()
+  }
+
+  setTranscript = (transcript: SessionSnapshot, synchronous = true) => {
+    this.pending = { ...this.pending, transcript }
+    if (synchronous) this.commit()
+  }
+
+  flush = () => this.commit()
   getTool = (toolCallId: string) => this.committed.tools.get(toolCallId) ?? null
 
   requestFollow = () => {
@@ -134,6 +185,7 @@ export class SessionStreamStore {
   }
 
   startMessage = (message: RuntimeStreamMessage) => {
+    if (isPiGoalControlMessage(message)) return
     if (message.role === "toolResult") {
       this.setToolResultMessage(message)
       return
@@ -146,6 +198,7 @@ export class SessionStreamStore {
   }
 
   updateMessage = (message: RuntimeStreamMessage) => {
+    if (isPiGoalControlMessage(message)) return
     if (message.role === "toolResult") {
       this.setToolResultMessage(message)
       return
@@ -155,6 +208,7 @@ export class SessionStreamStore {
   }
 
   endMessage = (message: RuntimeStreamMessage) => {
+    if (isPiGoalControlMessage(message)) return
     if (message.role === "toolResult") {
       this.setToolResultMessage(message)
       return
@@ -200,7 +254,10 @@ export class SessionStreamStore {
 
   clear = (synchronous = false) => {
     this.activeMessageIds.clear()
-    this.pending = emptySnapshot(this.pending.runtimeStatus)
+    this.pending = {
+      ...emptySnapshot(this.pending.runtimeStatus),
+      transcript: this.pending.transcript,
+    }
     if (synchronous) this.commit()
     else this.schedule()
   }
@@ -223,6 +280,8 @@ export class SessionStreamStore {
           role: message.role,
           parts: normalizeTranscriptParts(message.content),
           complete,
+          ...(message.stopReason ? { stopReason: message.stopReason } : {}),
+          ...(message.phase ? { phase: message.phase } : {}),
           ...(message.customType ? { customType: message.customType } : {}),
           ...(message.timestamp !== undefined
             ? { timestamp: message.timestamp }
@@ -250,6 +309,8 @@ export class SessionStreamStore {
               ...current,
               parts: normalizeTranscriptParts(message.content),
               complete,
+              ...(message.stopReason ? { stopReason: message.stopReason } : {}),
+              ...(message.phase ? { phase: message.phase } : {}),
               ...(message.errorMessage
                 ? { errorMessage: message.errorMessage }
                 : {}),

@@ -1,6 +1,6 @@
 import "server-only"
 
-import { createHash, randomUUID } from "node:crypto"
+import { randomUUID } from "node:crypto"
 import type { Dirent } from "node:fs"
 import { open, readdir, realpath, stat } from "node:fs/promises"
 import { homedir } from "node:os"
@@ -10,15 +10,11 @@ import type { DatabaseSync } from "node:sqlite"
 
 import { getPiSessionsRoot } from "@/lib/app-paths"
 import { getDatabase, inTransaction } from "@/lib/database"
+import { parsePiSessionHeader } from "@/lib/pi-session"
 import {
-  parsePiSession,
-  parsePiSessionHeader,
-  parsePiSessionEntries,
-  readStablePiSessionFile,
-  searchableText,
-  summarizePiEntries,
-  type PiSessionEntry,
-} from "@/lib/pi-session"
+  scanSessionIndex,
+  type ScannedSessionIndex,
+} from "@/lib/session-index-scan"
 
 declare global {
   var piWebCodexIndexSync: Promise<void> | undefined
@@ -28,6 +24,8 @@ interface IndexedSessionRow {
   id: string
   project_id: string | null
   cwd: string
+  created_at: string
+  parent_session_file: string | null
   native_session_id: string
   title: string | null
   first_message: string
@@ -40,15 +38,11 @@ interface IndexedSessionRow {
   content_hash: string
   last_entry_id: string | null
   entry_count: number
+  offset_count: number
 }
 
-const decoder = new TextDecoder("utf-8", { fatal: true })
 const sessionTitleSearchEntryType = "session_title"
 const sessionIndexLocks = new Map<string, Promise<void>>()
-
-function hash(content: Uint8Array) {
-  return createHash("sha256").update(content).digest("hex")
-}
 
 function isPiSessionFileName(name: string) {
   return name.endsWith(".jsonl") && !name.includes(".jsonl.")
@@ -56,20 +50,6 @@ function isPiSessionFileName(name: string) {
 
 function logSkippedSessionFile(file: string, error: unknown) {
   console.error(`Skipping session file ${file}:`, error)
-}
-
-function encodedSessionDirectoryName(canonicalPath: string) {
-  return `--${canonicalPath.replace(/^[\\/]/, "").replace(/[\\/:]/g, "-")}--`
-}
-
-function directoryLooksEncoded(name: string) {
-  return name.startsWith("--") && name.endsWith("--") && name.length > 4
-}
-
-function sessionDirectoryNameMatches(name: string, encoded: string) {
-  return process.platform === "win32"
-    ? name.toLowerCase() === encoded.toLowerCase()
-    : name === encoded
 }
 
 async function readDirectoryEntries(directory: string) {
@@ -99,11 +79,7 @@ async function discoverSessionFiles(root: string) {
   return files.sort()
 }
 
-async function discoverProjectSessionCandidates(
-  root: string,
-  canonicalPath: string
-) {
-  const encoded = encodedSessionDirectoryName(canonicalPath)
+async function discoverProjectSessionCandidates(root: string) {
   const files: string[] = []
 
   async function visit(directory: string) {
@@ -117,12 +93,8 @@ async function discoverProjectSessionCandidates(
     for (const entry of entries) {
       const target = path.join(directory, entry.name)
       if (entry.isDirectory()) {
-        if (
-          directoryLooksEncoded(entry.name) &&
-          !sessionDirectoryNameMatches(entry.name, encoded)
-        ) {
-          continue
-        }
+        // Pi accepts custom session directories and cwd aliases. A directory
+        // name cannot rule out a session; the canonical header cwd decides.
         await visit(target)
       } else if (entry.isFile() && isPiSessionFileName(entry.name)) {
         files.push(target)
@@ -137,53 +109,18 @@ async function discoverProjectSessionCandidates(
 function indexedSession(database: DatabaseSync, file: string) {
   return database
     .prepare(
-      `SELECT sessions.id, project_id, cwd, native_session_id, title,
+      `SELECT sessions.id, project_id, cwd, created_at, parent_session_file, native_session_id, title,
               first_message, message_count, updated_at, file_mtime_ns,
               indexed_size, indexed_lines, ends_with_newline, content_hash,
               last_entry_id,
               (SELECT count(*) FROM session_entries
-               WHERE session_id = sessions.id) AS entry_count
+               WHERE session_id = sessions.id) AS entry_count,
+              (SELECT count(byte_offset) FROM session_entries
+               WHERE session_id = sessions.id) AS offset_count
        FROM sessions
        WHERE native_session_file = ?`
     )
     .get(file) as unknown as IndexedSessionRow | undefined
-}
-
-function insertEntries(
-  database: DatabaseSync,
-  sessionId: string,
-  entries: PiSessionEntry[]
-) {
-  const entryStatement = database.prepare(
-    `INSERT INTO session_entries(
-       session_id, entry_id, parent_id, entry_type, timestamp
-     ) VALUES (?, ?, ?, ?, ?)`
-  )
-  const searchStatement = database.prepare(
-    `INSERT INTO session_search(
-       session_id, entry_id, entry_type, timestamp, text
-     ) VALUES (?, ?, ?, ?, ?)`
-  )
-
-  for (const entry of entries) {
-    entryStatement.run(
-      sessionId,
-      entry.id,
-      entry.parentId,
-      entry.type,
-      entry.timestamp
-    )
-    const text = searchableText(entry).trim()
-    if (text) {
-      searchStatement.run(
-        sessionId,
-        entry.id,
-        entry.type,
-        entry.timestamp,
-        text
-      )
-    }
-  }
 }
 
 function replaceSessionTitleSearch(
@@ -268,16 +205,13 @@ async function sessionFileHeader(file: string) {
 async function replaceSession(
   database: DatabaseSync,
   file: string,
-  content: Buffer,
-  mtimeNs: string,
+  parsed: ScannedSessionIndex,
   existing: IndexedSessionRow | undefined
 ) {
-  const parsed = parsePiSession(file, decoder.decode(content))
   const canonicalPath = await canonicalizeCwd(parsed.header.cwd)
   const sameNativeSession =
     !existing || existing.native_session_id === parsed.header.id
   const sessionId = existing && sameNativeSession ? existing.id : randomUUID()
-  const endsWithNewline = content.at(-1) === 0x0a ? 1 : 0
 
   inTransaction(database, () => {
     if (existing && !sameNativeSession) {
@@ -315,6 +249,7 @@ async function replaceSession(
            indexed_lines = excluded.indexed_lines,
            ends_with_newline = excluded.ends_with_newline,
            content_hash = excluded.content_hash,
+           index_generation = sessions.index_generation + 1,
            last_entry_id = excluded.last_entry_id`
       )
       .run(
@@ -329,12 +264,12 @@ async function replaceSession(
         parsed.updatedAt,
         parsed.messageCount,
         parsed.firstMessage,
-        mtimeNs,
-        content.length,
-        parsed.entries.length + 1,
-        endsWithNewline,
-        hash(content),
-        parsed.entries.at(-1)?.id ?? null
+        parsed.mtimeNs,
+        parsed.size,
+        parsed.indexedLines,
+        parsed.endsWithNewline,
+        parsed.contentHash,
+        parsed.lastEntryId
       )
 
     database
@@ -349,32 +284,18 @@ async function replaceSession(
       parsed.title,
       parsed.updatedAt
     )
-    insertEntries(database, sessionId, parsed.entries)
+    parsed.insertInto(sessionId)
   })
 }
 
 function appendSession(
   database: DatabaseSync,
-  file: string,
-  content: Buffer,
-  mtimeNs: string,
+  parsed: ScannedSessionIndex,
   existing: IndexedSessionRow
 ) {
-  const appended = decoder.decode(content.subarray(existing.indexed_size))
-  const entries = parsePiSessionEntries(
-    file,
-    appended,
-    existing.indexed_lines + 1
-  )
-  const metadata = summarizePiEntries(entries, {
-    title: existing.title ?? undefined,
-    firstMessage: existing.first_message,
-    messageCount: existing.message_count,
-    updatedAt: existing.updated_at,
-  })
-
+  const metadata = parsed
   inTransaction(database, () => {
-    insertEntries(database, existing.id, entries)
+    parsed.insertInto(existing.id)
     replaceSessionTitleSearch(
       database,
       existing.id,
@@ -394,12 +315,12 @@ function appendSession(
         metadata.updatedAt,
         metadata.messageCount,
         metadata.firstMessage,
-        mtimeNs,
-        content.length,
-        existing.indexed_lines + entries.length,
-        content.at(-1) === 0x0a ? 1 : 0,
-        hash(content),
-        entries.at(-1)?.id ?? existing.last_entry_id,
+        parsed.mtimeNs,
+        parsed.size,
+        parsed.indexedLines,
+        parsed.endsWithNewline,
+        parsed.contentHash,
+        parsed.lastEntryId,
         existing.id
       )
   })
@@ -413,31 +334,24 @@ async function indexSessionFileNow(database: DatabaseSync, file: string) {
     existing &&
     existing.file_mtime_ns === mtimeNs &&
     existing.indexed_size === Number(fileStats.size) &&
+    existing.offset_count === existing.entry_count &&
     existing.entry_count === existing.indexed_lines - 1
   ) {
     return
   }
 
-  const stable = await readStablePiSessionFile(file)
-  const { content } = stable
-  if (
-    existing &&
-    existing.entry_count === existing.indexed_lines - 1 &&
-    existing.ends_with_newline === 1 &&
-    content.length >= existing.indexed_size &&
-    hash(content.subarray(0, existing.indexed_size)) === existing.content_hash
-  ) {
-    if (content.length === existing.indexed_size) {
-      database
-        .prepare("UPDATE sessions SET file_mtime_ns = ? WHERE id = ?")
-        .run(stable.mtimeNs, existing.id)
-    } else {
-      appendSession(database, file, content, stable.mtimeNs, existing)
-    }
-    return
+  const parsed = await scanSessionIndex(database, file, existing)
+  try {
+    if (parsed.append && existing) {
+      if (parsed.entryCount === 0)
+        database
+          .prepare("UPDATE sessions SET file_mtime_ns = ? WHERE id = ?")
+          .run(parsed.mtimeNs, existing.id)
+      else appendSession(database, parsed, existing)
+    } else await replaceSession(database, file, parsed, existing)
+  } finally {
+    parsed.dispose()
   }
-
-  await replaceSession(database, file, content, stable.mtimeNs, existing)
 }
 
 function indexSessionFile(database: DatabaseSync, file: string) {
@@ -575,10 +489,7 @@ export async function syncPiProjectSessions(projectId: string) {
     .get(projectId) as { canonical_path: string } | undefined
   if (!project) throw new Error(`Project not found: ${projectId}`)
 
-  const files = await discoverProjectSessionCandidates(
-    getPiSessionsRoot(),
-    project.canonical_path
-  )
+  const files = await discoverProjectSessionCandidates(getPiSessionsRoot())
   for (const file of files) {
     try {
       const cwd = await sessionFileCwd(file)
@@ -590,7 +501,7 @@ export async function syncPiProjectSessions(projectId: string) {
   }
 }
 
-export async function syncPiSessionFile(file: string) {
+export async function resolvePiSessionFile(file: string) {
   const root = path.resolve(getPiSessionsRoot())
   const target = path.resolve(file)
   if (!isPiSessionFileName(path.basename(target))) {
@@ -605,6 +516,11 @@ export async function syncPiSessionFile(file: string) {
     throw new Error(`Pi session file is outside the session root: ${target}`)
   }
   const indexedFile = path.join(root, relative)
+  return indexedFile
+}
+
+export async function syncPiSessionFile(file: string) {
+  const indexedFile = await resolvePiSessionFile(file)
   await indexSessionFile(await getDatabase(), indexedFile)
   return indexedFile
 }

@@ -1,10 +1,18 @@
 "use client"
 
-import type { ReactNode } from "react"
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react"
 import {
   CheckCircle2Icon,
   ChevronRightIcon,
   CircleXIcon,
+  CircleMinusIcon,
   LoaderCircleIcon,
 } from "lucide-react"
 
@@ -15,6 +23,22 @@ import {
   CollapsibleTrigger,
 } from "@workspace/ui/components/collapsible"
 import { cn } from "@workspace/ui/lib/utils"
+
+export const ConversationAnchorContext = createContext<string | undefined>(
+  undefined
+)
+
+function subscribeHash(listener: () => void) {
+  window.addEventListener("hashchange", listener)
+  return () => window.removeEventListener("hashchange", listener)
+}
+
+function currentHash() {
+  return window.location.hash
+}
+function serverHash() {
+  return ""
+}
 
 export type ConversationDisclosureTone =
   "neutral" | "execute" | "read" | "write" | "web" | "agent"
@@ -60,8 +84,14 @@ export function ConversationDisclosure({
   children,
   defaultOpen = false,
   ariaLabel,
+  collapseAriaLabel,
   className,
   contentClassName,
+  variant = "tool",
+  collapsible = true,
+  entryIds,
+  open: controlledOpen,
+  onOpenChange,
 }: {
   label: ReactNode
   preview?: string
@@ -73,48 +103,124 @@ export function ConversationDisclosure({
   children: ReactNode
   defaultOpen?: boolean
   ariaLabel: string
+  collapseAriaLabel?: string
   className?: string
   contentClassName?: string
+  variant?: "tool" | "process"
+  collapsible?: boolean
+  entryIds?: readonly string[]
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
 }) {
+  const anchorEntryId = useContext(ConversationAnchorContext)
+  const hash = useSyncExternalStore(subscribeHash, currentHash, serverHash)
+  const targeted = Boolean(
+    hash &&
+    (hash === `#entry-${anchorEntryId}` ||
+      entryIds?.some((id) => hash === `#entry-${id}`))
+  )
+  const [selection, setSelection] = useState<{ open: boolean; hash: string }>()
+  const open =
+    !collapsible ||
+    (targeted && selection?.hash !== hash
+      ? true
+      : (controlledOpen ?? selection?.open ?? defaultOpen))
+
+  useEffect(() => {
+    if (!targeted || !open) return
+    const frame = requestAnimationFrame(() => {
+      document
+        .getElementById(hash.slice(1))
+        ?.scrollIntoView({ block: "center" })
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [hash, open, targeted])
+
   const statusIcon =
     statusTone === "destructive"
       ? CircleXIcon
       : statusTone === "running"
         ? LoaderCircleIcon
-        : CheckCircle2Icon
+        : statusTone === "success"
+          ? CheckCircle2Icon
+          : CircleMinusIcon
   const StatusIcon = statusIcon
+  const Trigger = collapsible ? CollapsibleTrigger : "div"
+  const content = (
+    <CollapsibleContent>
+      <div
+        className={cn(
+          "min-w-0",
+          variant === "tool" &&
+            "mt-1 ml-2 border-l-2 py-2 pl-3 sm:ml-4 sm:pl-4",
+          variant === "tool" && toneClasses[tone].rail,
+          contentClassName
+        )}
+      >
+        {children}
+      </div>
+    </CollapsibleContent>
+  )
 
   return (
     <Collapsible
-      defaultOpen={defaultOpen}
+      open={open}
+      onOpenChange={(next) => {
+        setSelection({ open: next, hash })
+        onOpenChange?.(next)
+      }}
       data-running={statusTone === "running" ? "true" : undefined}
-      className={cn("min-w-0", className)}
+      data-conversation-disclosure={variant}
+      className={cn(
+        "min-w-0",
+        variant === "process" && "flex flex-col",
+        className
+      )}
     >
-      <CollapsibleTrigger
-        aria-label={ariaLabel}
+      {variant === "process" ? content : null}
+      <Trigger
+        aria-label={
+          collapsible
+            ? open
+              ? (collapseAriaLabel ?? ariaLabel)
+              : ariaLabel
+            : undefined
+        }
         className={buttonVariants({
           variant: "ghost",
           size: "sm",
-          className:
-            "conversation-disclosure-trigger w-full min-w-0 justify-start px-2 text-left font-normal text-muted-foreground data-[state=open]:[&_svg:last-child]:rotate-90",
+          className: cn(
+            "conversation-disclosure-trigger w-full min-w-0 justify-start px-2 text-left font-normal text-muted-foreground data-[state=open]:[&>[data-disclosure-chevron]]:rotate-90",
+            variant === "process" &&
+              "h-auto w-fit max-w-full rounded-sm px-0 py-1 hover:bg-transparent disabled:opacity-100 aria-expanded:bg-transparent"
+          ),
         })}
       >
+        {variant === "tool" ? (
+          <span
+            className={cn(
+              "flex size-5 shrink-0 items-center justify-center rounded-md [&_svg]:size-3.5",
+              toneClasses[tone].icon
+            )}
+          >
+            {icon}
+          </span>
+        ) : null}
         <span
           className={cn(
-            "flex size-5 shrink-0 items-center justify-center rounded-md [&_svg]:size-3.5",
-            toneClasses[tone].icon
+            "min-w-0 truncate",
+            variant === "tool" && "font-medium text-foreground"
           )}
         >
-          {icon}
+          {label}
         </span>
-        <span className="shrink-0 font-medium text-foreground">{label}</span>
         {preview ? (
           <span className="min-w-0 flex-1 truncate text-xs" title={preview}>
             {preview}
           </span>
-        ) : (
+        ) : variant === "tool" ? (
           <span className="min-w-0 flex-1" />
-        )}
+        ) : null}
         {meta}
         {status ? (
           <span
@@ -133,22 +239,16 @@ export function ConversationDisclosure({
             {status}
           </span>
         ) : null}
-        <ChevronRightIcon
-          data-icon="inline-end"
-          className="shrink-0 transition-transform"
-        />
-      </CollapsibleTrigger>
-      <CollapsibleContent>
-        <div
-          className={cn(
-            "mt-1 ml-4 min-w-0 border-l-[3px] py-2 pl-4",
-            toneClasses[tone].rail,
-            contentClassName
-          )}
-        >
-          {children}
-        </div>
-      </CollapsibleContent>
+        {collapsible ? (
+          <ChevronRightIcon
+            data-icon="inline-end"
+            data-disclosure-chevron=""
+            aria-hidden="true"
+            className="shrink-0 transition-transform"
+          />
+        ) : null}
+      </Trigger>
+      {variant === "tool" ? content : null}
     </Collapsible>
   )
 }

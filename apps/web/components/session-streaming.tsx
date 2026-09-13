@@ -1,26 +1,25 @@
 "use client"
 
-import {
-  memo,
-  useContext,
-  useDeferredValue,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-} from "react"
-import { LoaderCircleIcon, TerminalIcon } from "lucide-react"
+import { memo, useContext, useDeferredValue } from "react"
+import { LoaderCircleIcon } from "lucide-react"
 
 import { SessionExtensionContext } from "@/components/session-extension-provider"
-import { ConversationDisclosure } from "@/components/conversation-disclosure"
+import { ConversationProcess } from "@/components/conversation-process"
 import { ConversationMessageParts } from "@/components/conversation-message-parts"
 import { useI18n } from "@/components/i18n-provider"
 import {
   useStreamingActiveTools,
-  useStreamingFollowRequest,
   useStreamingMessages,
+  useStreamingRuntimeStatus,
+  useStreamingSessionId,
+  useSessionTranscript,
+  useSessionViewController,
 } from "@/components/session-streaming-context"
 import type { StreamingMessageView } from "@/lib/session-stream-store"
-import { formatInlinePreview } from "@/lib/session-display"
+import {
+  conversationRounds,
+  partitionConversationRound,
+} from "@/lib/conversation-rounds"
 import { replacesStreamingMessage } from "@/lib/webui-message-replacements"
 
 export {
@@ -31,10 +30,6 @@ export {
 
 const COMPLETED_MESSAGE_CLASS =
   "[content-visibility:auto] [contain-intrinsic-size:auto_5rem]"
-
-function isFinalOutputPart(part: StreamingMessageView["parts"][number]) {
-  return part.type !== "thinking" && part.type !== "toolCall"
-}
 
 const StreamingMessage = memo(function StreamingMessage({
   message,
@@ -47,6 +42,7 @@ const StreamingMessage = memo(function StreamingMessage({
   const content = (
     <ConversationMessageParts
       parts={parts}
+      plainText={message.role === "user"}
       thinkingActive={message.role === "assistant" && !message.complete}
       locale={locale}
     />
@@ -55,6 +51,7 @@ const StreamingMessage = memo(function StreamingMessage({
   if (message.role === "user") {
     return (
       <article
+        id={"live-message-" + message.id}
         className={`ml-auto flex w-fit max-w-[88%] min-w-0 flex-col gap-2 rounded-2xl bg-muted px-3.5 py-2.5 ${message.complete ? COMPLETED_MESSAGE_CLASS : ""}`}
       >
         {content}
@@ -64,6 +61,7 @@ const StreamingMessage = memo(function StreamingMessage({
 
   return (
     <article
+      id={"live-message-" + message.id}
       data-streaming-message={message.role === "assistant" ? "" : undefined}
       aria-label={
         message.role === "assistant"
@@ -85,9 +83,19 @@ const StreamingMessage = memo(function StreamingMessage({
             {t("session.streaming.generating")}
           </span>
         ) : null}
+        {message.stopReason === "aborted" ? (
+          <p className="text-xs text-muted-foreground">
+            {t("session.transcript.aborted")}
+          </p>
+        ) : null}
         {message.errorMessage ? (
           <p role="alert" className="text-sm text-destructive">
             {message.errorMessage}
+          </p>
+        ) : null}
+        {message.stopReason === "length" ? (
+          <p className="text-xs text-muted-foreground">
+            {t("session.transcript.lengthLimit")}
           </p>
         ) : null}
       </div>
@@ -96,6 +104,8 @@ const StreamingMessage = memo(function StreamingMessage({
 })
 
 export function SessionStreamingMessage() {
+  const controller = useSessionViewController()
+  const history = useSessionTranscript(controller.initialView.snapshot)
   const { t } = useI18n()
   const streamedMessages = useStreamingMessages()
   const extensions = useContext(SessionExtensionContext)
@@ -104,116 +114,62 @@ export function SessionStreamingMessage() {
         (message) => !replacesStreamingMessage(extensions.views, message)
       )
     : streamedMessages
-  const activeTools = useStreamingActiveTools()
-  const followRequest = useStreamingFollowRequest()
-  const contentRef = useRef<HTMLDivElement>(null)
-  const tailRef = useRef<HTMLDivElement>(null)
-  const followingRef = useRef(false)
-  const processIndex = messages.findIndex((message) => message.role !== "user")
-  const visibleMessages =
-    processIndex < 0 ? messages : messages.slice(0, processIndex)
-  const workMessages = processIndex < 0 ? [] : messages.slice(processIndex)
-  let finalIndex = -1
-  for (let index = workMessages.length - 1; index >= 0; index -= 1) {
-    const message = workMessages[index]!
-    if (message.role === "assistant" && message.parts.some(isFinalOutputPart)) {
-      finalIndex = index
-      break
-    }
-  }
-  const finalMessage = finalIndex >= 0 ? workMessages[finalIndex] : undefined
-  const finalPartIndex = finalMessage?.parts.findIndex(isFinalOutputPart) ?? -1
-  const processMessages = workMessages
-    .slice(0, finalIndex >= 0 ? finalIndex : workMessages.length)
-    .concat(
-      finalMessage && finalPartIndex > 0
-        ? [
-            {
-              ...finalMessage,
-              parts: finalMessage.parts.slice(0, finalPartIndex),
-            },
-          ]
-        : []
-    )
-  const finalMessages =
-    finalMessage && finalPartIndex >= 0
-      ? [
-          {
-            ...finalMessage,
-            parts: finalMessage.parts.slice(finalPartIndex),
-          },
-          ...workMessages.slice(finalIndex + 1),
-        ]
-      : []
-  const processPreview = processMessages
-    .flatMap((message) =>
-      message.parts.flatMap((part) =>
-        part.type === "text" || part.type === "thinking" ? [part.text] : []
-      )
-    )
-    .map(formatInlinePreview)
-    .find(Boolean)
+  const runtimeStatus = useStreamingRuntimeStatus()
+  const sessionId = useStreamingSessionId()
+  const rounds = conversationRounds(messages)
+  const active =
+    runtimeStatus === "busy" ||
+    runtimeStatus === "starting" ||
+    runtimeStatus === "stopping"
 
-  useEffect(() => {
-    const content = contentRef.current
-    const tail = tailRef.current
-    if (!content || !tail) return
-
-    const intersection = new IntersectionObserver(([entry]) => {
-      followingRef.current = entry?.isIntersecting === true
-    })
-    const resize = new ResizeObserver(() => {
-      if (followingRef.current) tail.scrollIntoView({ block: "end" })
-    })
-    intersection.observe(tail)
-    resize.observe(content)
-    return () => {
-      intersection.disconnect()
-      resize.disconnect()
-    }
-  }, [])
-
-  useLayoutEffect(() => {
-    if (followRequest === 0) return
-    followingRef.current = true
-    tailRef.current?.scrollIntoView({ block: "end" })
-  }, [followRequest])
+  if (history.history?.atLatest === false) return null
 
   return (
     <>
       <div
-        ref={contentRef}
         aria-live="polite"
-        aria-busy={
-          activeTools.length > 0 ||
-          messages.some((message) => !message.complete)
-        }
+        aria-busy={active}
         className={messages.length ? "flex min-w-0 flex-col gap-5" : "hidden"}
       >
-        {visibleMessages.map((message) => (
-          <StreamingMessage key={message.id} message={message} />
-        ))}
-        {processMessages.length ? (
-          <ConversationDisclosure
-            label={t("session.transcript.process")}
-            preview={processPreview}
-            icon={<TerminalIcon />}
-            tone="execute"
-            status={t("session.transcript.running")}
-            statusTone="running"
-            ariaLabel={t("session.transcript.expandProcess")}
-            contentClassName="flex min-w-0 flex-col gap-5"
-          >
-            {processMessages.map((message) => (
-              <StreamingMessage key={message.id} message={message} />
-            ))}
-          </ConversationDisclosure>
-        ) : null}
-        {finalMessages.map((message) => (
-          <StreamingMessage key={`${message.id}:final`} message={message} />
-        ))}
+        {rounds.map((round, index) => {
+          const { leading, process, response, trailing, outcome } =
+            partitionConversationRound(round)
+          return (
+            <div key={round[0]!.id} className="flex min-w-0 flex-col gap-5">
+              {leading.map((message) => (
+                <StreamingMessage key={message.id} message={message} />
+              ))}
+              {process.length ? (
+                <ConversationProcess
+                  disclosureKey={JSON.stringify([
+                    sessionId,
+                    "stream",
+                    round[0]?.id,
+                  ])}
+                  hasResponse={Boolean(response)}
+                  outcome={outcome}
+                  active={active && index === rounds.length - 1}
+                  t={t}
+                >
+                  {process.map((message) => (
+                    <StreamingMessage key={message.id} message={message} />
+                  ))}
+                </ConversationProcess>
+              ) : null}
+              {response ? (
+                <StreamingMessage
+                  key={response.id + ":final"}
+                  message={response}
+                />
+              ) : null}
+              {trailing.map((message) => (
+                <StreamingMessage key={message.id} message={message} />
+              ))}
+            </div>
+          )
+        })}
       </div>
-      <div ref={tailRef} className="h-px" aria-hidden="true" />
+      <div className="h-px" aria-hidden="true" />
     </>
   )
 }

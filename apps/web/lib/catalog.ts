@@ -11,17 +11,20 @@ import {
   readStablePiSessionFile,
   toTranscriptEntries,
 } from "@/lib/pi-session"
-import {
-  syncPiProjectSessions,
-  syncPiSessionFile,
-} from "@/lib/session-index"
+import { syncPiProjectSessions, syncPiSessionFile } from "@/lib/session-index"
 import { createSessionSearchPlan } from "@/lib/session-search-query"
+import {
+  parseSessionPageQuery,
+  sessionPageCursor,
+  type SessionPageQuery,
+} from "@/lib/session-pagination"
 import type {
   ProjectSummary,
   ArchivedSession,
   SessionSearchResult,
   SessionSnapshot,
   SessionSummary,
+  SessionPage,
   WorkspaceProject,
 } from "@/lib/session-types"
 
@@ -331,15 +334,22 @@ export async function listWorkspaceProjects(): Promise<WorkspaceProject[]> {
     .all() as unknown as ProjectRow[]
   const sessions = database
     .prepare(
-      `SELECT id, project_id, cwd, native_session_id, native_session_file,
+      `WITH previews AS (
+         SELECT sessions.*,
+                row_number() OVER (
+                  PARTITION BY project_id ORDER BY updated_at DESC, id DESC
+                ) AS position
+         FROM sessions
+         WHERE project_id IN (SELECT project_id FROM project_registrations)
+           AND archived_at IS NULL AND parent_session_file IS NULL
+       )
+       SELECT id, project_id, cwd, native_session_id, native_session_file,
               parent_session_file, title, created_at, updated_at,
-              message_count, first_message, archived_at, pinned_at,
+              message_count, substr(first_message, 1, 512) AS first_message, archived_at, pinned_at,
               completion_unread, runtime_kind,
               runtime_profile_id, migrated_from_session_id
-       FROM sessions
-       WHERE archived_at IS NULL
-         AND parent_session_file IS NULL
-       ORDER BY updated_at DESC`
+       FROM previews WHERE position <= 5
+       ORDER BY updated_at DESC, id DESC`
     )
     .all() as unknown as SessionRow[]
   const byProject = new Map<string, SessionRow[]>()
@@ -350,19 +360,61 @@ export async function listWorkspaceProjects(): Promise<WorkspaceProject[]> {
     byProject.set(session.project_id, projectSessions)
   }
 
-  const availableProjects = (
-    await Promise.all(
-      projects.map(async (project) =>
-        (await isProjectDirectoryAvailable(project.canonical_path))
-          ? project
-          : null
-      )
-    )
-  ).filter((project): project is ProjectRow => project !== null)
-  return availableProjects.map((project) => ({
+  return projects.map((project) => ({
     ...projectSummary(project),
     sessions: (byProject.get(project.id) ?? []).map(sessionSummary),
   }))
+}
+
+export async function listSessionPage(
+  input: SessionPageQuery
+): Promise<SessionPage> {
+  const query = parseSessionPageQuery(input)
+  const database = await getDatabase()
+  const filters = ["archived_at IS NULL", "parent_session_file IS NULL"]
+  const values: (string | number)[] = []
+  if (query.scope === "tasks") {
+    filters.push("project_id IS NULL", "pinned_at IS NULL")
+  } else if (query.scope === "pinned") {
+    filters.push(
+      "pinned_at IS NOT NULL",
+      "(project_id IS NULL OR project_id IN (SELECT project_id FROM project_registrations))"
+    )
+  } else {
+    filters.push("project_id = ?")
+    values.push(query.projectId!)
+  }
+  if (query.after) {
+    filters.push("(coalesce(pinned_at, ''), updated_at, id) < (?, ?, ?)")
+    values.push(query.after.pinnedAt, query.after.updatedAt, query.after.id)
+  }
+  const rows = database
+    .prepare(
+      `SELECT id, project_id, cwd, native_session_id, native_session_file,
+            parent_session_file, title, created_at, updated_at, message_count,
+            substr(first_message, 1, 512) AS first_message, archived_at, pinned_at,
+            completion_unread, runtime_kind, runtime_profile_id, migrated_from_session_id
+     FROM sessions WHERE ${filters.join(" AND ")}
+     ORDER BY coalesce(pinned_at, '') DESC, updated_at DESC, id DESC
+     LIMIT ?`
+    )
+    .all(...values, query.limit + 1) as unknown as SessionRow[]
+  const hasMore = rows.length > query.limit
+  const page = rows.slice(0, query.limit)
+  const last = page.at(-1)
+  return {
+    sessions: page.map(sessionSummary),
+    nextCursor:
+      hasMore && last
+        ? sessionPageCursor({
+            scope: query.scope,
+            projectId: query.projectId ?? null,
+            pinnedAt: last.pinned_at ?? "",
+            updatedAt: last.updated_at,
+            id: last.id,
+          })
+        : null,
+  }
 }
 
 export async function getProject(projectId: string) {

@@ -28,6 +28,10 @@ const entrySchema = z
   })
   .passthrough()
 
+const messageSchema = z
+  .object({ role: z.string().min(1), timestamp: z.number().optional() })
+  .passthrough()
+
 export type PiSessionHeader = z.infer<typeof headerSchema>
 export type PiSessionEntry = z.infer<typeof entrySchema>
 
@@ -155,10 +159,7 @@ export function parsePiSessionEntries(
 
 function messageValue(entry: PiSessionEntry) {
   if (entry.type !== "message") return null
-  const result = z
-    .object({ role: z.string().min(1), timestamp: z.number().optional() })
-    .passthrough()
-    .safeParse(entry.message)
+  const result = messageSchema.safeParse(entry.message)
   if (!result.success) {
     throw new Error(
       `Session entry ${entry.id} has an invalid message: ${z.prettifyError(result.error)}`
@@ -437,8 +438,8 @@ function userBranchNavigation(parsed: ParsedPiSession) {
   return result
 }
 
-export function toTranscriptEntries(parsed: ParsedPiSession) {
-  const branchNavigation = userBranchNavigation(parsed)
+export function toTranscriptEntries(parsed: ParsedPiSession, navigation?: ReturnType<typeof userBranchNavigation>) {
+  const branchNavigation = navigation ?? userBranchNavigation(parsed)
   return parsed.activeBranch.flatMap((entry): TranscriptEntry[] => {
     const message = messageEntry(entry)
     if (message) {

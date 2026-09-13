@@ -44,23 +44,23 @@ const MARKDOWN_COMPONENTS = {
   ol: ({ className, ...props }: ComponentProps<"ol">) => (
     <ol
       {...props}
-      className={`my-2.5 list-decimal space-y-1 pl-6 ${className ?? ""}`}
+      className={`my-2.5 min-w-0 list-decimal space-y-1 pl-6 [overflow-wrap:anywhere] ${className ?? ""}`}
     />
   ),
   p: ({ className, ...props }: ComponentProps<"p">) => (
     <p
       {...props}
-      className={`my-2.5 leading-6 break-words first:mt-0 last:mb-0 ${className ?? ""}`}
+      className={`my-2.5 min-w-0 leading-6 [overflow-wrap:anywhere] first:mt-0 last:mb-0 ${className ?? ""}`}
     />
   ),
   pre: ({ className, ...props }: ComponentProps<"pre">) => (
     <pre
       {...props}
-      className={`my-3 overflow-x-auto rounded-xl border bg-terminal p-3 text-xs leading-5 text-terminal-foreground [&_code]:bg-transparent [&_code]:p-0 ${className ?? ""}`}
+      className={`my-3 max-w-full min-w-0 overflow-x-auto rounded-xl border bg-terminal p-3 text-xs leading-5 text-terminal-foreground [&_code]:bg-transparent [&_code]:p-0 ${className ?? ""}`}
     />
   ),
   table: ({ className, ...props }: ComponentProps<"table">) => (
-    <div className="my-3 overflow-x-auto">
+    <div className="my-3 max-w-full min-w-0 overflow-x-auto">
       <table
         {...props}
         className={`w-full border-collapse text-sm [&_td]:border [&_td]:p-2 [&_th]:border [&_th]:bg-muted [&_th]:p-2 [&_th]:text-left ${className ?? ""}`}
@@ -70,7 +70,7 @@ const MARKDOWN_COMPONENTS = {
   ul: ({ className, ...props }: ComponentProps<"ul">) => (
     <ul
       {...props}
-      className={`my-2.5 list-disc space-y-1 pl-6 ${className ?? ""}`}
+      className={`my-2.5 min-w-0 list-disc space-y-1 pl-6 [overflow-wrap:anywhere] ${className ?? ""}`}
     />
   ),
 } satisfies Components

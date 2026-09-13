@@ -19,6 +19,7 @@ type Subscriber = {
 }
 
 const MAX_EVENTS = 1_000
+const MAX_EVENT_BYTES = 8 * 1024 * 1024
 const encoder = new TextEncoder()
 const EVENT_CURSOR_PATTERN =
   /^event-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-(\d+)$/i
@@ -53,6 +54,8 @@ export class EventHub {
   private readonly epoch = randomUUID()
   private sequence = 0
   private readonly events: WebEvent[] = []
+  private readonly eventSizes: number[] = []
+  private eventBytes = 0
   private readonly subscribers = new Set<Subscriber>()
 
   cursor() {
@@ -82,7 +85,16 @@ export class EventHub {
       timestamp: new Date().toISOString(),
     }
     this.events.push(event)
-    if (this.events.length > MAX_EVENTS) this.events.shift()
+    const bytes = encoder.encode(JSON.stringify(event)).byteLength
+    this.eventSizes.push(bytes)
+    this.eventBytes += bytes
+    while (
+      this.events.length > MAX_EVENTS ||
+      (this.eventBytes > MAX_EVENT_BYTES && this.events.length > 1)
+    ) {
+      this.events.shift()
+      this.eventBytes -= this.eventSizes.shift()!
+    }
     for (const subscriber of this.subscribers) {
       if (matches(subscriber, event)) subscriber.send(event)
     }

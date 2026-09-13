@@ -87,6 +87,7 @@ export function HashlineEditToolCard({
   result,
   running,
   failed,
+  incomplete,
   locale,
 }: {
   kind: HashlineEditToolKind
@@ -94,6 +95,7 @@ export function HashlineEditToolCard({
   result?: ToolResultView
   running: boolean
   failed: boolean
+  incomplete: boolean
   locale: Locale
 }) {
   const presentation = hashlineEditToolPresentation(
@@ -102,7 +104,8 @@ export function HashlineEditToolCard({
     result?.details,
     locale
   )
-  const noChange = !running && presentation.classification === "noop"
+  const noChange =
+    !running && !incomplete && presentation.classification === "noop"
   return (
     <ConversationDisclosure
       defaultOpen={false}
@@ -115,16 +118,18 @@ export function HashlineEditToolCard({
           ? translate(locale, "session.transcript.failed")
           : running
             ? translate(locale, "session.transcript.running")
-            : noChange
-              ? translate(locale, "session.hashline.noChange")
-              : translate(locale, "session.transcript.complete")
+            : incomplete
+              ? translate(locale, "session.transcript.incomplete")
+              : noChange
+                ? translate(locale, "session.hashline.noChange")
+                : translate(locale, "session.transcript.complete")
       }
       statusTone={
         failed
           ? "destructive"
           : running
             ? "running"
-            : noChange
+            : noChange || incomplete
               ? "muted"
               : "success"
       }

@@ -8,10 +8,21 @@ import {
 } from "lucide-react"
 import type { RuntimeStatus } from "@workspace/runtime-protocol"
 
-import { ConversationDisclosure } from "@/components/conversation-disclosure"
+import {
+  ConversationAnchorContext,
+  ConversationDisclosure,
+} from "@/components/conversation-disclosure"
+import { ConversationProcess } from "@/components/conversation-process"
 import { ConversationMessageParts } from "@/components/conversation-message-parts"
 import { Markdown } from "@/components/markdown"
-import { useStreamingRuntimeStatus } from "@/components/session-streaming-context"
+import {
+  useSessionTranscript,
+  useStreamingRuntimeStatus,
+} from "@/components/session-streaming-context"
+import {
+  DeferredHistoryEntry,
+  SessionHistoryLoader,
+} from "@/components/session-history-loader"
 import { UserMessage } from "@/components/user-message"
 import { WebUiMessageFallback } from "@/components/webui-message-fallback"
 import { stripAnsi } from "@/lib/ansi"
@@ -19,7 +30,10 @@ import { isPlaceholderCompactionSummary } from "@/lib/compaction-events"
 import { createTranslator, type Locale, type Translator } from "@/lib/i18n"
 import type { ToolResultView } from "@/lib/message-content"
 import { formatInlinePreview, formatTimestamp } from "@/lib/session-display"
-import { shellToolCommand } from "@/lib/shell-tool-result"
+import {
+  conversationRounds,
+  partitionConversationRound,
+} from "@/lib/conversation-rounds"
 import type {
   SessionSnapshot,
   TranscriptEntry,
@@ -67,6 +81,7 @@ function Message({
       <div id={`entry-${displayId}`} className={TRANSCRIPT_ITEM_CLASS}>
         <ConversationDisclosure
           defaultOpen={entry.isError === true}
+          entryIds={[entry.id]}
           label={<code className="font-mono text-xs">shell</code>}
           preview={commandText}
           icon={<TerminalIcon />}
@@ -92,12 +107,15 @@ function Message({
   const user = entry.role === "user"
   const assistant = entry.role === "assistant"
   const content = (
-    <ConversationMessageParts
-      parts={parts}
-      literal={entry.role === "toolResult"}
-      toolResults={toolResults}
-      locale={locale}
-    />
+    <ConversationAnchorContext value={entry.id}>
+      <ConversationMessageParts
+        parts={parts}
+        literal={entry.role === "toolResult"}
+        plainText={entry.role === "user"}
+        toolResults={toolResults}
+        locale={locale}
+      />
+    </ConversationAnchorContext>
   )
 
   if (user) {
@@ -133,6 +151,11 @@ function Message({
           {t("session.transcript.aborted")}
         </p>
       ) : null}
+      {entry.metadata?.stopReason === "length" ? (
+        <p className="text-xs text-muted-foreground">
+          {t("session.transcript.lengthLimit")}
+        </p>
+      ) : null}
     </article>
   )
 }
@@ -150,6 +173,7 @@ function Event({
     return (
       <div id={`entry-${entry.id}`} className={TRANSCRIPT_ITEM_CLASS}>
         <ConversationDisclosure
+          entryIds={[entry.id]}
           label={entry.title}
           preview={
             entry.text
@@ -174,6 +198,7 @@ function Event({
         <ConversationDisclosure
           label={entry.title}
           preview={formatInlinePreview(json(entry.value))}
+          entryIds={[entry.id]}
           icon={<CircleAlertIcon />}
           ariaLabel={t("session.tool.expand", { name: entry.title })}
         >
@@ -224,6 +249,7 @@ function SettingChanges({
       )}
       icon={<Settings2Icon />}
       ariaLabel={t("session.transcript.expandSettings")}
+      entryIds={entries.map((entry) => entry.id)}
       contentClassName="text-xs text-muted-foreground"
     >
       <div className="flex flex-col gap-2">
@@ -264,34 +290,6 @@ function transcriptBlocks(entries: TranscriptEntry[]) {
   return blocks
 }
 
-function isFinalOutputPart(part: TranscriptPart) {
-  return part.type !== "thinking" && part.type !== "toolCall"
-}
-
-function isFinalAssistantMessage(
-  entry: TranscriptEntry
-): entry is MessageEntry {
-  return (
-    entry.kind === "message" &&
-    entry.role === "assistant" &&
-    entry.parts.some(isFinalOutputPart)
-  )
-}
-
-function transcriptRounds(entries: TranscriptEntry[]) {
-  const rounds: TranscriptEntry[][] = []
-  let current: TranscriptEntry[] = []
-  for (const entry of entries) {
-    if (entry.kind === "message" && entry.role === "user" && current.length) {
-      rounds.push(current)
-      current = []
-    }
-    current.push(entry)
-  }
-  if (current.length) rounds.push(current)
-  return rounds
-}
-
 function elapsedDuration(entries: TranscriptEntry[]) {
   const timestamps = entries
     .map((entry) => Date.parse(entry.timestamp))
@@ -305,76 +303,8 @@ function elapsedDuration(entries: TranscriptEntry[]) {
   return `${Math.floor(seconds / 60)}m ${seconds % 60}s`
 }
 
-function processPreview(entries: TranscriptEntry[]) {
-  for (const entry of entries) {
-    if (entry.kind === "event") {
-      if (
-        entry.eventType === "model_change" ||
-        entry.eventType === "thinking_level_change" ||
-        entry.eventType === "compaction" ||
-        entry.eventType === "branch_summary"
-      ) {
-        continue
-      }
-      if (entry.text) return formatInlinePreview(entry.text, 80)
-      continue
-    }
-    if (entry.role === "toolResult") continue
-    for (const part of entry.parts) {
-      if (part.type === "toolCall") {
-        return formatInlinePreview(
-          shellToolCommand(part.name, part.arguments) || part.name,
-          80
-        )
-      }
-    }
-  }
-  return undefined
-}
-
-function ProcessDisclosure({
-  entries,
-  active,
-  t,
-  children,
-}: {
-  entries: TranscriptEntry[]
-  active: boolean
-  t: Translator
-  children: React.ReactNode
-}) {
-  if (!entries.length) return null
-  const preview = processPreview(entries)
-  const duration = elapsedDuration(entries)
-  const timed = Boolean(duration && duration !== "0s")
-
-  return (
-    <ConversationDisclosure
-      label={
-        !active && timed && duration
-          ? t("session.transcript.elapsed", { duration })
-          : t("session.transcript.process")
-      }
-      preview={preview}
-      icon={<TerminalIcon />}
-      tone="execute"
-      status={
-        active
-          ? t("session.transcript.running")
-          : t("session.transcript.complete")
-      }
-      statusTone={active ? "running" : "success"}
-      ariaLabel={t("session.transcript.expandProcess")}
-      className={TRANSCRIPT_ITEM_CLASS}
-      contentClassName="flex min-w-0 flex-col gap-5"
-    >
-      {children}
-    </ConversationDisclosure>
-  )
-}
-
 export function SessionTranscript({
-  snapshot,
+  snapshot: initialSnapshot,
   sessionId,
   mutationToken,
   workspaceUnavailable,
@@ -388,6 +318,7 @@ export function SessionTranscript({
   initialRuntimeStatus: RuntimeStatus
   locale: Locale
 }) {
+  const snapshot = useSessionTranscript(initialSnapshot)
   const t = createTranslator(locale)
   const liveRuntimeStatus = useStreamingRuntimeStatus()
   const toolResults = new Map<string, ToolResultView>()
@@ -412,7 +343,18 @@ export function SessionTranscript({
     }
   }
 
-  const rounds = transcriptRounds(snapshot.entries)
+  const rounds: TranscriptEntry[][] = []
+  let segment: TranscriptEntry[] = []
+  for (const entry of snapshot.entries) {
+    if (
+      entry.kind === "event" &&
+      (entry.deferred || entry.eventType === "compaction")
+    ) {
+      rounds.push(...conversationRounds(segment), [entry])
+      segment = []
+    } else segment.push(entry)
+  }
+  rounds.push(...conversationRounds(segment))
   const renderEntry = (
     entry: TranscriptEntry,
     options: { parts?: TranscriptPart[]; displayId?: string } = {}
@@ -426,6 +368,14 @@ export function SessionTranscript({
       return null
     }
     if (entry.kind !== "message") {
+      if (entry.deferred)
+        return (
+          <DeferredHistoryEntry
+            key={entry.id}
+            id={entry.id}
+            byteLength={entry.deferred.byteLength}
+          />
+        )
       return <Event key={entry.id} entry={entry} t={t} />
     }
     const message = (
@@ -454,60 +404,26 @@ export function SessionTranscript({
 
   return (
     <div className="flex min-w-0 flex-col gap-5">
+      <SessionHistoryLoader
+        cursor={snapshot.history?.nextCursor ?? null}
+        compact={snapshot.history?.boundary === "compaction"}
+        atLatest={snapshot.history?.atLatest !== false}
+      />
       {rounds.map((round, roundIndex) => {
-        const userIndex = round.findIndex(
-          (entry) => entry.kind === "message" && entry.role === "user"
+        if (
+          round.length === 1 &&
+          round[0]?.kind === "event" &&
+          (round[0].deferred || round[0].eventType === "compaction")
         )
-        if (userIndex < 0 && round.every(isSettingEvent)) return null
-        const user = userIndex >= 0 ? round[userIndex] : undefined
-        const content = userIndex >= 0 ? round.slice(userIndex + 1) : round
-        let finalIndex = -1
-        for (let index = content.length - 1; index >= 0; index -= 1) {
-          if (isFinalAssistantMessage(content[index]!)) {
-            finalIndex = index
-            break
-          }
-        }
-        const finalEntry: MessageEntry | undefined =
-          finalIndex >= 0 && isFinalAssistantMessage(content[finalIndex]!)
-            ? (content[finalIndex] as MessageEntry)
-            : undefined
-        const processEntries: TranscriptEntry[] = []
-        const trailingEntries: TranscriptEntry[] = []
-        for (const [index, entry] of content.entries()) {
-          if (index === finalIndex && entry.kind === "message") {
-            const finalPartIndex = entry.parts.findIndex(isFinalOutputPart)
-            const processParts = entry.parts.slice(0, finalPartIndex)
-            if (processParts.length) {
-              processEntries.push({
-                ...entry,
-                id: `${entry.id}:process`,
-                parts: processParts,
-              })
-            }
-            continue
-          }
-          if (finalIndex >= 0 && index > finalIndex) {
-            trailingEntries.push(entry)
-            continue
-          }
-          if (entry.kind !== "message") {
-            processEntries.push(entry)
-            continue
-          }
-          if (entry.parts.length) processEntries.push(entry)
-        }
-
-        const roundEntries = [
-          ...round.slice(0, Math.max(0, userIndex)),
-          ...(user ? [user] : []),
-        ]
-        const finalPartIndex =
-          finalEntry?.parts.findIndex(isFinalOutputPart) ?? -1
-        const finalParts =
-          finalEntry && finalPartIndex >= 0
-            ? finalEntry.parts.slice(finalPartIndex)
-            : []
+          return renderEntry(round[0])
+        const {
+          leading,
+          process: processEntries,
+          response: finalEntry,
+          trailing: trailingEntries,
+          outcome,
+        } = partitionConversationRound(round)
+        if (round.every(isSettingEvent)) return null
         const runtimeStatus = liveRuntimeStatus ?? initialRuntimeStatus
         const active =
           (runtimeStatus === "starting" ||
@@ -520,28 +436,39 @@ export function SessionTranscript({
             key={round[0]?.id ?? `round-${roundIndex}`}
             className="flex min-w-0 flex-col gap-5"
           >
-            {roundEntries.map((entry) => renderEntry(entry))}
+            {leading.map((entry) => renderEntry(entry))}
             {processEntries.length && processEntries.every(isSettingEvent) ? (
-              userIndex >= 0 ? (
+              leading.length ? (
                 <SettingChanges
                   entries={processEntries.filter(isSettingEvent)}
                   t={t}
                 />
               ) : null
             ) : processEntries.length ? (
-              <ProcessDisclosure entries={processEntries} active={active} t={t}>
+              <ConversationProcess
+                disclosureKey={JSON.stringify([sessionId, round[0]?.id])}
+                hasResponse={Boolean(finalEntry)}
+                outcome={outcome}
+                active={active}
+                duration={elapsedDuration(round)}
+                entryIds={processEntries.map((entry) => entry.id)}
+                t={t}
+              >
                 {transcriptBlocks(processEntries).map((block) =>
                   Array.isArray(block) ? (
                     <SettingChanges key={block[0]?.id} entries={block} t={t} />
                   ) : (
-                    renderEntry(block)
+                    renderEntry(block, {
+                      displayId:
+                        block.id === finalEntry?.id
+                          ? `${block.id}:process`
+                          : block.id,
+                    })
                   )
                 )}
-              </ProcessDisclosure>
+              </ConversationProcess>
             ) : null}
-            {finalEntry && finalParts.length
-              ? renderEntry(finalEntry, { parts: finalParts })
-              : null}
+            {finalEntry ? renderEntry(finalEntry) : null}
             {trailingEntries.map((entry) => renderEntry(entry))}
           </div>
         )

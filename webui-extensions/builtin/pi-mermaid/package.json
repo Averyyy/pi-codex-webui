@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "@pi-web-codex/extension-sdk": "workspace:*",
-    "mermaid": "^11.0.0"
+    "mermaid": "^12.0.0"
   },
   "devDependencies": {
     "@types/node": "^26.1.1",

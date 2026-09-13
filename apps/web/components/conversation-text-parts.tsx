@@ -31,15 +31,23 @@ function ImagePart({
 function ConversationTextPart({
   part,
   literal,
+  plainText,
   thinkingActive,
   locale,
 }: {
   part: Exclude<TranscriptPart, { type: "toolCall" }>
   literal: boolean
+  plainText: boolean
   thinkingActive: boolean
   locale: Locale
 }) {
   if (part.type === "text") {
+    if (plainText)
+      return (
+        <p className="leading-6 [overflow-wrap:anywhere] whitespace-pre-wrap">
+          {stripAnsi(part.text)}
+        </p>
+      )
     return literal ? (
       <pre className="max-h-96 overflow-auto rounded-lg border bg-terminal p-3 font-mono text-xs leading-5 whitespace-pre-wrap text-terminal-foreground">
         {stripAnsi(part.text)}
@@ -54,7 +62,9 @@ function ConversationTextPart({
       <div className="flex min-w-0 items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-sm text-destructive">
         <CircleAlertIcon className="mt-0.5 size-4 shrink-0" />
         <div className="min-w-0">
-          <p className="font-medium">{error.title}</p>
+          <p className="font-medium">
+            {translate(locale, "session.transcript.replyFailed")}
+          </p>
           <p className="mt-0.5 break-words">{error.message}</p>
         </div>
       </div>
@@ -105,11 +115,13 @@ function ConversationTextPart({
 export function ConversationTextParts({
   parts,
   literal = false,
+  plainText = false,
   thinkingActive = false,
   locale,
 }: {
   parts: TranscriptPart[]
   literal?: boolean
+  plainText?: boolean
   thinkingActive?: boolean
   locale: Locale
 }) {
@@ -119,6 +131,7 @@ export function ConversationTextParts({
         key={index}
         part={part}
         literal={literal}
+        plainText={plainText}
         thinkingActive={thinkingActive}
         locale={locale}
       />

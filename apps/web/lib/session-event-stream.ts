@@ -1,4 +1,5 @@
 export type SessionEventListener = (event: Event) => void
+import { compareEventCursors } from "./session-live-events"
 export type SessionConnectionState = "open" | "error"
 
 interface EventSourceLike {
@@ -21,24 +22,26 @@ export class SessionEventStream {
     (state: SessionConnectionState) => void
   >()
   private readonly pendingEvents: Event[] = []
-  private readonly url: string
+  private cursor: string
+  private minimumCursor: string
 
   constructor(
-    sessionId: string,
+    private readonly sessionId: string,
     initialEventCursor: string,
     private readonly createEventSource: EventSourceFactory = browserEventSource,
     private readonly bufferUnsubscribed = false
   ) {
-    const search = new URLSearchParams({
-      sessionId,
-      after: initialEventCursor,
-    })
-    this.url = `/api/v1/events?${search}`
+    this.cursor = initialEventCursor
+    this.minimumCursor = initialEventCursor
   }
 
   open() {
     if (this.source) return
-    const source = this.createEventSource(this.url)
+    const search = new URLSearchParams({
+      sessionId: this.sessionId,
+      after: this.cursor,
+    })
+    const source = this.createEventSource(`/api/v1/events?${search}`)
     this.source = source
     source.addEventListener("open", this.handleOpen)
     source.addEventListener("error", this.handleError)
@@ -86,13 +89,25 @@ export class SessionEventStream {
   }
 
   close() {
-    this.source?.close()
-    this.source = null
-    this.connectionState = null
+    this.pause()
     this.listeners.clear()
     this.forwarders.clear()
     this.pendingEvents.length = 0
     this.connectionListeners.clear()
+  }
+
+  pause() {
+    this.source?.close()
+    this.source = null
+    this.connectionState = null
+    this.forwarders.clear()
+  }
+
+  setCursor(cursor: string) {
+    const order = compareEventCursors(cursor, this.cursor)
+    if (order === null || order >= 0) this.cursor = cursor
+    const minimumOrder = compareEventCursors(cursor, this.minimumCursor)
+    if (minimumOrder === null || minimumOrder >= 0) this.minimumCursor = cursor
   }
 
   clearPending() {
@@ -102,15 +117,28 @@ export class SessionEventStream {
   private attach(type: string) {
     if (!this.source || this.forwarders.has(type)) return
     const forward: EventListener = (event) => {
+      const eventId = (event as MessageEvent<string>).lastEventId
+      if (eventId) {
+        const order = compareEventCursors(eventId, this.minimumCursor)
+        if (order !== null && order <= 0) return
+        this.cursor = eventId
+      }
       const listeners = this.listeners.get(type)
       if (!listeners || listeners.size === 0) {
         if (!this.bufferUnsubscribed) return
         this.pendingEvents.push(event)
         if (this.pendingEvents.length > MAX_PENDING_EVENTS) {
-          this.pendingEvents.splice(
-            0,
-            this.pendingEvents.length - MAX_PENDING_EVENTS
-          )
+          this.pendingEvents.length = 0
+          const resync = new MessageEvent("resync.required", {
+            data: JSON.stringify({
+              id: this.cursor,
+              type: "resync.required",
+              sessionId: this.sessionId,
+              payload: { reason: "client-buffer-overflow" },
+            }),
+          })
+          for (const listener of this.listeners.get("resync.required") ?? [])
+            listener(resync)
         }
         return
       }

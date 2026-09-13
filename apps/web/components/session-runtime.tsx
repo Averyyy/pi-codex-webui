@@ -4,7 +4,6 @@ import {
   useCallback,
   useEffect,
   useEffectEvent,
-  useLayoutEffect,
   useRef,
   useState,
   useTransition,
@@ -97,15 +96,11 @@ import { notifyWhenHidden } from "@/lib/browser-notifications"
 import { compactionEndOutcome } from "@/lib/compaction-events"
 import type { PiGoalState } from "@/lib/pi-goal"
 import { reconcilePromptQueueMutation } from "@/lib/prompt-queue-sync"
-import type { RuntimeStreamMessage } from "@/lib/session-stream-store"
+import { parseSessionLiveEvent } from "@/lib/session-live-events"
+import { useStreamingRuntimeStatus } from "@/components/session-streaming-context"
 import { draftAfterAcceptedSend } from "@/lib/session-composer-draft-store"
 import { isVisibleTuiSurface } from "@/lib/tui-surface"
 import type { Translator } from "@/lib/i18n"
-
-interface RuntimeEvent {
-  type: string
-  payload: unknown
-}
 
 type ActiveExtensionRequest = Extract<
   ExtensionUIRequest,
@@ -243,58 +238,6 @@ function applyTuiSurfaceEvent(
   }
 }
 
-function messageFromPayload(payload: unknown) {
-  if (
-    typeof payload !== "object" ||
-    payload === null ||
-    !("message" in payload)
-  ) {
-    return null
-  }
-  const message = payload.message
-  if (
-    typeof message !== "object" ||
-    message === null ||
-    !("role" in message) ||
-    typeof message.role !== "string" ||
-    !("content" in message)
-  ) {
-    throw new Error("Runtime emitted an invalid Pi message event.")
-  }
-  const record = message as Record<string, unknown>
-  for (const [key, type] of [
-    ["customType", "string"],
-    ["toolCallId", "string"],
-    ["toolName", "string"],
-    ["isError", "boolean"],
-    ["errorMessage", "string"],
-    ["display", "boolean"],
-    ["timestamp", "number"],
-  ] as const) {
-    if (record[key] !== undefined && typeof record[key] !== type) {
-      throw new Error(`Runtime emitted an invalid ${key}.`)
-    }
-  }
-  return record as unknown as RuntimeStreamMessage
-}
-
-function toolExecution(payload: unknown) {
-  if (
-    typeof payload !== "object" ||
-    payload === null ||
-    !("toolCallId" in payload) ||
-    typeof payload.toolCallId !== "string" ||
-    !("toolName" in payload) ||
-    typeof payload.toolName !== "string"
-  ) {
-    throw new Error("Runtime emitted an invalid tool event.")
-  }
-  return payload as {
-    toolCallId: string
-    toolName: string
-  } & Record<string, unknown>
-}
-
 function retryDescription(t: Translator, payload: unknown) {
   if (
     typeof payload !== "object" ||
@@ -315,14 +258,12 @@ function retryDescription(t: Translator, payload: unknown) {
 export function SessionRuntime({
   sessionId,
   mutationToken,
-  initialEventCursor,
   initialStatus,
   initialSnapshot,
   initialGoalState,
 }: {
   sessionId: string
   mutationToken: string
-  initialEventCursor: string
   initialStatus: RuntimeStatus
   initialSnapshot: RuntimeSnapshot | null
   initialGoalState: PiGoalState | null
@@ -333,7 +274,7 @@ export function SessionRuntime({
   const stream = useSessionStreaming()
   const composerDraftStore = useSessionComposerDraftStore()
   const [, startTranscriptTransition] = useTransition()
-  const [status, setStatus] = useState(initialStatus)
+  const status = useStreamingRuntimeStatus() ?? initialStatus
   const [snapshot, setSnapshot] = useState(initialSnapshot)
   const [initialComposerDraft] = useState(() =>
     composerDraftStore.read(sessionId)
@@ -428,11 +369,10 @@ export function SessionRuntime({
   const extensionRequestLoadSequence = useRef(0)
   const runtimeStateLoadSequence = useRef(0)
   const runtimeStateGeneration = useRef(0)
-  const wasBusy = useRef(false)
-  const agentRunActive = useRef(initialStatus === "busy")
+  const wasBusy = useRef(status === "busy")
+  const agentRunActive = useRef(status === "busy")
   const streamRevision = useRef(0)
   const completedStreamRevision = useRef<number | null>(null)
-  const committedEventCursor = useRef(initialEventCursor)
   const selectedModel = snapshot?.model
   const queuedControl = (
     type: NonNullable<QueuedPromptItem["control"]>["type"]
@@ -459,7 +399,6 @@ export function SessionRuntime({
 
   const updateRuntimeStatus = useCallback(
     (nextStatus: RuntimeStatus) => {
-      setStatus(nextStatus)
       stream.setRuntimeStatus(nextStatus)
     },
     [stream]
@@ -476,19 +415,6 @@ export function SessionRuntime({
       setCompactQueuedOptimistic(false)
     }
   }, [])
-
-  useLayoutEffect(() => {
-    stream.setRuntimeStatus(status)
-  }, [status, stream])
-
-  useLayoutEffect(() => {
-    if (committedEventCursor.current === initialEventCursor) return
-    committedEventCursor.current = initialEventCursor
-    const completed = completedStreamRevision.current
-    if (completed === null) return
-    completedStreamRevision.current = null
-    if (streamRevision.current === completed) stream.clear(true)
-  }, [initialEventCursor, stream])
 
   async function mutate<T>(
     path: string,
@@ -734,18 +660,19 @@ export function SessionRuntime({
   }
 
   useEffect(() => {
-    void Promise.all([loadTuiSurfaces(), loadExtensionRequests()]).catch(
-      (failure: unknown) =>
-        setError(failure instanceof Error ? failure.message : String(failure))
+    void Promise.all([
+      loadRuntimeState(),
+      loadTuiSurfaces(),
+      loadExtensionRequests(),
+    ]).catch((failure: unknown) =>
+      setError(failure instanceof Error ? failure.message : String(failure))
     )
     const handoffTranscript = () => {
       completedStreamRevision.current = streamRevision.current
       startTranscriptTransition(() => router.refresh())
     }
     const handle = (source: Event) => {
-      const event = JSON.parse(
-        (source as MessageEvent<string>).data
-      ) as RuntimeEvent
+      const event = parseSessionLiveEvent(source)
       if (
         [
           "runtime.starting",
@@ -767,7 +694,7 @@ export function SessionRuntime({
         streamRevision.current += 1
         agentRunActive.current = false
         completedStreamRevision.current = null
-        stream.clear(true)
+
         updateRuntimeStatus("starting")
         setTuiSurfaces({})
         pendingSurfaceEvents.current.clear()
@@ -780,7 +707,11 @@ export function SessionRuntime({
       }
       if (event.type === "runtime.ready") {
         const nextSnapshot = runtimeSnapshotSchema.parse(event.payload)
-        updateRuntimeStatus("ready")
+        updateRuntimeStatus(
+          nextSnapshot.isStreaming || nextSnapshot.isCompacting
+            ? "busy"
+            : "ready"
+        )
         setSnapshot(nextSnapshot)
         updateQueuedMessages(nextSnapshot.queuedPrompts)
         setExtensionStatuses(nextSnapshot.extensionStatuses)
@@ -818,8 +749,6 @@ export function SessionRuntime({
         if (agentRunActive.current) {
           agentRunActive.current = false
           handoffTranscript()
-        } else if (completedStreamRevision.current === null) {
-          stream.clear(true)
         }
         updateRuntimeStatus("stopped")
         setSnapshot(null)
@@ -837,8 +766,6 @@ export function SessionRuntime({
         if (agentRunActive.current) {
           agentRunActive.current = false
           handoffTranscript()
-        } else if (completedStreamRevision.current === null) {
-          stream.clear(true)
         }
         wasBusy.current = false
         updateRuntimeStatus("crashed")
@@ -858,25 +785,13 @@ export function SessionRuntime({
         )
       }
       if (event.type === "session.message.start") {
-        const message = messageFromPayload(event.payload)
-        if (!message) throw new Error("Runtime omitted a started message.")
         if (!agentRunActive.current) {
           agentRunActive.current = true
           streamRevision.current += 1
           completedStreamRevision.current = null
         }
-        stream.startMessage(message)
       }
-      if (event.type === "session.message.update") {
-        const message = messageFromPayload(event.payload)
-        if (!message) throw new Error("Runtime omitted an updated message.")
-        stream.updateMessage(message)
-      }
-      if (event.type === "session.message.end") {
-        const message = messageFromPayload(event.payload)
-        if (!message) throw new Error("Runtime omitted a completed message.")
-        stream.endMessage(message)
-      }
+
       if (
         event.type === "session.entry.appended" &&
         !agentRunActive.current &&
@@ -911,48 +826,10 @@ export function SessionRuntime({
         }
         agentRunActive.current = false
         completedStreamRevision.current = null
-        stream.clear(true)
+
         router.refresh()
       }
-      if (event.type === "tool.execution.start") {
-        const tool = toolExecution(event.payload)
-        if (!("args" in tool)) {
-          throw new Error("Runtime omitted started tool arguments.")
-        }
-        stream.startTool({
-          toolCallId: tool.toolCallId,
-          toolName: tool.toolName,
-          args: tool.args,
-        })
-      }
-      if (event.type === "tool.execution.update") {
-        const tool = toolExecution(event.payload)
-        if (!("args" in tool) || !("partialResult" in tool)) {
-          throw new Error("Runtime omitted a partial tool result.")
-        }
-        stream.updateTool({
-          toolCallId: tool.toolCallId,
-          toolName: tool.toolName,
-          args: tool.args,
-          partialResult: tool.partialResult,
-        })
-      }
-      if (event.type === "tool.execution.end") {
-        const tool = toolExecution(event.payload)
-        if (
-          !("result" in tool) ||
-          !("isError" in tool) ||
-          typeof tool.isError !== "boolean"
-        ) {
-          throw new Error("Runtime omitted a completed tool result.")
-        }
-        stream.endTool({
-          toolCallId: tool.toolCallId,
-          toolName: tool.toolName,
-          result: tool.result,
-          isError: tool.isError,
-        })
-      }
+
       if (event.type === "queue.updated") {
         updateQueuedMessages(queueUpdatedEventSchema.parse(event.payload).items)
       }
@@ -1087,7 +964,7 @@ export function SessionRuntime({
       }
       if (event.type === "resync.required") {
         completedStreamRevision.current = null
-        stream.clear(true)
+
         agentRunActive.current = false
         wasBusy.current = false
         clearExtensionUi()

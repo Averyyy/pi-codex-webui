@@ -99,6 +99,7 @@ export function FileMutationToolCard({
   result,
   running,
   failed,
+  incomplete,
   locale,
 }: {
   kind: FileMutationToolKind
@@ -106,6 +107,7 @@ export function FileMutationToolCard({
   result?: ToolResultView
   running: boolean
   failed: boolean
+  incomplete: boolean
   locale: Locale
 }) {
   const presentation = fileMutationToolPresentation(
@@ -144,9 +146,22 @@ export function FileMutationToolCard({
           ? translate(locale, "session.transcript.failed")
           : running
             ? translate(locale, "session.transcript.running")
-            : translate(locale, "session.transcript.complete")
+            : translate(
+                locale,
+                incomplete
+                  ? "session.transcript.incomplete"
+                  : "session.transcript.complete"
+              )
       }
-      statusTone={failed ? "destructive" : running ? "running" : "success"}
+      statusTone={
+        failed
+          ? "destructive"
+          : running
+            ? "running"
+            : incomplete
+              ? "muted"
+              : "success"
+      }
       ariaLabel={translate(locale, "session.tool.expand", {
         name: presentation.label,
       })}

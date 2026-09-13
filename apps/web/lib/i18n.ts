@@ -4,6 +4,26 @@ export type Locale = (typeof locales)[number]
 export const DEFAULT_LOCALE: Locale = "zh-CN"
 
 const messages = {
+  "session.history.latest": {
+    "zh-CN": "回到最新记录",
+    "en-US": "Back to latest messages",
+  },
+  "session.history.beforeCompact": {
+    "zh-CN": "加载压缩前的记录",
+    "en-US": "Load history before compaction",
+  },
+  "session.history.earlier": {
+    "zh-CN": "加载更早的记录",
+    "en-US": "Load earlier history",
+  },
+  "session.history.largeEntry": {
+    "zh-CN": "加载较大的记录（{size} KB）",
+    "en-US": "Load large entry ({size} KB)",
+  },
+  "session.list.loading": {
+    "zh-CN": "正在加载对话",
+    "en-US": "Loading conversations",
+  },
   "ui.close": { "zh-CN": "关闭", "en-US": "Close" },
   "ui.skipToMain": {
     "zh-CN": "跳到主要内容",
@@ -77,7 +97,8 @@ const messages = {
   },
   "session.runtime.commandInvoked": {
     "zh-CN": "已发送命令 {command}。若没有出现面板，该命令可能只支持 TUI。",
-    "en-US": "Sent {command}. If nothing appeared, this command may be TUI-only.",
+    "en-US":
+      "Sent {command}. If nothing appeared, this command may be TUI-only.",
   },
   "composer.send": { "zh-CN": "发送", "en-US": "Send" },
   "composer.placeholder": {
@@ -623,6 +644,15 @@ const messages = {
   "session.transcript.failed": { "zh-CN": "失败", "en-US": "Failed" },
   "session.transcript.running": { "zh-CN": "运行中", "en-US": "Running" },
   "session.transcript.complete": { "zh-CN": "完成", "en-US": "Complete" },
+  "session.transcript.incomplete": { "zh-CN": "未完成", "en-US": "Incomplete" },
+  "session.transcript.lengthLimit": {
+    "zh-CN": "回复达到长度上限。",
+    "en-US": "The response reached its length limit.",
+  },
+  "session.transcript.replyFailed": {
+    "zh-CN": "回复失败",
+    "en-US": "Reply failed",
+  },
   "session.transcript.aborted": { "zh-CN": "已中止", "en-US": "Stopped" },
   "session.transcript.compactionEmpty": {
     "zh-CN": "压缩后无额外摘要",
@@ -634,11 +664,15 @@ const messages = {
   },
   "session.transcript.elapsed": {
     "zh-CN": "用时 {duration}",
-    "en-US": "Took {duration}",
+    "en-US": "Worked for {duration}",
   },
   "session.transcript.expandProcess": {
     "zh-CN": "展开执行过程",
     "en-US": "Expand work performed",
+  },
+  "session.transcript.collapseProcess": {
+    "zh-CN": "收起执行过程",
+    "en-US": "Collapse work performed",
   },
   "session.transcript.expandShell": {
     "zh-CN": "展开 shell 详情",

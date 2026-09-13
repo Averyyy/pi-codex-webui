@@ -9,12 +9,14 @@ const EMPTY_TOOL_RESULTS = new Map<string, ToolResultView>()
 export function ConversationMessageParts({
   parts,
   literal = false,
+  plainText = false,
   thinkingActive = false,
   toolResults = EMPTY_TOOL_RESULTS,
   locale,
 }: {
   parts: TranscriptPart[]
   literal?: boolean
+  plainText?: boolean
   thinkingActive?: boolean
   toolResults?: ReadonlyMap<string, ToolResultView>
   locale: Locale
@@ -32,6 +34,7 @@ export function ConversationMessageParts({
         key={index}
         parts={[part]}
         literal={literal}
+        plainText={plainText}
         thinkingActive={thinkingActive}
         locale={locale}
       />
