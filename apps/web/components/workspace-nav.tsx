@@ -50,7 +50,7 @@ import { useSessionIndicators } from "@/hooks/use-session-indicators"
 import { useSessionPage } from "@/hooks/use-session-page"
 import { SessionPageSentinel } from "@/components/session-page-sentinel"
 import type { ShortcutCommandId } from "@/lib/keyboard-shortcuts"
-import { pickWorkspaceProject } from "@/lib/project-picker-client"
+import { useProjectPicker } from "@/components/project-picker-provider"
 import type {
   SessionPage,
   SessionSummary,
@@ -90,6 +90,7 @@ export function WorkspaceNav({
   mutationToken: string
 }) {
   const pathname = usePathname()
+  const pickWorkspaceProject = useProjectPicker()
   const router = useRouter()
   const { t } = useI18n()
   const { ariaBindings, formattedBindings } = useKeyboardShortcuts()
@@ -327,6 +328,7 @@ export function WorkspaceNav({
   async function addProject() {
     if (addingProjectRef.current) return
     addingProjectRef.current = true
+    if (isMobile) setOpenMobile(false)
     setAddingProject(true)
     try {
       if (await pickWorkspaceProject(mutationToken)) router.refresh()
@@ -573,7 +575,7 @@ export function WorkspaceNav({
                   asChild
                   tooltip={t("workspace.nav.settings")}
                 >
-                  <Link href="/settings/general">
+                  <Link prefetch={false} href="/settings/general">
                     <SettingsIcon />
                     <span>{t("workspace.nav.settings")}</span>
                   </Link>

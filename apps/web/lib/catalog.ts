@@ -314,6 +314,25 @@ export async function removeWorkspaceProject(projectId: string) {
   )
 }
 
+// Project selectors need identities only, not counts or conversation previews.
+export async function listWorkspaceProjectChoices(): Promise<
+  Pick<ProjectSummary, "id" | "name" | "path">[]
+> {
+  const database = await getDatabase()
+  const rows = database
+    .prepare(
+      `
+    SELECT projects.id, display_name AS name, canonical_path AS path
+    FROM project_registrations
+    JOIN projects ON projects.id = project_registrations.project_id
+    ORDER BY projects.pinned_at IS NULL, projects.pinned_at DESC,
+             projects.updated_at DESC, display_name COLLATE NOCASE
+  `
+    )
+    .all() as unknown as Pick<ProjectSummary, "id" | "name" | "path">[]
+  return rows.map(({ id, name, path }) => ({ id, name, path }))
+}
+
 export async function listWorkspaceProjects(): Promise<WorkspaceProject[]> {
   const database = await getDatabase()
   const projects = database

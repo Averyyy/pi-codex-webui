@@ -1,44 +1,29 @@
-import { execFile } from "node:child_process"
-import { promisify } from "node:util"
-
-import { addWorkspaceProject } from "@/lib/catalog"
-import {
-  decodeProjectDirectoryPickerOutput,
-  projectDirectoryPicker,
-} from "@/lib/project-directory-picker"
+import { z } from "zod"
+import { listProjectDirectories } from "@/lib/project-directory-picker"
 import { validateLocalMutation } from "@/lib/request-security"
+import { readJsonBody } from "@/lib/runtime-api"
 
 export const runtime = "nodejs"
-
-const execFileAsync = promisify(execFile)
+const schema = z.object({ path: z.string().min(1).max(4096).optional() })
 
 export async function POST(request: Request) {
   const securityError = validateLocalMutation(request)
-  if (securityError) {
+  if (securityError)
     return Response.json({ error: securityError }, { status: 403 })
-  }
-
-  const picker = projectDirectoryPicker(process.platform)
-  if (!picker) {
+  try {
+    const parsed = schema.safeParse(await readJsonBody(request))
+    if (!parsed.success)
+      return Response.json(
+        { error: "Invalid directory path." },
+        { status: 400 }
+      )
+    return Response.json(await listProjectDirectories(parsed.data.path), {
+      headers: { "Cache-Control": "no-store" },
+    })
+  } catch (error) {
     return Response.json(
-      {
-        error: `Selecting project folders is not supported on ${process.platform}.`,
-      },
-      { status: 501 }
+      { error: error instanceof Error ? error.message : String(error) },
+      { status: 400 }
     )
   }
-
-  const { stdout } = await execFileAsync(picker.command, picker.args, {
-    encoding: "utf8",
-    windowsHide: true,
-  })
-  const selectedPath = decodeProjectDirectoryPickerOutput(picker, stdout)
-  if (selectedPath === null) {
-    return new Response(null, { status: 204 })
-  }
-
-  return Response.json(await addWorkspaceProject(selectedPath), {
-    status: 201,
-    headers: { "Cache-Control": "no-store" },
-  })
 }

@@ -1054,12 +1054,12 @@ export class RuntimeSupervisor {
     return catalog
   }
 
-  async modelSettings(cwd: string) {
+  async modelSettings(cwd: string, scope: "all" | "enabled" = "all") {
     return modelSettingsSchema.parse(
       await this.resourceRequest({
         type: "models.catalog",
         requestId: requestId(),
-        payload: { cwd, agentDir: getPiAgentDir() },
+        payload: { cwd, agentDir: getPiAgentDir(), scope },
       })
     )
   }
@@ -1966,7 +1966,10 @@ export class RuntimeSupervisor {
         runtime,
         message.payload
       )
-      runtime.status = runtime.snapshot.isStreaming || runtime.snapshot.isCompacting ? "busy" : "ready"
+      runtime.status =
+        runtime.snapshot.isStreaming || runtime.snapshot.isCompacting
+          ? "busy"
+          : "ready"
       runtime.live = new RuntimeLiveState(runtime.snapshot.leafId)
       this.resolvePending(runtime, message.requestId, runtime.snapshot)
       this.eventHub.publish({

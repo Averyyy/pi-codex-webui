@@ -294,3 +294,94 @@ test("stale model scope mutations cannot overwrite a newer scope", async () => {
     await rm(root, { recursive: true, force: true })
   }
 })
+
+test("composer reads only scoped models without live refresh or provider metadata", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "pi-scoped-models-"))
+  try {
+    await writeFile(
+      path.join(root, "models.json"),
+      JSON.stringify({
+        providers: {
+          scoped: {
+            api: "openai-completions",
+            baseUrl: "http://127.0.0.1:1/v1",
+            apiKey: "fixture-key",
+            models: [
+              { id: "selected", name: "Selected", reasoning: true },
+              { id: "excluded", name: "Excluded" },
+            ],
+          },
+        },
+      })
+    )
+    await writeFile(
+      path.join(root, "settings.json"),
+      JSON.stringify({
+        enabledModels: ["scoped/selected:high"],
+        defaultProvider: "scoped",
+        defaultModel: "selected",
+      })
+    )
+    const guardedAgent = {
+      ...codingAgent,
+      ModelRuntime: {
+        create() {
+          throw new Error(
+            "Composer must not construct the settings provider catalog"
+          )
+        },
+      },
+      async createAgentSessionServices(
+        options: Parameters<typeof codingAgent.createAgentSessionServices>[0]
+      ) {
+        const services = await codingAgent.createAgentSessionServices(options)
+        const runtime = services.modelRuntime
+        services.modelRuntime = new Proxy(runtime, {
+          get(target, property) {
+            if (
+              ["refresh", "listCredentials", "getProviders"].includes(
+                String(property)
+              )
+            ) {
+              return () => {
+                throw new Error(`Composer must not call ${String(property)}`)
+              }
+            }
+            const value = Reflect.get(target, property, target)
+            return typeof value === "function" ? value.bind(target) : value
+          },
+        })
+        return services
+      },
+    } as unknown as typeof codingAgent
+    const read = () =>
+      handleModelSettingsMessage(guardedAgent, modelThinking, {
+        type: "models.catalog",
+        requestId: "scoped",
+        payload: { cwd: root, agentDir: root, scope: "enabled" },
+      })
+    const result = await read()
+    assert.deepEqual(
+      result.models.map((model) => model.id),
+      ["selected"]
+    )
+    assert.equal(result.models[0]?.defaultThinkingLevel, "high")
+    assert.equal(result.defaultModel?.id, "selected")
+    assert.deepEqual(result.providers, [])
+    await writeFile(
+      path.join(root, "settings.json"),
+      JSON.stringify({ enabledModels: ["scoped/excluded"] })
+    )
+    assert.deepEqual(
+      (await read()).models.map((model) => model.id),
+      ["excluded"]
+    )
+    await writeFile(
+      path.join(root, "settings.json"),
+      JSON.stringify({ enabledModels: ["scoped/missing"] })
+    )
+    await assert.rejects(read(), /No models match/)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})

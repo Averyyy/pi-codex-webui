@@ -5,7 +5,7 @@ import { mkdir } from "node:fs/promises"
 import {
   getProjectRuntimeTarget,
   getSessionRuntimeTarget,
-  listWorkspaceProjects,
+  listWorkspaceProjectChoices,
 } from "@/lib/catalog"
 import { getAppPaths } from "@/lib/app-paths"
 import { getMutationToken } from "@/lib/request-security"
@@ -17,7 +17,7 @@ export async function resolveModelSettingsCwd(sessionId?: string) {
     return session?.cwd ?? null
   }
 
-  const projects = await listWorkspaceProjects()
+  const projects = await listWorkspaceProjectChoices()
   return projects[0]?.path ?? process.cwd()
 }
 
@@ -48,5 +48,5 @@ export async function loadNewConversationModelSettings(
   projectId: string | null
 ) {
   const cwd = await resolveNewConversationModelSettingsCwd(projectId)
-  return cwd ? getRuntimeSupervisor().modelSettings(cwd) : null
+  return cwd ? getRuntimeSupervisor().modelSettings(cwd, "enabled") : null
 }

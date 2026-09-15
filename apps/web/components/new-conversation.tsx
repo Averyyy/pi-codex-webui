@@ -58,7 +58,7 @@ interface CreatedSession {
 
 interface ModelSelection {
   projectId: string | null
-  settings: ModelSettings
+  settings: ModelSettings | null
   model: ModelSettingsModel | null
   thinkingLevel: ThinkingLevel | null
 }
@@ -67,16 +67,16 @@ function modelKey(model: Pick<RuntimeModel, "provider" | "id">) {
   return `${model.provider}/${model.id}`
 }
 
-function enabledModels(settings: ModelSettings) {
-  return settings.models.filter((model) => model.enabled)
+function enabledModels(settings: ModelSettings | null) {
+  return (settings?.models ?? []).filter((model) => model.enabled)
 }
 
-function initialModel(settings: ModelSettings) {
+function initialModel(settings: ModelSettings | null) {
   const models = enabledModels(settings)
   return (
     models.find(
       (model) =>
-        settings.defaultModel !== null &&
+        settings?.defaultModel != null &&
         modelKey(model) === modelKey(settings.defaultModel)
     ) ??
     models[0] ??
@@ -111,7 +111,7 @@ export function NewConversation({
 }: {
   projects: NewConversationProject[]
   initialProjectId: string | null
-  initialModelSettings: ModelSettings
+  initialModelSettings: ModelSettings | null
   mutationToken: string
 }) {
   const router = useRouter()
@@ -218,7 +218,11 @@ export function NewConversation({
     const text = message.trim()
     const submittedMessage = message
     const submittedImages = composerImages.images
-    if ((!text && submittedImages.length === 0) || submittingRef.current) {
+    if (
+      (!text && submittedImages.length === 0) ||
+      submittingRef.current ||
+      !initialModelSettings
+    ) {
       return
     }
 
@@ -337,7 +341,7 @@ export function NewConversation({
           placeholder={t("home.composer.placeholder")}
           ariaLabel={t("home.composer.ariaLabel")}
           submitting={submitting}
-          sendDisabled={composerImages.loading}
+          sendDisabled={composerImages.loading || !initialModelSettings}
           images={composerImages.images}
           imageError={composerImages.error}
           imagesSupported={model?.input.includes("image") ?? false}

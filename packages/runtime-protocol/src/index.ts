@@ -1069,6 +1069,9 @@ const projectTrustMessageSchema = resourceRequestBaseSchema.extend({
 
 const modelSettingsCatalogMessageSchema = resourceRequestBaseSchema.extend({
   type: z.literal("models.catalog"),
+  payload: resourceRequestBaseSchema.shape.payload.extend({
+    scope: z.enum(["all", "enabled"]).optional(),
+  }),
 })
 
 const modelSettingsRefreshMessageSchema = resourceRequestBaseSchema.extend({

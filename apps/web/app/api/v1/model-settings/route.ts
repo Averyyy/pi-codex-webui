@@ -24,6 +24,10 @@ function response(settings: ModelSettings) {
 export async function GET(request: Request) {
   try {
     const searchParams = new URL(request.url).searchParams
+    const scope = searchParams.get("scope") ?? "all"
+    if (scope !== "all" && scope !== "enabled") {
+      return Response.json({ error: "Invalid model scope." }, { status: 400 })
+    }
     const sessionId = searchParams.get("sessionId") ?? undefined
     const projectId = searchParams.get("projectId")
     const newTask = searchParams.get("newTask") === "1"
@@ -33,7 +37,7 @@ export async function GET(request: Request) {
         : await resolveModelSettingsCwd(sessionId)
     if (!cwd)
       return Response.json({ error: "Session not found." }, { status: 404 })
-    return response(await getRuntimeSupervisor().modelSettings(cwd))
+    return response(await getRuntimeSupervisor().modelSettings(cwd, scope))
   } catch (error) {
     return runtimeErrorResponse(error)
   }

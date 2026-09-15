@@ -62,7 +62,6 @@ import {
 import { restorePendingFocus } from "@workspace/ui/lib/focus-restoration"
 import { cn } from "@workspace/ui/lib/utils"
 
-import { ShellTerminal } from "@/components/shell-terminal"
 import { useShortcutAction } from "@/components/keyboard-shortcuts-provider"
 import {
   SessionInspector,
@@ -83,6 +82,14 @@ import {
   useStreamingFollowRequest,
 } from "@/components/session-streaming-context"
 import type { Translator } from "@/lib/i18n"
+
+const ShellTerminal = dynamic(
+  () =>
+    import("@/components/shell-terminal").then(
+      (module) => module.ShellTerminal
+    ),
+  { ssr: false, loading: () => <Skeleton className="m-3 h-32" /> }
+)
 
 const ProjectReviewPanel = dynamic(
   () =>

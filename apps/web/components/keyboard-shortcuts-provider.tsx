@@ -27,7 +27,7 @@ import {
   type ShortcutOverrides,
 } from "@/lib/keyboard-shortcuts"
 import { isWorkspaceNavItemVisible } from "@/lib/workspace-nav-focus"
-import { pickWorkspaceProject } from "@/lib/project-picker-client"
+import { useProjectPicker } from "@/components/project-picker-provider"
 
 const STORAGE_KEY = "pi-web-codex.keyboard-shortcuts.v1"
 export const SHORTCUT_ACTION_EVENT = "pi-web-codex:shortcut-action"
@@ -110,6 +110,7 @@ export function KeyboardShortcutsProvider({
   mutationToken: string
   children: ReactNode
 }) {
+  const pickWorkspaceProject = useProjectPicker()
   const router = useRouter()
   const pathname = usePathname()
   const { t } = useI18n()
@@ -333,7 +334,7 @@ export function KeyboardShortcutsProvider({
 
       return false
     },
-    [copy, mutationToken, pathname, router, t]
+    [copy, mutationToken, pathname, pickWorkspaceProject, router, t]
   )
 
   useEffect(() => {

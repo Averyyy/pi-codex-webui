@@ -3,16 +3,40 @@
 import { useEffect, useRef, useState, type RefObject } from "react"
 import { useRouter } from "next/navigation"
 
-import { Dialog, DialogContent } from "@workspace/ui/components/dialog"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@workspace/ui/components/dialog"
 import {
   sessionTreeSchema,
   type SessionTree,
 } from "@workspace/runtime-protocol"
 
-import { SessionTreeDialog } from "@/components/session-tree-dialog"
+import dynamic from "next/dynamic"
+
 import { responseJson, validatedResponseJson } from "@/lib/api-response"
 import { useI18n } from "@/components/i18n-provider"
 import { sessionTreeCurrentEntryId } from "@/lib/session-tree"
+
+function TreeLoading() {
+  const { t } = useI18n()
+  return (
+    <DialogHeader className="p-5">
+      <DialogTitle>{t("session.tree.title")}</DialogTitle>
+      <DialogDescription>{t("session.tree.loading")}</DialogDescription>
+    </DialogHeader>
+  )
+}
+const SessionTreeDialog = dynamic(
+  () =>
+    import("@/components/session-tree-dialog").then(
+      (module) => module.SessionTreeDialog
+    ),
+  { loading: TreeLoading }
+)
 
 export function SessionTreeViewer({
   sessionId,
@@ -124,17 +148,19 @@ export function SessionTreeViewer({
           returnFocusRef.current?.focus()
         }}
       >
-        <SessionTreeDialog
-          tree={tree}
-          selectedEntryId={selectedEntryId}
-          onSelectedEntryIdChange={setSelectedEntryId}
-          summarize={summarize}
-          onSummarizeChange={setSummarize}
-          working={working}
-          error={error}
-          onCancel={closeViewer}
-          onNavigate={() => void navigateTree()}
-        />
+        {open ? (
+          <SessionTreeDialog
+            tree={tree}
+            selectedEntryId={selectedEntryId}
+            onSelectedEntryIdChange={setSelectedEntryId}
+            summarize={summarize}
+            onSummarizeChange={setSummarize}
+            working={working}
+            error={error}
+            onCancel={closeViewer}
+            onNavigate={() => void navigateTree()}
+          />
+        ) : null}
       </DialogContent>
     </Dialog>
   )

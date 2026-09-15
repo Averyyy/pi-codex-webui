@@ -31,6 +31,7 @@ import {
   listProjectSessions,
   listSubagentSessions,
   listWorkspaceProjects,
+  listWorkspaceProjectChoices,
   listWorkspaceTasks,
   listSessionPage,
   markSessionCompleted,
@@ -1294,6 +1295,9 @@ test("session pagination returns 1000 conversations exactly once with tied times
           .all()
           .map((row) => row.id)
       )
+      assert.deepEqual(await listWorkspaceProjectChoices(), [
+        { id: project.id, name: project.name, path: project.path },
+      ])
       assert.equal((await listWorkspaceProjects())[0]?.sessions.length, 5)
       assert.equal(
         (await listSessionPage({ scope: "pinned" })).sessions.length,

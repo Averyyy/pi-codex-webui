@@ -639,12 +639,76 @@ async function saveCustomProvider(
   return readModelSettings(state)
 }
 
+// The composer needs only scoped choices, not settings-page provider metadata.
+// Session services preserve models registered by trusted project extensions.
+async function readScopedModelSettings(
+  codingAgent: CodingAgentModule,
+  modelThinking: ModelThinkingModule,
+  cwd: string,
+  agentDir: string
+): Promise<ModelSettings> {
+  const settingsManager = createSettingsManager(
+    codingAgent,
+    cwd,
+    agentDir,
+    false
+  )
+  const { modelRuntime } = await codingAgent.createAgentSessionServices({
+    cwd,
+    agentDir,
+    settingsManager,
+  })
+  const patterns = settingsManager.getEnabledModels()
+  const scoped = patterns?.length
+    ? await codingAgent.resolveModelScopeWithDiagnostics(patterns, modelRuntime)
+    : {
+        scopedModels: modelRuntime
+          .getAvailableSnapshot()
+          .map((model) => ({ model, thinkingLevel: undefined })),
+        diagnostics: [],
+      }
+  if (scoped.diagnostics.length) {
+    throw new Error(
+      scoped.diagnostics.map((diagnostic) => diagnostic.message).join("\n")
+    )
+  }
+  const defaultThinking = settingsManager.getDefaultThinkingLevel() ?? "medium"
+  const models = scoped.scopedModels.map(({ model, thinkingLevel }) => ({
+    ...toRuntimeModel(model),
+    enabled: true,
+    availableThinkingLevels: modelThinking.getSupportedThinkingLevels(model),
+    defaultThinkingLevel: modelThinking.clampThinkingLevel(
+      model,
+      thinkingLevel ?? defaultThinking
+    ),
+  }))
+  const selected = models.find(
+    (model) =>
+      model.provider === settingsManager.getDefaultProvider() &&
+      model.id === settingsManager.getDefaultModel()
+  )
+  return {
+    models,
+    providers: [],
+    enabledModels: patterns ?? null,
+    defaultModel: selected
+      ? { provider: selected.provider, id: selected.id, name: selected.name }
+      : null,
+  }
+}
+
 export async function handleModelSettingsMessage(
   codingAgent: CodingAgentModule,
   modelThinking: ModelThinkingModule,
   message: ModelSettingsMessage
 ) {
   const { cwd, agentDir } = message.payload
+  if (
+    message.type === "models.catalog" &&
+    message.payload.scope === "enabled"
+  ) {
+    return readScopedModelSettings(codingAgent, modelThinking, cwd, agentDir)
+  }
   const state = await createModelSettingsState(
     codingAgent,
     modelThinking,

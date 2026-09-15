@@ -1,8 +1,7 @@
 import { redirect } from "next/navigation"
 
-import { NewConversation } from "@/components/new-conversation"
-import { listWorkspaceProjects } from "@/lib/catalog"
-import { loadNewConversationModelSettings } from "@/lib/model-settings-data"
+import { NewConversationLoader } from "@/components/new-conversation-loader"
+import { listWorkspaceProjectChoices } from "@/lib/catalog"
 import { getMutationToken } from "@/lib/request-security"
 import { resolveNewConversationProjectQuery } from "@/lib/workspace-route-query"
 
@@ -13,7 +12,7 @@ export default async function NewConversationPage({
 }) {
   const [{ projectId: projectIdQuery }, projects] = await Promise.all([
     searchParams,
-    listWorkspaceProjects(),
+    listWorkspaceProjectChoices(),
   ])
   const availableProjects = projects.map(({ id, name, path }) => ({
     id,
@@ -27,17 +26,10 @@ export default async function NewConversationPage({
     )
   if (canonicalHref) redirect(canonicalHref)
 
-  const initialModelSettings =
-    await loadNewConversationModelSettings(initialProjectId)
-  if (!initialModelSettings) {
-    throw new Error("Unable to load model settings for a new conversation.")
-  }
-
   return (
-    <NewConversation
+    <NewConversationLoader
       projects={availableProjects}
       initialProjectId={initialProjectId}
-      initialModelSettings={initialModelSettings}
       mutationToken={getMutationToken()}
     />
   )

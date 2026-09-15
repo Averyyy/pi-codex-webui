@@ -48,31 +48,29 @@ export async function SessionScreen({
   ])
   if (!view) notFound()
   const { snapshot, runtime } = view
-  const initialWebUiViews = runtime.snapshot
-    ? await supervisor.webUiViews(sessionId)
-    : []
   if (!snapshot || snapshot.session.projectId !== projectId) notFound()
 
   const standalone = projectId === null
   const workspaceAvailable = await directoryAvailable(snapshot.session.cwd)
-  const resources = workspaceAvailable
-    ? (supervisor.knownResourceCatalog(snapshot.session.cwd) ??
-      (await supervisor.resourceCatalog(snapshot.session.cwd)))
-    : null
-  const [git, webUiExtensions] = await Promise.all([
+  const [resources, git, initialWebUiViews] = await Promise.all([
+    workspaceAvailable
+      ? (supervisor.knownResourceCatalog(snapshot.session.cwd) ??
+        supervisor.resourceCatalog(snapshot.session.cwd))
+      : null,
     !standalone && workspaceAvailable
       ? readProjectGitStatus(snapshot.session.cwd)
       : null,
-    webUiExtensionCatalog(
-      standalone
-        ? { projectId: null, projectTrusted: false }
-        : {
-            ...(workspaceAvailable ? { cwd: snapshot.session.cwd } : {}),
-            projectId,
-            projectTrusted: resources?.projectTrusted ?? false,
-          }
-    ),
+    runtime.snapshot ? supervisor.webUiViews(sessionId) : [],
   ])
+  const webUiExtensions = await webUiExtensionCatalog(
+    standalone
+      ? { projectId: null, projectTrusted: false }
+      : {
+          ...(workspaceAvailable ? { cwd: snapshot.session.cwd } : {}),
+          projectId,
+          projectTrusted: resources?.projectTrusted ?? false,
+        }
+  )
   webUiExtensions.statuses = supervisor.webUiExtensionStatuses([sessionId])
   const locale = config.appearance.language
   const t = createTranslator(locale)

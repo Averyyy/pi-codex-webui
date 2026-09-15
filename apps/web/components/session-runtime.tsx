@@ -64,7 +64,13 @@ import {
   tuiSurfaceSnapshotsSchema,
 } from "@workspace/runtime-protocol"
 
-import { PiTuiSurface } from "@/components/pi-tui-surface"
+import dynamic from "next/dynamic"
+
+const PiTuiSurface = dynamic(
+  () =>
+    import("@/components/pi-tui-surface").then((module) => module.PiTuiSurface),
+  { ssr: false }
+)
 import { useI18n } from "@/components/i18n-provider"
 import { PromptQueue } from "@/components/prompt-queue"
 import { GoalStatusBar } from "@/components/goal-status-bar"

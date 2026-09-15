@@ -1,5 +1,7 @@
 "use client"
 
+import "@xterm/xterm/css/xterm.css"
+
 import { useEffect, useEffectEvent, useRef } from "react"
 
 import type {

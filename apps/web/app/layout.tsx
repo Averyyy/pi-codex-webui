@@ -2,10 +2,10 @@ import type { CSSProperties } from "react"
 import { connection } from "next/server"
 
 import "@workspace/ui/globals.css"
-import "@xterm/xterm/css/xterm.css"
 import { Toaster } from "@workspace/ui/components/sonner"
 import { TooltipProvider } from "@workspace/ui/components/tooltip"
 
+import { ProjectPickerProvider } from "@/components/project-picker-provider"
 import { ThemeProvider } from "@/components/theme-provider"
 import { I18nProvider } from "@/components/i18n-provider"
 import { KeyboardShortcutsProvider } from "@/components/keyboard-shortcuts-provider"
@@ -40,24 +40,26 @@ export default async function RootLayout({
     >
       <body>
         <I18nProvider initialLocale={config.appearance.language}>
-          <ThemeProvider defaultTheme={config.appearance.theme}>
-            <KeyboardShortcutsProvider
-              platform={process.platform}
-              mutationToken={getMutationToken()}
-            >
-              <a
-                href="#main-content"
-                className="sr-only z-50 rounded-md bg-background px-3 py-2 text-sm font-medium shadow-md focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:ring-2 focus:ring-ring"
+          <ProjectPickerProvider>
+            <ThemeProvider defaultTheme={config.appearance.theme}>
+              <KeyboardShortcutsProvider
+                platform={process.platform}
+                mutationToken={getMutationToken()}
               >
-                {t("ui.skipToMain")}
-              </a>
-              <SessionComposerDraftProvider>
-                <TooltipProvider>{children}</TooltipProvider>
-              </SessionComposerDraftProvider>
-              <Toaster />
-              <PwaRegistration />
-            </KeyboardShortcutsProvider>
-          </ThemeProvider>
+                <a
+                  href="#main-content"
+                  className="sr-only z-50 rounded-md bg-background px-3 py-2 text-sm font-medium shadow-md focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:ring-2 focus:ring-ring"
+                >
+                  {t("ui.skipToMain")}
+                </a>
+                <SessionComposerDraftProvider>
+                  <TooltipProvider>{children}</TooltipProvider>
+                </SessionComposerDraftProvider>
+                <Toaster />
+                <PwaRegistration />
+              </KeyboardShortcutsProvider>
+            </ThemeProvider>
+          </ProjectPickerProvider>
         </I18nProvider>
       </body>
     </html>
