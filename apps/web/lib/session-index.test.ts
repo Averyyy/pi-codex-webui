@@ -1154,6 +1154,89 @@ test("broken project sessions are skipped during discovery", async () => {
   )
 })
 
+test("non-session JSONL under the sessions root is ignored without errors", async () => {
+  await withSessionIndexHarness(
+    "pi-web-codex-foreign-jsonl-",
+    async ({ sessionRoot, projectCwd }) => {
+      const traceFile = path.join(sessionRoot, "proj", "traces", "trace-x.jsonl")
+      const projectFile = path.join(sessionRoot, "proj", "project.jsonl")
+      await mkdir(path.dirname(traceFile), { recursive: true })
+      await Promise.all([
+        writeFile(traceFile, '{"type":"trace","spanId":"1"}\n'),
+        writeFile(
+          projectFile,
+          sessionJsonl("native-project", projectCwd, "project message")
+        ),
+      ])
+
+      const errorMock = mock.method(console, "error")
+      try {
+        const project = await addWorkspaceProject(projectCwd)
+        assert.equal(project.sessionCount, 1)
+        assert.equal(errorMock.mock.callCount(), 0)
+      } finally {
+        errorMock.mock.restore()
+      }
+
+      const database = await getDatabase()
+      const probe = database
+        .prepare("SELECT kind, cwd FROM session_file_probes WHERE file = ?")
+        .get(traceFile) as { kind: string; cwd: string | null } | undefined
+      assert.equal(probe?.kind, "foreign")
+      assert.equal(probe?.cwd, null)
+    }
+  )
+})
+
+test("project session discovery reuses cached probes", async () => {
+  await withSessionIndexHarness(
+    "pi-web-codex-probe-cache-",
+    async ({ sessionRoot, projectCwd }) => {
+      const otherFiles = await Promise.all(
+        Array.from({ length: 5 }, async (_, index) => {
+          const file = path.join(sessionRoot, `other-${index}.jsonl`)
+          await writeFile(
+            file,
+            sessionJsonl(
+              `native-other-${index}`,
+              path.join(sessionRoot, `other-project-${index}`),
+              `other message ${index}`
+            )
+          )
+          return file
+        })
+      )
+      await writeFile(
+        path.join(sessionRoot, "foreign.jsonl"),
+        '{"type":"trace","spanId":"1"}\n'
+      )
+      await writeFile(
+        path.join(sessionRoot, "project.jsonl"),
+        sessionJsonl("native-project", projectCwd, "project message")
+      )
+
+      const project = await addWorkspaceProject(projectCwd)
+      assert.equal(project.sessionCount, 1)
+
+      const openMock = mock.method(fsPromises, "open")
+      syncBuiltinESMExports()
+      try {
+        await removeWorkspaceProject(project.id)
+        await addWorkspaceProject(projectCwd)
+        assert.equal(openMock.mock.callCount(), 0)
+
+        await appendFile(otherFiles[0]!, '{"type":"message"}\n')
+        await removeWorkspaceProject(project.id)
+        await addWorkspaceProject(projectCwd)
+        assert.equal(openMock.mock.callCount(), 1)
+      } finally {
+        openMock.mock.restore()
+        syncBuiltinESMExports()
+      }
+    }
+  )
+})
+
 test("search does not discover disk-only sessions", async () => {
   await withSessionIndexHarness(
     "pi-web-codex-search-disk-",

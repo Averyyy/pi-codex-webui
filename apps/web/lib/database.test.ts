@@ -87,7 +87,7 @@ test("database v1 migration preserves sessions and adds runtime bindings", async
   legacy.close()
 
   const migrated = await getDatabase()
-  assert.equal(migrated.prepare("PRAGMA user_version").get()?.user_version, 12)
+  assert.equal(migrated.prepare("PRAGMA user_version").get()?.user_version, 13)
   assert.equal(
     migrated
       .prepare("SELECT indexed_lines FROM sessions WHERE id = 'session-1'")
@@ -240,7 +240,7 @@ test("database v2 migration backfills cwd and permits standalone sessions", asyn
   legacy.close()
 
   const migrated = await getDatabase()
-  assert.equal(migrated.prepare("PRAGMA user_version").get()?.user_version, 12)
+  assert.equal(migrated.prepare("PRAGMA user_version").get()?.user_version, 13)
   assert.equal(
     migrated
       .prepare("SELECT indexed_lines FROM sessions WHERE id = 'session-2'")
@@ -366,7 +366,7 @@ test("database v10 migration rebuilds existing search rows with trigram indexing
   legacy.close()
 
   const migrated = await getDatabase()
-  assert.equal(migrated.prepare("PRAGMA user_version").get()?.user_version, 12)
+  assert.equal(migrated.prepare("PRAGMA user_version").get()?.user_version, 13)
   assert.deepEqual(
     {
       ...migrated
@@ -392,6 +392,32 @@ test("database v10 migration rebuilds existing search rows with trigram indexing
     /tokenize = 'trigram'/u
   )
 
+  migrated.close()
+  globalThis.piWebCodexDatabase = undefined
+  await rm(root, { recursive: true, force: true })
+  if (previousConfigDir === undefined)
+    delete process.env.PI_WEB_CODEX_CONFIG_DIR
+  else process.env.PI_WEB_CODEX_CONFIG_DIR = previousConfigDir
+})
+
+test("database v12 migration creates session file probes", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "pi-web-codex-db-v12-"))
+  const previousConfigDir = process.env.PI_WEB_CODEX_CONFIG_DIR
+  process.env.PI_WEB_CODEX_CONFIG_DIR = root
+  const databasePath = path.join(root, "state.db")
+  const legacy = new DatabaseSync(databasePath)
+  legacy.exec("PRAGMA user_version = 12")
+  legacy.close()
+
+  const migrated = await getDatabase()
+  assert.equal(migrated.prepare("PRAGMA user_version").get()?.user_version, 13)
+  const table = migrated
+    .prepare(
+      "SELECT name, type FROM sqlite_schema WHERE name = 'session_file_probes'"
+    )
+    .get() as { name: string; type: string } | undefined
+  assert.equal(table?.name, "session_file_probes")
+  assert.equal(table?.type, "table")
   migrated.close()
   globalThis.piWebCodexDatabase = undefined
   await rm(root, { recursive: true, force: true })
