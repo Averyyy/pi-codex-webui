@@ -459,6 +459,16 @@ export function ModelSettings({
               total: settings.models.length,
             })}
           </p>
+          {settings.scopeWarnings?.length ? (
+            <ul
+              role="status"
+              className="rounded-lg bg-muted p-3 text-sm text-muted-foreground"
+            >
+              {settings.scopeWarnings.map((warning) => (
+                <li key={warning}>{warning}</li>
+              ))}
+            </ul>
+          ) : null}
           <FieldGroup>
             <Field>
               <FieldLabel htmlFor="model-search" className="sr-only">
