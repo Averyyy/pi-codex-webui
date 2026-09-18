@@ -750,6 +750,7 @@ export const modelSettingsSchema = z.object({
       })
     )
     .optional(),
+  scopeWarnings: z.array(z.string().min(1)).optional(),
 })
 
 const initializeMessageSchema = z.object({

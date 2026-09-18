@@ -340,15 +340,31 @@ function writeAuthConfig(
   }
 }
 
-export async function resolveConfiguredScopedModels(
+// Unmatched patterns are warnings, as in pi itself: matched models stay usable.
+export async function resolveConfiguredModelScope(
   codingAgent: CodingAgentModule,
   settingsManager: Pick<SettingsManager, "getEnabledModels">,
   modelRuntime: ModelRuntime
 ) {
   const patterns = settingsManager.getEnabledModels()
-  if (!patterns || patterns.length === 0) return []
-  return (
+  if (!patterns || patterns.length === 0) {
+    return { scopedModels: [], scopeWarnings: [] }
+  }
+  const { scopedModels, diagnostics } =
     await codingAgent.resolveModelScopeWithDiagnostics(patterns, modelRuntime)
+  return {
+    scopedModels,
+    scopeWarnings: diagnostics.map((diagnostic) => diagnostic.message),
+  }
+}
+
+export async function resolveConfiguredScopedModels(
+  codingAgent: CodingAgentModule,
+  settingsManager: Pick<SettingsManager, "getEnabledModels">,
+  modelRuntime: ModelRuntime
+) {
+  return (
+    await resolveConfiguredModelScope(codingAgent, settingsManager, modelRuntime)
   ).scopedModels
 }
 
@@ -372,17 +388,14 @@ function toRuntimeModel(model: {
   }
 }
 
+// Reads local state only; network refresh happens solely via models.refresh.
 async function readModelSettings(
-  state: ModelSettingsState,
-  refreshLive = true
+  state: ModelSettingsState
 ): Promise<ModelSettings> {
-  if (refreshLive) {
-    await refreshModelRuntime(state)
-  }
   const config = readModelsConfig(state.modelsPath)
   const availableModels = state.modelRuntime.getAvailableSnapshot()
   const patterns = state.settingsManager.getEnabledModels()
-  const scopedModels = await resolveConfiguredScopedModels(
+  const { scopedModels, scopeWarnings } = await resolveConfiguredModelScope(
     state.codingAgent,
     state.settingsManager,
     state.modelRuntime
@@ -477,13 +490,14 @@ async function readModelSettings(
           name: defaultModel.name,
         }
       : null,
+    ...(scopeWarnings.length ? { scopeWarnings } : {}),
   }
 }
 
 async function refreshModelSettings(state: ModelSettingsState) {
   await state.settingsManager.reload()
   const result = await refreshModelRuntime(state)
-  const settings = await readModelSettings(state, false)
+  const settings = await readModelSettings(state)
   const refreshErrors = [...result.errors.entries()].map(
     ([provider, error]) => ({ provider, message: error.message })
   )
@@ -659,21 +673,20 @@ async function readScopedModelSettings(
     settingsManager,
   })
   const patterns = settingsManager.getEnabledModels()
-  const scoped = patterns?.length
-    ? await codingAgent.resolveModelScopeWithDiagnostics(patterns, modelRuntime)
-    : {
-        scopedModels: modelRuntime
+  const scope = await resolveConfiguredModelScope(
+    codingAgent,
+    settingsManager,
+    modelRuntime
+  )
+  // Fall back to every available model when the scope matches nothing.
+  const scopedModels =
+    patterns?.length && scope.scopedModels.length
+      ? scope.scopedModels
+      : modelRuntime
           .getAvailableSnapshot()
-          .map((model) => ({ model, thinkingLevel: undefined })),
-        diagnostics: [],
-      }
-  if (scoped.diagnostics.length) {
-    throw new Error(
-      scoped.diagnostics.map((diagnostic) => diagnostic.message).join("\n")
-    )
-  }
+          .map((model) => ({ model, thinkingLevel: undefined }))
   const defaultThinking = settingsManager.getDefaultThinkingLevel() ?? "medium"
-  const models = scoped.scopedModels.map(({ model, thinkingLevel }) => ({
+  const models = scopedModels.map(({ model, thinkingLevel }) => ({
     ...toRuntimeModel(model),
     enabled: true,
     availableThinkingLevels: modelThinking.getSupportedThinkingLevels(model),
@@ -694,6 +707,9 @@ async function readScopedModelSettings(
     defaultModel: selected
       ? { provider: selected.provider, id: selected.id, name: selected.name }
       : null,
+    ...(scope.scopeWarnings.length
+      ? { scopeWarnings: scope.scopeWarnings }
+      : {}),
   }
 }
 

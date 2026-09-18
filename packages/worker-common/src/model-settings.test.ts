@@ -378,9 +378,25 @@ test("composer reads only scoped models without live refresh or provider metadat
     )
     await writeFile(
       path.join(root, "settings.json"),
+      JSON.stringify({ enabledModels: ["scoped/selected", "scoped/missing"] })
+    )
+    const partial = await read()
+    assert.deepEqual(
+      partial.models.map((model) => model.id),
+      ["selected"]
+    )
+    assert.equal(partial.scopeWarnings?.length, 1)
+    assert.match(partial.scopeWarnings?.[0] ?? "", /No models match/)
+    await writeFile(
+      path.join(root, "settings.json"),
       JSON.stringify({ enabledModels: ["scoped/missing"] })
     )
-    await assert.rejects(read(), /No models match/)
+    const unmatched = await read()
+    assert.deepEqual(
+      unmatched.models.map((model) => model.id).sort(),
+      ["excluded", "selected"]
+    )
+    assert.match(unmatched.scopeWarnings?.[0] ?? "", /No models match/)
   } finally {
     await rm(root, { recursive: true, force: true })
   }
