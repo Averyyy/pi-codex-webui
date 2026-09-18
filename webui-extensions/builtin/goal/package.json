@@ -38,7 +38,8 @@
           "testedVersions": [
             "0.54.1",
             "0.54.4",
-            "0.54.5"
+            "0.54.5",
+            "0.54.6"
           ],
           "compatibility": {
             "mode": "probe",
