@@ -33,12 +33,13 @@
         "name": "Web Access UI",
         "target": {
           "packageName": "pi-web-access",
-          "extensionPath": "**/index.ts",
-          "version": ">=0.25.0 <0.30.0",
+          "extensionPath": "**/index.{ts,js}",
+          "version": ">=0.25.0 <0.31.0",
           "testedVersions": [
             "0.25.0",
             "0.28.0",
-            "0.29.0"
+            "0.29.0",
+            "0.30.0"
           ],
           "compatibility": {
             "mode": "probe",
