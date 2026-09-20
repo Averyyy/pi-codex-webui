@@ -10,7 +10,10 @@ import type { DatabaseSync } from "node:sqlite"
 
 import { getPiSessionsRoot } from "@/lib/app-paths"
 import { getDatabase, inTransaction } from "@/lib/database"
-import { parsePiSessionHeader } from "@/lib/pi-session"
+import {
+  isForeignPiSessionLine,
+  parsePiSessionHeader,
+} from "@/lib/pi-session"
 import {
   scanSessionIndex,
   type ScannedSessionIndex,
@@ -39,6 +42,14 @@ interface IndexedSessionRow {
   last_entry_id: string | null
   entry_count: number
   offset_count: number
+}
+
+interface SessionFileProbe {
+  file: string
+  file_mtime_ns: string
+  size: number
+  kind: "session" | "foreign"
+  cwd: string | null
 }
 
 const sessionTitleSearchEntryType = "session_title"
@@ -170,6 +181,26 @@ async function canonicalizeCwd(cwd: string) {
   }
 }
 
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  mapper: (item: T) => Promise<R>
+) {
+  const results = [] as R[]
+  let nextIndex = 0
+  async function worker() {
+    while (nextIndex < items.length) {
+      const index = nextIndex
+      nextIndex += 1
+      results[index] = await mapper(items[index]!)
+    }
+  }
+  await Promise.all(
+    Array.from({ length: Math.min(limit, items.length) }, () => worker())
+  )
+  return results
+}
+
 function isWithinDirectory(directory: string, candidate: string) {
   const normalizedDirectory = path.resolve(
     process.platform === "win32" ? directory.toLowerCase() : directory
@@ -186,16 +217,10 @@ function isWithinDirectory(directory: string, candidate: string) {
   )
 }
 
-async function sessionFileCwd(file: string) {
-  return canonicalizeCwd((await sessionFileHeader(file)).cwd)
-}
-
-async function sessionFileHeader(file: string) {
+async function sessionFileFirstLine(file: string) {
   const handle = await open(file, "r")
   try {
-    for await (const line of handle.readLines()) {
-      return parsePiSessionHeader(file, line)
-    }
+    for await (const line of handle.readLines()) return line
   } finally {
     await handle.close()
   }
@@ -441,7 +466,9 @@ async function performSync() {
         }
         continue
       }
-      const header = await sessionFileHeader(file)
+      const line = await sessionFileFirstLine(file)
+      if (isForeignPiSessionLine(line)) continue
+      const header = parsePiSessionHeader(file, line)
       const cwd = await canonicalizeCwd(header.cwd)
       if (
         !isWithinDirectory(homeDirectory, cwd) &&
@@ -490,15 +517,110 @@ export async function syncPiProjectSessions(projectId: string) {
   if (!project) throw new Error(`Project not found: ${projectId}`)
 
   const files = await discoverProjectSessionCandidates(getPiSessionsRoot())
-  for (const file of files) {
+  const probes = new Map(
+    (
+      database
+        .prepare(
+          `SELECT file, file_mtime_ns, size, kind, cwd
+           FROM session_file_probes`
+        )
+        .all() as unknown as SessionFileProbe[]
+    ).map((probe) => [probe.file, probe])
+  )
+  const sessions = new Map(
+    (
+      database
+        .prepare("SELECT native_session_file, cwd FROM sessions")
+        .all() as { native_session_file: string; cwd: string }[]
+    ).map(({ native_session_file, cwd }) => [native_session_file, cwd])
+  )
+  const discoveredProbes = new Map<string, SessionFileProbe>()
+  const canonicalCwds = new Map<string, Promise<string>>()
+  const canonicalizeForSync = (cwd: string) => {
+    let result = canonicalCwds.get(cwd)
+    if (!result) {
+      result = canonicalizeCwd(cwd)
+      canonicalCwds.set(cwd, result)
+    }
+    return result
+  }
+
+  await mapWithConcurrency(files, 16, async (file) => {
     try {
-      const cwd = await sessionFileCwd(file)
-      if (cwd !== project.canonical_path) continue
-      await indexSessionFile(database, file)
+      const indexedCwd = sessions.get(file)
+      if (indexedCwd !== undefined) {
+        if (indexedCwd === project.canonical_path)
+          await indexSessionFile(database, file)
+        return
+      }
+
+      const fileStats = await stat(file, { bigint: true })
+      const mtimeNs = fileStats.mtimeNs.toString()
+      const size = Number(fileStats.size)
+      const probe = probes.get(file)
+      if (
+        probe &&
+        probe.file_mtime_ns === mtimeNs &&
+        probe.size === size
+      ) {
+        if (probe.kind === "session" && probe.cwd === project.canonical_path)
+          await indexSessionFile(database, file)
+        return
+      }
+
+      const line = await sessionFileFirstLine(file)
+      if (isForeignPiSessionLine(line)) {
+        discoveredProbes.set(file, {
+          file,
+          file_mtime_ns: mtimeNs,
+          size,
+          kind: "foreign",
+          cwd: null,
+        })
+        return
+      }
+
+      const header = parsePiSessionHeader(file, line)
+      const cwd = await canonicalizeForSync(header.cwd)
+      discoveredProbes.set(file, {
+        file,
+        file_mtime_ns: mtimeNs,
+        size,
+        kind: "session",
+        cwd,
+      })
+      if (cwd === project.canonical_path)
+        await indexSessionFile(database, file)
     } catch (error) {
       logSkippedSessionFile(file, error)
     }
-  }
+  })
+
+  const discoveredFiles = new Set(files)
+  inTransaction(database, () => {
+    const upsert = database.prepare(
+      `INSERT INTO session_file_probes(file, file_mtime_ns, size, kind, cwd)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(file) DO UPDATE SET
+         file_mtime_ns = excluded.file_mtime_ns,
+         size = excluded.size,
+         kind = excluded.kind,
+         cwd = excluded.cwd`
+    )
+    for (const probe of discoveredProbes.values()) {
+      upsert.run(
+        probe.file,
+        probe.file_mtime_ns,
+        probe.size,
+        probe.kind,
+        probe.cwd
+      )
+    }
+    for (const file of probes.keys()) {
+      if (!discoveredFiles.has(file))
+        database.prepare("DELETE FROM session_file_probes WHERE file = ?").run(file)
+    }
+  })
 }
 
 export async function resolvePiSessionFile(file: string) {

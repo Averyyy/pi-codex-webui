@@ -58,6 +58,17 @@ export class PiSessionFormatError extends Error {
   }
 }
 
+export function isForeignPiSessionLine(line: string): boolean {
+  let value: unknown
+  try {
+    value = JSON.parse(line)
+  } catch {
+    return false
+  }
+  if (typeof value !== "object" || value === null) return true
+  return !("type" in value) || value.type !== "session"
+}
+
 export function parsePiSessionHeader(file: string, line: string) {
   const result = headerSchema.safeParse(parseLine(file, line, 1))
   if (!result.success) {
