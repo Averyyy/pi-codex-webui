@@ -690,7 +690,6 @@ async function runNpmCommand(args, options = {}, spawnImpl = spawn) {
         new Error(`npm command timed out after ${timeoutMs}ms.`)
       )
     }, timeoutMs)
-    timeout.unref?.()
   })
 }
 
