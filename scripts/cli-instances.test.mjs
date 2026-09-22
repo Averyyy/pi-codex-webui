@@ -231,18 +231,24 @@ function spawnCli(fixture, args, overrides = {}) {
     windowsHide: true,
   })
   fixture.activeChildren.add(child)
+  let stdout = ""
+  let stderr = ""
   let output = ""
   child.stdout.on("data", (chunk) => {
-    output += chunk.toString()
+    const text = chunk.toString()
+    stdout += text
+    output += text
   })
   child.stderr.on("data", (chunk) => {
-    output += chunk.toString()
+    const text = chunk.toString()
+    stderr += text
+    output += text
   })
   const closed = new Promise((resolve, reject) => {
     child.once("error", reject)
     child.once("close", (code, signal) => {
       fixture.activeChildren.delete(child)
-      resolve({ code, signal, output })
+      resolve({ code, signal, stdout, stderr, output })
     })
   })
   return { child, closed, output: () => output }
@@ -317,7 +323,7 @@ async function readHealth(port) {
 async function listJson(fixture) {
   const result = await runCli(fixture, ["list", "--json"])
   assert.equal(result.code, 0, result.output)
-  return JSON.parse(result.output.trim())
+  return JSON.parse(result.stdout.trim())
 }
 
 function recordFor(list, id) {
