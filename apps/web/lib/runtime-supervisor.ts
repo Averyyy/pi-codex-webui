@@ -274,8 +274,29 @@ const DOMAIN_EVENT_TYPES: Record<string, string> = {
   subagents_updated: "subagents.updated",
 }
 
+type RuntimeSupervisorProcessExitCleanup = () => void
+
 declare global {
   var piWebCodexRuntimeSupervisor: RuntimeSupervisor | undefined
+  var piWebCodexRuntimeSupervisorExitCleanups:
+    | Set<RuntimeSupervisorProcessExitCleanup>
+    | undefined
+  var piWebCodexRuntimeSupervisorExitHandlerRegistered: boolean | undefined
+}
+
+function registerRuntimeSupervisorProcessExitCleanup(
+  cleanup: RuntimeSupervisorProcessExitCleanup
+) {
+  const cleanups =
+    (globalThis.piWebCodexRuntimeSupervisorExitCleanups ??=
+      new Set<RuntimeSupervisorProcessExitCleanup>())
+  cleanups.add(cleanup)
+  if (globalThis.piWebCodexRuntimeSupervisorExitHandlerRegistered) return
+
+  globalThis.piWebCodexRuntimeSupervisorExitHandlerRegistered = true
+  process.once("exit", () => {
+    for (const registeredCleanup of cleanups) registeredCleanup()
+  })
 }
 
 function processIsAlive(pid: number) {
@@ -350,7 +371,7 @@ export class RuntimeSupervisor {
     this.eventHub = eventHub
     this.idleTimer = setInterval(() => this.recycleIdleRuntimes(), 60_000)
     this.idleTimer.unref()
-    process.once("exit", () => {
+    registerRuntimeSupervisorProcessExitCleanup(() => {
       clearInterval(this.idleTimer)
       for (const runtime of this.runtimes.values()) {
         runtime.child.kill("SIGTERM")

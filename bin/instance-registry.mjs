@@ -325,6 +325,14 @@ async function tryAcquireRecoveryGate(recovery, token) {
   } catch (error) {
     await handle?.close().catch(() => {})
     if (error?.code === "EEXIST") return null
+    // Windows can report a sharing violation as EPERM/EACCES while another
+    // contender is creating or replacing this cross-process mutex marker.
+    if (
+      process.platform === "win32" &&
+      (error?.code === "EPERM" || error?.code === "EACCES")
+    ) {
+      return null
+    }
     throw error
   }
 }
