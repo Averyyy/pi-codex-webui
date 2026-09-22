@@ -399,14 +399,14 @@ importers:
   packages/worker-pi-client:
     dependencies:
       '@earendil-works/pi-ai':
-        specifier: npm:@averyyy/pi-ai@0.86.1-piclient.2
-        version: '@averyyy/pi-ai@0.86.1-piclient.2(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)'
+        specifier: npm:@averyyy/pi-ai@0.87.0-piclient.1
+        version: '@averyyy/pi-ai@0.87.0-piclient.1(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)'
       '@earendil-works/pi-coding-agent':
-        specifier: npm:@averyyy/pi-coding-agent@0.86.1-piclient.2
-        version: '@averyyy/pi-coding-agent@0.86.1-piclient.2(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)'
+        specifier: npm:@averyyy/pi-coding-agent@0.87.0-piclient.1
+        version: '@averyyy/pi-coding-agent@0.87.0-piclient.1(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)'
       '@earendil-works/pi-tui':
-        specifier: npm:@averyyy/pi-tui@0.86.1-piclient.2
-        version: '@averyyy/pi-tui@0.86.1-piclient.2'
+        specifier: npm:@averyyy/pi-tui@0.87.0-piclient.1
+        version: '@averyyy/pi-tui@0.87.0-piclient.1'
       proper-lockfile:
         specifier: ^4.1.2
         version: 4.1.2
@@ -767,22 +767,22 @@ packages:
       zod:
         optional: true
 
-  '@averyyy/pi-agent-core@0.86.1-piclient.2':
-    resolution: {integrity: sha512-Rh8JfNw+2xVlQPxkGeBmjUpZ5OF68LcYwibyxpEOOdC7v8jtmvz0WDLoX0AtVBLaWDlvqYqF9bSGOfvCHzu12w==}
+  '@averyyy/pi-agent-core@0.87.0-piclient.1':
+    resolution: {integrity: sha512-wrljuhT23gu6YFOteUyF3OxJ5uSisjC/VSAfzdpbPvfpvu4eOGfL2hj8QHkuwSrZCFz7X5/QRTobj+r7nUaANg==}
     engines: {node: '>=22.19.0'}
 
-  '@averyyy/pi-ai@0.86.1-piclient.2':
-    resolution: {integrity: sha512-ChQJz0LpplqXW1Iutg7atHz+fGeJJ2VBKYc2KOE6dk8Z711moxyP1VUamS+XZlmeMhOMJuzcNwt1SvbkN7/SFA==}
-    engines: {node: '>=22.19.0'}
-    hasBin: true
-
-  '@averyyy/pi-coding-agent@0.86.1-piclient.2':
-    resolution: {integrity: sha512-AxgWo2K03WItVs7A5dotRPhNheSO4KquBlbJBI+KZZBHpQfYwmMAKkS6Hrjn1e9EVU3ED4cTiWPMAUUIiADiaA==}
+  '@averyyy/pi-ai@0.87.0-piclient.1':
+    resolution: {integrity: sha512-kgvIzSqs6H4M+rzwwzpyh+R4OFnja0UthKI/oehLuCe7nTEyGOKziogE378OqSlDNXfOibKgtb9pDJUIGuRj6A==}
     engines: {node: '>=22.19.0'}
     hasBin: true
 
-  '@averyyy/pi-tui@0.86.1-piclient.2':
-    resolution: {integrity: sha512-yv+sxok3BHSWdzO7F1qVuTqSiBlqeZK8aRH5hnORO6OW04rS3mOZR1Jg+JlGTJPIfZgcq7sINwhwwSbe7vV6zA==}
+  '@averyyy/pi-coding-agent@0.87.0-piclient.1':
+    resolution: {integrity: sha512-s8H3MDAG1vj5N3UgLdSoetTEyCpIqcmjmpKqli9Ua6/+Sm3MlFMnDE/Ii/jfUARo2sSyxyEcLtlvW7PN6MKVxA==}
+    engines: {node: '>=22.19.0'}
+    hasBin: true
+
+  '@averyyy/pi-tui@0.87.0-piclient.1':
+    resolution: {integrity: sha512-71L5HdQiLoT37CQvUVds3JitbP6jHOpx8qumCrJpVoLbCjPIydOR/c2AWx68cO8VZlZUuEVhCEg+VTy8p54KDA==}
     engines: {node: '>=22.19.0'}
 
   '@aws-crypto/sha256-browser@5.2.0':
@@ -1076,10 +1076,6 @@ packages:
     resolution: {integrity: sha512-VDlkEC3dhCzQ5fcyH1OhG19dq+6jCn+rqc/iXFivwDYGR5anwo2RCiXij9PpHhqNR5GuhhE+Er69Zi1Sn4eY6w==}
     engines: {node: '>=22.19.0'}
 
-  '@earendil-works/chord@0.86.1':
-    resolution: {integrity: sha512-GzUr5n4tFBHUYxN9CjcRHK8QWo9tbxNrZu6iWPQ+PFiFrLASvSZOKeAVAgh3gHv/t0X5OvUpFlrMQ/nEFfCYpg==}
-    engines: {node: '>=22.19.0'}
-
   '@earendil-works/chord@0.87.0':
     resolution: {integrity: sha512-t8QOTf0GTHrsDSfcdtXuA9RCkh6mnR4l25N0SM/sgH7Ih25jH4tGXNbkGs9MWpV5xTu9MRPj4A7Zn1UEwQm9+g==}
     engines: {node: '>=22.19.0'}
@@ -1114,10 +1110,6 @@ packages:
 
   '@earendil-works/pi-telemetry@0.85.1':
     resolution: {integrity: sha512-Bg/YN6kA7Swja/NQxka8xFdecb4E/auIEGF2G5A25EaQXhRnPj300/7/KpgsDDMYUzHTDAv4RyUxaQPJKW81Rw==}
-    engines: {node: '>=22.19.0'}
-
-  '@earendil-works/pi-telemetry@0.86.1':
-    resolution: {integrity: sha512-SOcEqOS3oVGgKeahs2jHB906d8hFjuLP+RBee8xKYMRgw5KAeWHNg+YABfL0ALlp3Bt6tW4b632MLghc3vnTog==}
     engines: {node: '>=22.19.0'}
 
   '@earendil-works/pi-telemetry@0.87.0':
@@ -6529,11 +6521,11 @@ snapshots:
     optionalDependencies:
       zod: 4.4.3
 
-  '@averyyy/pi-agent-core@0.86.1-piclient.2(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)':
+  '@averyyy/pi-agent-core@0.87.0-piclient.1(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)':
     dependencies:
-      '@earendil-works/chord': 0.86.1
-      '@earendil-works/pi-ai': '@averyyy/pi-ai@0.86.1-piclient.2(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)'
-      '@earendil-works/pi-telemetry': 0.86.1
+      '@earendil-works/chord': 0.87.0
+      '@earendil-works/pi-ai': '@averyyy/pi-ai@0.87.0-piclient.1(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)'
+      '@earendil-works/pi-telemetry': 0.87.0
       diff: 8.0.4
       ignore: 7.0.8
       typebox: 1.3.27
@@ -6547,11 +6539,11 @@ snapshots:
       - ws
       - zod
 
-  '@averyyy/pi-ai@0.86.1-piclient.2(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)':
+  '@averyyy/pi-ai@0.87.0-piclient.1(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)':
     dependencies:
       '@anthropic-ai/sdk': 0.124.0(zod@4.4.3)
       '@aws-sdk/client-bedrock-runtime': 3.1127.0
-      '@earendil-works/pi-telemetry': 0.86.1
+      '@earendil-works/pi-telemetry': 0.87.0
       '@google/genai': 2.21.0(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))
       '@smithy/node-http-handler': 4.12.1
       http-proxy-agent: 9.1.0
@@ -6568,12 +6560,12 @@ snapshots:
       - ws
       - zod
 
-  '@averyyy/pi-coding-agent@0.86.1-piclient.2(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)':
+  '@averyyy/pi-coding-agent@0.87.0-piclient.1(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)':
     dependencies:
-      '@earendil-works/chord': 0.86.1
-      '@earendil-works/pi-agent-core': '@averyyy/pi-agent-core@0.86.1-piclient.2(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)'
-      '@earendil-works/pi-ai': '@averyyy/pi-ai@0.86.1-piclient.2(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)'
-      '@earendil-works/pi-tui': '@averyyy/pi-tui@0.86.1-piclient.2'
+      '@earendil-works/chord': 0.87.0
+      '@earendil-works/pi-agent-core': '@averyyy/pi-agent-core@0.87.0-piclient.1(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)'
+      '@earendil-works/pi-ai': '@averyyy/pi-ai@0.87.0-piclient.1(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)'
+      '@earendil-works/pi-tui': '@averyyy/pi-tui@0.87.0-piclient.1'
       '@silvia-odwyer/photon-node': 0.3.4
       chalk: 6.0.0
       cross-spawn: 7.0.6
@@ -6598,7 +6590,7 @@ snapshots:
       - ws
       - zod
 
-  '@averyyy/pi-tui@0.86.1-piclient.2':
+  '@averyyy/pi-tui@0.87.0-piclient.1':
     dependencies:
       get-east-asian-width: 1.6.0
       marked: 18.0.11
@@ -7127,10 +7119,6 @@ snapshots:
     dependencies:
       esbuild: 0.28.1
 
-  '@earendil-works/chord@0.86.1':
-    dependencies:
-      esbuild: 0.28.2
-
   '@earendil-works/chord@0.87.0':
     dependencies:
       esbuild: 0.28.2
@@ -7273,8 +7261,6 @@ snapshots:
       - zod
 
   '@earendil-works/pi-telemetry@0.85.1': {}
-
-  '@earendil-works/pi-telemetry@0.86.1': {}
 
   '@earendil-works/pi-telemetry@0.87.0': {}
 
