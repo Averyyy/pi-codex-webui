@@ -177,7 +177,6 @@ export function ConversationDisclosure({
         className
       )}
     >
-      {variant === "process" ? content : null}
       <Trigger
         aria-label={
           collapsible
@@ -248,7 +247,7 @@ export function ConversationDisclosure({
           />
         ) : null}
       </Trigger>
-      {variant === "tool" ? content : null}
+      {content}
     </Collapsible>
   )
 }

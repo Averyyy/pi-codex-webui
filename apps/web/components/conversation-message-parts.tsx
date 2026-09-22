@@ -11,6 +11,7 @@ export function ConversationMessageParts({
   literal = false,
   plainText = false,
   thinkingActive = false,
+  thinkingCollapsible = true,
   toolResults = EMPTY_TOOL_RESULTS,
   locale,
 }: {
@@ -18,6 +19,7 @@ export function ConversationMessageParts({
   literal?: boolean
   plainText?: boolean
   thinkingActive?: boolean
+  thinkingCollapsible?: boolean
   toolResults?: ReadonlyMap<string, ToolResultView>
   locale: Locale
 }) {
@@ -36,6 +38,7 @@ export function ConversationMessageParts({
         literal={literal}
         plainText={plainText}
         thinkingActive={thinkingActive}
+        thinkingCollapsible={thinkingCollapsible}
         locale={locale}
       />
     )

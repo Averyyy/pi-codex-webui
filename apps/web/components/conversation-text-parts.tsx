@@ -33,12 +33,14 @@ function ConversationTextPart({
   literal,
   plainText,
   thinkingActive,
+  thinkingCollapsible,
   locale,
 }: {
   part: Exclude<TranscriptPart, { type: "toolCall" }>
   literal: boolean
   plainText: boolean
   thinkingActive: boolean
+  thinkingCollapsible: boolean
   locale: Locale
 }) {
   if (part.type === "text") {
@@ -72,6 +74,16 @@ function ConversationTextPart({
   }
   if (part.type === "thinking") {
     const active = thinkingActive && !part.redacted
+    if (!thinkingCollapsible) {
+      return (
+        <div
+          data-thinking-content=""
+          className="min-w-0 text-xs text-muted-foreground [&_p]:leading-5"
+        >
+          <Markdown>{part.text}</Markdown>
+        </div>
+      )
+    }
     return (
       <ConversationDisclosure
         label={
@@ -117,12 +129,14 @@ export function ConversationTextParts({
   literal = false,
   plainText = false,
   thinkingActive = false,
+  thinkingCollapsible = true,
   locale,
 }: {
   parts: TranscriptPart[]
   literal?: boolean
   plainText?: boolean
   thinkingActive?: boolean
+  thinkingCollapsible?: boolean
   locale: Locale
 }) {
   return parts.map((part, index) =>
@@ -133,6 +147,7 @@ export function ConversationTextParts({
         literal={literal}
         plainText={plainText}
         thinkingActive={thinkingActive}
+        thinkingCollapsible={thinkingCollapsible}
         locale={locale}
       />
     )

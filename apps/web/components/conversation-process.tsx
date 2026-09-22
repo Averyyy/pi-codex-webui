@@ -48,13 +48,13 @@ export function ConversationProcess({
       ? t("session.transcript.failed")
       : outcome === "incomplete"
         ? t("session.transcript.incomplete")
-        : active && !hasResponse
+        : active
           ? t("session.transcript.running")
           : undefined
   return (
     <ConversationDisclosure
       variant="process"
-      collapsible={canCollapseConversation(hasResponse, outcome)}
+      collapsible={canCollapseConversation(hasResponse, outcome, active)}
       open={open}
       onOpenChange={(value) => setConversationDisclosure(disclosureKey, value)}
       label={
@@ -65,11 +65,7 @@ export function ConversationProcess({
       icon={null}
       status={status}
       statusTone={
-        outcome === "failed"
-          ? "destructive"
-          : active && !hasResponse
-            ? "running"
-            : "muted"
+        outcome === "failed" ? "destructive" : active ? "running" : "muted"
       }
       ariaLabel={t("session.transcript.expandProcess")}
       collapseAriaLabel={t("session.transcript.collapseProcess")}

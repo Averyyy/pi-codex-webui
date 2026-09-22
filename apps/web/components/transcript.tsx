@@ -12,6 +12,7 @@ import {
   ConversationAnchorContext,
   ConversationDisclosure,
 } from "@/components/conversation-disclosure"
+import { ConversationActivity } from "@/components/conversation-activity"
 import { ConversationProcess } from "@/components/conversation-process"
 import { ConversationMessageParts } from "@/components/conversation-message-parts"
 import { Markdown } from "@/components/markdown"
@@ -31,8 +32,12 @@ import { createTranslator, type Locale, type Translator } from "@/lib/i18n"
 import type { ToolResultView } from "@/lib/message-content"
 import { formatInlinePreview, formatTimestamp } from "@/lib/session-display"
 import {
+  conversationActivityBlocks,
+  conversationActivityCommandCount,
+  conversationActivityDisplayId,
   conversationRounds,
   partitionConversationRound,
+  type ConversationActivityBlock,
 } from "@/lib/conversation-rounds"
 import type {
   SessionSnapshot,
@@ -52,6 +57,7 @@ function Message({
   entry,
   parts = entry.parts,
   displayId = entry.id,
+  thinkingCollapsible = true,
   toolResults,
   sessionId,
   mutationToken,
@@ -63,6 +69,7 @@ function Message({
   entry: MessageEntry
   parts?: TranscriptPart[]
   displayId?: string
+  thinkingCollapsible?: boolean
   toolResults: ReadonlyMap<string, ToolResultView>
   sessionId: string
   mutationToken: string
@@ -112,6 +119,7 @@ function Message({
         parts={parts}
         literal={entry.role === "toolResult"}
         plainText={entry.role === "user"}
+        thinkingCollapsible={thinkingCollapsible}
         toolResults={toolResults}
         locale={locale}
       />
@@ -270,23 +278,38 @@ function SettingChanges({
   )
 }
 
-function transcriptBlocks(entries: TranscriptEntry[]) {
-  const blocks: (TranscriptEntry | SettingEvent[])[] = []
+type TranscriptSettingsBlock = {
+  type: "settings"
+  entries: SettingEvent[]
+}
+type TranscriptBlock =
+  TranscriptSettingsBlock | ConversationActivityBlock<TranscriptEntry>
+
+function transcriptBlocks(entries: TranscriptEntry[]): TranscriptBlock[] {
+  const blocks: TranscriptBlock[] = []
   let settingEvents: SettingEvent[] = []
-  const flush = () => {
+  let contentEntries: TranscriptEntry[] = []
+  const flushContent = () => {
+    if (!contentEntries.length) return
+    blocks.push(...conversationActivityBlocks(contentEntries))
+    contentEntries = []
+  }
+  const flushSettings = () => {
     if (!settingEvents.length) return
-    blocks.push(settingEvents)
+    blocks.push({ type: "settings", entries: settingEvents })
     settingEvents = []
   }
   for (const entry of entries) {
     if (isSettingEvent(entry)) {
+      flushContent()
       settingEvents.push(entry)
     } else {
-      flush()
-      blocks.push(entry)
+      flushSettings()
+      contentEntries.push(entry)
     }
   }
-  flush()
+  flushContent()
+  flushSettings()
   return blocks
 }
 
@@ -357,7 +380,11 @@ export function SessionTranscript({
   rounds.push(...conversationRounds(segment))
   const renderEntry = (
     entry: TranscriptEntry,
-    options: { parts?: TranscriptPart[]; displayId?: string } = {}
+    options: {
+      parts?: TranscriptPart[]
+      displayId?: string
+      thinkingCollapsible?: boolean
+    } = {}
   ) => {
     if (
       entry.kind === "message" &&
@@ -384,6 +411,7 @@ export function SessionTranscript({
         entry={entry}
         parts={options.parts}
         displayId={options.displayId}
+        thinkingCollapsible={options.thinkingCollapsible}
         toolResults={toolResults}
         sessionId={sessionId}
         mutationToken={mutationToken}
@@ -394,7 +422,10 @@ export function SessionTranscript({
       />
     )
     return entry.role.startsWith("custom:") ? (
-      <WebUiMessageFallback key={`${entry.id}:fallback`} entryId={entry.id}>
+      <WebUiMessageFallback
+        key={`${entry.id}:${options.displayId ?? "fallback"}`}
+        entryId={entry.id}
+      >
         {message}
       </WebUiMessageFallback>
     ) : (
@@ -430,6 +461,15 @@ export function SessionTranscript({
             runtimeStatus === "busy" ||
             runtimeStatus === "stopping") &&
           roundIndex === rounds.length - 1
+        const processEntriesForRender = processEntries.filter(
+          (entry) =>
+            !(
+              entry.kind === "message" &&
+              entry.role === "toolResult" &&
+              entry.toolCallId &&
+              renderedToolResults.has(entry.toolCallId)
+            )
+        )
 
         return (
           <div
@@ -437,14 +477,15 @@ export function SessionTranscript({
             className="flex min-w-0 flex-col gap-5"
           >
             {leading.map((entry) => renderEntry(entry))}
-            {processEntries.length && processEntries.every(isSettingEvent) ? (
+            {processEntriesForRender.length &&
+            processEntriesForRender.every(isSettingEvent) ? (
               leading.length ? (
                 <SettingChanges
-                  entries={processEntries.filter(isSettingEvent)}
+                  entries={processEntriesForRender.filter(isSettingEvent)}
                   t={t}
                 />
               ) : null
-            ) : processEntries.length ? (
+            ) : processEntriesForRender.length ? (
               <ConversationProcess
                 disclosureKey={JSON.stringify([sessionId, round[0]?.id])}
                 hasResponse={Boolean(finalEntry)}
@@ -454,18 +495,72 @@ export function SessionTranscript({
                 entryIds={processEntries.map((entry) => entry.id)}
                 t={t}
               >
-                {transcriptBlocks(processEntries).map((block) =>
-                  Array.isArray(block) ? (
-                    <SettingChanges key={block[0]?.id} entries={block} t={t} />
-                  ) : (
-                    renderEntry(block, {
-                      displayId:
-                        block.id === finalEntry?.id
-                          ? `${block.id}:process`
-                          : block.id,
+                {transcriptBlocks(processEntriesForRender).flatMap((block) => {
+                  if (block.type === "settings") {
+                    return [
+                      <SettingChanges
+                        key={block.entries[0]?.id}
+                        entries={block.entries}
+                        t={t}
+                      />,
+                    ]
+                  }
+                  if (block.type === "activity") {
+                    const commandCount = conversationActivityCommandCount(block)
+                    return [
+                      <ConversationActivity
+                        key={`activity:${block.fragments[0]?.key}`}
+                        commandCount={commandCount}
+                        active={false}
+                        disclosureKey={JSON.stringify([
+                          sessionId,
+                          round[0]?.id,
+                          "activity",
+                          block.fragments[0]?.key,
+                        ])}
+                        entryIds={[
+                          ...new Set([
+                            ...block.fragments.map((fragment) =>
+                              String(fragment.item.id)
+                            ),
+                            ...block.fragments.flatMap((fragment) =>
+                              fragment.parts.flatMap((part) => {
+                                if (part.type !== "toolCall") return []
+                                const entryId = toolResults.get(
+                                  part.id
+                                )?.entryId
+                                return entryId ? [entryId] : []
+                              })
+                            ),
+                          ]),
+                        ]}
+                        t={t}
+                      >
+                        {block.fragments.map((fragment) =>
+                          renderEntry(fragment.item, {
+                            parts: fragment.parts,
+                            displayId: conversationActivityDisplayId(
+                              fragment,
+                              finalEntry?.id,
+                              "activity"
+                            ),
+                            thinkingCollapsible: false,
+                          })
+                        )}
+                      </ConversationActivity>,
+                    ]
+                  }
+                  return block.fragments.map((fragment) =>
+                    renderEntry(fragment.item, {
+                      parts: fragment.parts,
+                      displayId: conversationActivityDisplayId(
+                        fragment,
+                        finalEntry?.id,
+                        "commentary"
+                      ),
                     })
                   )
-                )}
+                })}
               </ConversationProcess>
             ) : null}
             {finalEntry ? renderEntry(finalEntry) : null}

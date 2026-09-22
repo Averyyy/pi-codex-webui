@@ -695,6 +695,22 @@ const messages = {
     "en-US": "Expand conversation setting changes",
   },
   "session.transcript.thought": { "zh-CN": "思考", "en-US": "Thought" },
+  "session.transcript.commands": {
+    "zh-CN": "运行了命令",
+    "en-US": "Ran commands",
+  },
+  "session.transcript.commandsCount": {
+    "zh-CN": "{count} 个命令",
+    "en-US": "{count} commands",
+  },
+  "session.transcript.expandActivity": {
+    "zh-CN": "展开执行活动",
+    "en-US": "Expand activity",
+  },
+  "session.transcript.collapseActivity": {
+    "zh-CN": "收起执行活动",
+    "en-US": "Collapse activity",
+  },
   "session.transcript.thinking": {
     "zh-CN": "思考中",
     "en-US": "Thinking",
