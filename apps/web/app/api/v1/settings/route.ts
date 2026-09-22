@@ -1,6 +1,12 @@
 import { ZodError } from "zod"
 
-import { ConfigConflictError, loadConfig, patchConfig } from "@/lib/config"
+import {
+  ConfigConflictError,
+  InstancePortConfigurationError,
+  loadConfig,
+  ManagedInstancePortError,
+  patchConfig,
+} from "@/lib/config"
 import { configPatchSchema } from "@/lib/config-schema"
 import { getMutationToken, validateLocalMutation } from "@/lib/request-security"
 
@@ -53,6 +59,18 @@ export async function PATCH(request: Request) {
       await patchConfig(Number(revision), configPatchSchema.parse(body))
     )
   } catch (error) {
+    if (error instanceof ManagedInstancePortError) {
+      return Response.json(
+        { error: error.message, code: "ManagedInstancePort" },
+        { status: 400 }
+      )
+    }
+    if (error instanceof InstancePortConfigurationError) {
+      return Response.json(
+        { error: error.message, code: "InvalidInstancePort" },
+        { status: 500 }
+      )
+    }
     if (error instanceof ConfigConflictError) {
       const current = await loadConfig()
       return Response.json(

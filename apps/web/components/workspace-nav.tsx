@@ -43,14 +43,15 @@ import {
 } from "@workspace/ui/components/sidebar"
 import { WorkspaceNavProject } from "@/components/workspace-nav-project"
 import { WorkspaceNavSession } from "@/components/workspace-nav-session"
+import { AppUpdateButton } from "@/components/app-update-button"
 import { PiBrand } from "@/components/pi-brand"
 import { useI18n } from "@/components/i18n-provider"
 import { useKeyboardShortcuts } from "@/components/keyboard-shortcuts-provider"
 import { useSessionIndicators } from "@/hooks/use-session-indicators"
 import { useSessionPage } from "@/hooks/use-session-page"
-import { SessionPageSentinel } from "@/components/session-page-sentinel"
 import type { ShortcutCommandId } from "@/lib/keyboard-shortcuts"
 import { useProjectPicker } from "@/components/project-picker-provider"
+import { responseJson } from "@/lib/api-response"
 import type {
   SessionPage,
   SessionSummary,
@@ -62,8 +63,19 @@ import {
   type WorkspaceNavFocusTarget,
   type WorkspaceSessionMutationFocusRequest,
 } from "@/lib/workspace-nav-focus"
+import {
+  moveWorkspaceNavItems,
+  type WorkspaceNavOrderMutation,
+} from "@/lib/workspace-nav-order"
+import { SESSION_CATALOG_CHANGED } from "@/lib/session-catalog-events"
+import {
+  defaultWorkspaceNavState,
+  readWorkspaceNavState,
+  SIDEBAR_PAGE_SIZE,
+  writeWorkspaceNavState,
+  type WorkspaceNavPersistedState,
+} from "@/lib/workspace-nav-persistence"
 
-const COLLAPSED_PROJECT_COUNT = 4
 const MAX_CONVERSATION_SHORTCUTS = 9
 
 interface ConversationShortcutState {
@@ -98,19 +110,39 @@ export function WorkspaceNav({
   const navigationHidden = !isMobile && state === "collapsed"
   const sidebarContentRef = useRef<HTMLDivElement>(null)
   const addingProjectRef = useRef(false)
-  const [projectsExpanded, setProjectsExpanded] = useState(false)
-  const [projectOpen, setProjectOpen] = useState<Record<string, boolean>>({})
-  const [tasksOpen, setTasksOpen] = useState(true)
+  const orderQueueRef = useRef(Promise.resolve())
+  const [navState, setNavState] = useState<WorkspaceNavPersistedState>(() =>
+    defaultWorkspaceNavState()
+  )
+  const [persistenceReady, setPersistenceReady] = useState(false)
+  const [orderedProjects, setOrderedProjects] = useState(projects)
+  const projectList = orderedProjects
   const taskPage = useSessionPage({
     scope: "tasks",
     initialPage: initialTasks,
-    enabled: tasksOpen,
+    enabled: persistenceReady && navState.tasksOpen,
+    sidebar: true,
   })
   const pinnedPage = useSessionPage({
     scope: "pinned",
     initialPage: initialPinned,
+    enabled: persistenceReady,
+    sidebar: true,
   })
-  const tasks = taskPage.sessions
+  const {
+    sessions: tasks,
+    loading: tasksLoading,
+    error: tasksError,
+    hasMore: tasksHasMore,
+    loadMore: loadTasksMore,
+  } = taskPage
+  const {
+    sessions: pinnedSessions,
+    loading: pinnedLoading,
+    error: pinnedError,
+    hasMore: pinnedHasMore,
+    loadMore: loadPinnedMore,
+  } = pinnedPage
   const [loadedProjectSessions, setLoadedProjectSessions] = useState<
     Record<string, SessionSummary[]>
   >({})
@@ -129,19 +161,35 @@ export function WorkspaceNav({
     useState<ConversationShortcutState | null>(null)
   const pendingFocusRef = useRef<WorkspaceNavFocusTarget | null>(null)
   const [focusRevision, setFocusRevision] = useState(0)
+  useEffect(() => {
+    setOrderedProjects(projects)
+  }, [projects])
+
+  useEffect(() => {
+    const result = readWorkspaceNavState()
+    if (result.error) toast.error(t("workspace.nav.persistenceReadFailed"))
+    setNavState(result.state)
+    setPersistenceReady(true)
+  }, [t])
+
+  useEffect(() => {
+    if (!persistenceReady) return
+    const result = writeWorkspaceNavState(navState)
+    if (result.error) toast.error(t("workspace.nav.persistenceWriteFailed"))
+  }, [navState, persistenceReady, t])
   const allSessions = useMemo(
     () => [
       ...new Map(
         [
-          ...projects.flatMap(
+          ...projectList.flatMap(
             (project) => loadedProjectSessions[project.id] ?? project.sessions
           ),
           ...tasks,
-          ...pinnedPage.sessions,
+          ...pinnedSessions,
         ].map((session) => [session.id, session])
       ).values(),
     ],
-    [projects, tasks, pinnedPage.sessions, loadedProjectSessions]
+    [projectList, tasks, pinnedSessions, loadedProjectSessions]
   )
   const { sessionId: activeSessionId = null } = useParams<{
     sessionId?: string
@@ -152,18 +200,60 @@ export function WorkspaceNav({
     initialRunningSessionIds,
     mutationToken,
   })
-  const pinnedSessions = pinnedPage.sessions
   const unpinnedTasks = tasks.filter((task) => !task.isPinned)
-  const collapsedProjects = projects.slice(0, COLLAPSED_PROJECT_COUNT)
-  const activeProject = projects.find((project) =>
+  const visiblePinnedSessions = pinnedSessions.slice(
+    0,
+    navState.pinnedVisibleCount
+  )
+  const visibleTasks = unpinnedTasks.slice(0, navState.tasksVisibleCount)
+  const activeProject = projectList.find((project) =>
     pathname.startsWith(`/projects/${project.id}`)
   )
-  const visibleProjects = projectsExpanded
-    ? projects
-    : activeProject &&
-        !collapsedProjects.some((project) => project.id === activeProject.id)
-      ? [...collapsedProjects, activeProject]
-      : collapsedProjects
+  const visibleProjects = projectList.slice(0, navState.projectsVisibleCount)
+
+  useEffect(() => {
+    if (
+      !persistenceReady ||
+      !navState.tasksOpen ||
+      tasksLoading ||
+      tasksError ||
+      unpinnedTasks.length >= navState.tasksVisibleCount ||
+      !tasksHasMore
+    ) {
+      return
+    }
+    void loadTasksMore()
+  }, [
+    navState.tasksOpen,
+    navState.tasksVisibleCount,
+    persistenceReady,
+    loadTasksMore,
+    tasksError,
+    tasksHasMore,
+    tasksLoading,
+    unpinnedTasks.length,
+  ])
+
+  useEffect(() => {
+    if (
+      !persistenceReady ||
+      pinnedLoading ||
+      pinnedError ||
+      pinnedSessions.length >= navState.pinnedVisibleCount ||
+      !pinnedHasMore
+    ) {
+      return
+    }
+    void loadPinnedMore()
+  }, [
+    navState.pinnedVisibleCount,
+    persistenceReady,
+    loadPinnedMore,
+    pinnedError,
+    pinnedHasMore,
+    pinnedLoading,
+    pinnedSessions.length,
+  ])
   const conversationShortcuts = useMemo(
     () =>
       new Map(
@@ -340,6 +430,58 @@ export function WorkspaceNav({
     }
   }
 
+  const requestOrder = useCallback(
+    (mutation: WorkspaceNavOrderMutation) => {
+      const run = async () => {
+        try {
+          await responseJson(
+            await fetch("/api/v1/workspace-nav/order", {
+              method: "POST",
+              headers: {
+                "X-Pi-Web-Codex-Mutation-Token": mutationToken,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify(mutation),
+            })
+          )
+          if (mutation.scope === "projects") {
+            setOrderedProjects((current) => {
+              const sourceProject = current.find(
+                (project) => project.id === mutation.itemId
+              )
+              if (!sourceProject) return current
+              const bucket = current.filter(
+                (project) => project.isPinned === sourceProject.isPinned
+              )
+              const reordered = moveWorkspaceNavItems(bucket, mutation)
+              let index = 0
+              return current.map((project) => {
+                if (project.isPinned !== sourceProject.isPinned) return project
+                const replacement = reordered[index++]
+                return replacement ?? project
+              })
+            })
+          } else {
+            window.dispatchEvent(
+              new CustomEvent(SESSION_CATALOG_CHANGED, {
+                detail: {
+                  scope: mutation.scope,
+                  projectId: mutation.projectId,
+                },
+              })
+            )
+          }
+        } catch (failure) {
+          toast.error(
+            failure instanceof Error ? failure.message : String(failure)
+          )
+        }
+      }
+      orderQueueRef.current = orderQueueRef.current.then(run, run)
+    },
+    [mutationToken]
+  )
+
   return (
     <>
       <Sidebar collapsible="offcanvas">
@@ -413,14 +555,14 @@ export function WorkspaceNav({
               </SidebarGroupContent>
             </SidebarGroup>
 
-            {pinnedSessions.length > 0 ? (
+            {pinnedSessions.length > 0 || pinnedError ? (
               <SidebarGroup className="py-1">
                 <SidebarGroupLabel>
                   {t("workspace.nav.pinned")}
                 </SidebarGroupLabel>
                 <SidebarGroupContent>
                   <SidebarMenu>
-                    {pinnedSessions.map((session) => (
+                    {visiblePinnedSessions.map((session) => (
                       <WorkspaceNavSession
                         key={session.id}
                         session={session}
@@ -435,11 +577,65 @@ export function WorkspaceNav({
                           sessionHref(session)
                         )}
                         onMutationFocus={requestSessionMutationFocus}
+                        orderScope="pinned"
+                        orderItems={visiblePinnedSessions.map(
+                          (item) => item.id
+                        )}
+                        onOrderRequest={requestOrder}
                       />
                     ))}
-                    {pinnedPage.hasMore || pinnedPage.error ? (
+                    {pinnedError ? (
+                      <li className="px-2 py-1 text-xs text-destructive">
+                        <button
+                          type="button"
+                          className="underline"
+                          onClick={() => void loadPinnedMore()}
+                        >
+                          {pinnedError} · {t("app.error.retry")}
+                        </button>
+                      </li>
+                    ) : null}
+                    {pinnedHasMore ||
+                    pinnedSessions.length > navState.pinnedVisibleCount ? (
                       <li>
-                        <SessionPageSentinel {...pinnedPage} />
+                        <SidebarMenuButton
+                          type="button"
+                          className="text-muted-foreground"
+                          disabled={pinnedLoading}
+                          onClick={() => {
+                            const next =
+                              navState.pinnedVisibleCount + SIDEBAR_PAGE_SIZE
+                            setNavState((current) => ({
+                              ...current,
+                              pinnedVisibleCount: next,
+                            }))
+                            if (pinnedSessions.length < next) {
+                              void loadPinnedMore()
+                            }
+                          }}
+                        >
+                          <ChevronRightIcon />
+                          <span>{t("workspace.nav.expandConversations")}</span>
+                        </SidebarMenuButton>
+                      </li>
+                    ) : null}
+                    {navState.pinnedVisibleCount > SIDEBAR_PAGE_SIZE ? (
+                      <li>
+                        <SidebarMenuButton
+                          type="button"
+                          className="text-muted-foreground"
+                          onClick={() =>
+                            setNavState((current) => ({
+                              ...current,
+                              pinnedVisibleCount: SIDEBAR_PAGE_SIZE,
+                            }))
+                          }
+                        >
+                          <ChevronDownIcon />
+                          <span>
+                            {t("workspace.nav.collapseConversations")}
+                          </span>
+                        </SidebarMenuButton>
                       </li>
                     ) : null}
                   </SidebarMenu>
@@ -481,38 +677,73 @@ export function WorkspaceNav({
                       activeSessionId={activeSessionId}
                       conversationShortcuts={conversationShortcuts}
                       open={
-                        projectOpen[project.id] ??
+                        navState.projectOpen[project.id] ??
                         activeProject?.id === project.id
                       }
+                      persistenceReady={persistenceReady}
+                      sessionVisibleCount={
+                        navState.projectSessionVisibleCounts[project.id] ??
+                        SIDEBAR_PAGE_SIZE
+                      }
                       onOpenChange={(open) =>
-                        setProjectOpen((current) => ({
+                        setNavState((current) => ({
                           ...current,
-                          [project.id]: open,
+                          projectOpen: {
+                            ...current.projectOpen,
+                            [project.id]: open,
+                          },
                         }))
                       }
+                      onSessionVisibleCountChange={(count) =>
+                        setNavState((current) => ({
+                          ...current,
+                          projectSessionVisibleCounts: {
+                            ...current.projectSessionVisibleCounts,
+                            [project.id]: count,
+                          },
+                        }))
+                      }
+                      projectOrderItems={projectList.map((item) => ({
+                        id: item.id,
+                        isPinned: item.isPinned,
+                      }))}
+                      onOrderRequest={requestOrder}
                       onSessionMutationFocus={requestSessionMutationFocus}
                       onSessionsLoaded={onProjectSessions}
                     />
                   ))}
-                  {projects.length > COLLAPSED_PROJECT_COUNT ? (
+                  {projectList.length > navState.projectsVisibleCount ? (
                     <SidebarMenuItem>
                       <SidebarMenuButton
                         type="button"
                         className="text-muted-foreground"
                         onClick={() =>
-                          setProjectsExpanded((expanded) => !expanded)
+                          setNavState((current) => ({
+                            ...current,
+                            projectsVisibleCount:
+                              current.projectsVisibleCount + SIDEBAR_PAGE_SIZE,
+                          }))
                         }
                       >
-                        {projectsExpanded ? (
-                          <ChevronDownIcon />
-                        ) : (
-                          <ChevronRightIcon />
-                        )}
-                        <span>
-                          {projectsExpanded
-                            ? t("workspace.nav.collapseProjects")
-                            : t("workspace.nav.expandProjects")}
-                        </span>
+                        <ChevronRightIcon />
+                        <span>{t("workspace.nav.expandProjects")}</span>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  ) : null}
+                  {navState.projectsVisibleCount > SIDEBAR_PAGE_SIZE ? (
+                    <SidebarMenuItem>
+                      <SidebarMenuButton
+                        type="button"
+                        className="text-muted-foreground"
+                        onClick={() =>
+                          setNavState((current) => ({
+                            ...current,
+                            projectsVisibleCount: SIDEBAR_PAGE_SIZE,
+                          }))
+                        }
+                      >
+                        <ChevronDownIcon />
+                        <span>{t("workspace.nav.collapseProjects")}</span>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
                   ) : null}
@@ -521,7 +752,13 @@ export function WorkspaceNav({
             </SidebarGroup>
 
             {unpinnedTasks.length > 0 ? (
-              <Collapsible open={tasksOpen} onOpenChange={setTasksOpen} asChild>
+              <Collapsible
+                open={navState.tasksOpen}
+                onOpenChange={(open) =>
+                  setNavState((current) => ({ ...current, tasksOpen: open }))
+                }
+                asChild
+              >
                 <SidebarGroup className="py-1">
                   <SidebarGroupLabel asChild>
                     <CollapsibleTrigger
@@ -535,7 +772,7 @@ export function WorkspaceNav({
                   <CollapsibleContent>
                     <SidebarGroupContent>
                       <SidebarMenu>
-                        {unpinnedTasks.map((task) => (
+                        {visibleTasks.map((task) => (
                           <WorkspaceNavSession
                             key={task.id}
                             session={task}
@@ -550,11 +787,65 @@ export function WorkspaceNav({
                               `/tasks/${task.id}`
                             )}
                             onMutationFocus={requestSessionMutationFocus}
+                            orderScope="tasks"
+                            orderItems={visibleTasks.map((item) => item.id)}
+                            onOrderRequest={requestOrder}
                           />
                         ))}
-                        {taskPage.hasMore || taskPage.error ? (
+                        {tasksError ? (
+                          <li className="px-2 py-1 text-xs text-destructive">
+                            <button
+                              type="button"
+                              className="underline"
+                              onClick={() => void loadTasksMore()}
+                            >
+                              {tasksError} · {t("app.error.retry")}
+                            </button>
+                          </li>
+                        ) : null}
+                        {tasksHasMore ||
+                        unpinnedTasks.length > navState.tasksVisibleCount ? (
                           <li>
-                            <SessionPageSentinel {...taskPage} />
+                            <SidebarMenuButton
+                              type="button"
+                              className="text-muted-foreground"
+                              disabled={tasksLoading}
+                              onClick={() => {
+                                const next =
+                                  navState.tasksVisibleCount + SIDEBAR_PAGE_SIZE
+                                setNavState((current) => ({
+                                  ...current,
+                                  tasksVisibleCount: next,
+                                }))
+                                if (unpinnedTasks.length < next) {
+                                  void loadTasksMore()
+                                }
+                              }}
+                            >
+                              <ChevronRightIcon />
+                              <span>
+                                {t("workspace.nav.expandConversations")}
+                              </span>
+                            </SidebarMenuButton>
+                          </li>
+                        ) : null}
+                        {navState.tasksVisibleCount > SIDEBAR_PAGE_SIZE ? (
+                          <li>
+                            <SidebarMenuButton
+                              type="button"
+                              className="text-muted-foreground"
+                              onClick={() =>
+                                setNavState((current) => ({
+                                  ...current,
+                                  tasksVisibleCount: SIDEBAR_PAGE_SIZE,
+                                }))
+                              }
+                            >
+                              <ChevronDownIcon />
+                              <span>
+                                {t("workspace.nav.collapseConversations")}
+                              </span>
+                            </SidebarMenuButton>
                           </li>
                         ) : null}
                       </SidebarMenu>
@@ -570,6 +861,7 @@ export function WorkspaceNav({
             aria-hidden={navigationHidden}
           >
             <SidebarMenu>
+              <AppUpdateButton />
               <SidebarMenuItem>
                 <SidebarMenuButton
                   asChild

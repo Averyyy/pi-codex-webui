@@ -13,7 +13,7 @@ declare global {
   var piWebCodexDatabase: Promise<DatabaseSync> | undefined
 }
 
-const SCHEMA_VERSION = 13
+const SCHEMA_VERSION = 14
 
 async function openDatabase() {
   const paths = getAppPaths()
@@ -43,6 +43,14 @@ async function openDatabase() {
       CREATE TABLE project_registrations (
         project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
         registered_at TEXT NOT NULL
+      ) STRICT;
+
+      CREATE TABLE workspace_nav_order (
+        scope_key TEXT NOT NULL,
+        item_id TEXT NOT NULL,
+        position INTEGER NOT NULL CHECK (position >= 0),
+        PRIMARY KEY (scope_key, item_id),
+        UNIQUE (scope_key, position)
       ) STRICT;
 
       CREATE TABLE sessions (
@@ -394,6 +402,24 @@ async function openDatabase() {
         size INTEGER NOT NULL,
         kind TEXT NOT NULL CHECK (kind IN ('session', 'foreign')),
         cwd TEXT
+      ) STRICT;
+
+      PRAGMA user_version = 13;
+      COMMIT;
+    `)
+    version = 13
+  }
+
+  if (version === 13) {
+    database.exec(`
+      BEGIN IMMEDIATE;
+
+      CREATE TABLE workspace_nav_order (
+        scope_key TEXT NOT NULL,
+        item_id TEXT NOT NULL,
+        position INTEGER NOT NULL CHECK (position >= 0),
+        PRIMARY KEY (scope_key, item_id),
+        UNIQUE (scope_key, position)
       ) STRICT;
 
       PRAGMA user_version = ${SCHEMA_VERSION};

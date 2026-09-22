@@ -13,6 +13,27 @@ export interface ConversationItem {
   complete?: boolean
 }
 
+export interface ConversationActivityFragment<T extends ConversationItem> {
+  /** The source item, with the fragment's original metadata preserved. */
+  item: T
+  /** The contiguous part range represented by this fragment. */
+  parts: TranscriptPart[]
+  /** Stable within the source item, for rendering split entries safely. */
+  key: string
+  /** Whether this fragment reaches the source item's final part. */
+  isSourceTail: boolean
+}
+
+export type ConversationActivityBlock<T extends ConversationItem> =
+  | {
+      type: "activity"
+      fragments: ConversationActivityFragment<T>[]
+    }
+  | {
+      type: "commentary"
+      fragments: ConversationActivityFragment<T>[]
+    }
+
 export type ConversationOutcome =
   "pending" | "complete" | "failed" | "stopped" | "incomplete"
 
@@ -40,6 +61,131 @@ export function conversationOutcome(
 
 function isResponsePart(part: TranscriptPart) {
   return part.type !== "thinking" && part.type !== "toolCall"
+}
+
+function isActivityPart(part: TranscriptPart) {
+  return part.type === "thinking" || part.type === "toolCall"
+}
+
+/**
+ * Split a process into explicit activity and commentary blocks.
+ *
+ * Thinking and tool calls are activity. All other parts remain commentary,
+ * even when they share an assistant message with a tool call. This keeps the
+ * visible prose between activity groups instead of hiding it in a collapsed
+ * disclosure. Bash execution entries are command activity as a whole.
+ */
+export function conversationActivityBlocks<T extends ConversationItem>(
+  items: readonly T[]
+): ConversationActivityBlock<T>[] {
+  const blocks: ConversationActivityBlock<T>[] = []
+
+  for (const item of items) {
+    const parts = item.parts ?? []
+    if (parts.length === 0) {
+      blocks.push({
+        type: "commentary",
+        fragments: [
+          { item, parts: [], key: `${String(item.id)}:0`, isSourceTail: true },
+        ],
+      })
+      continue
+    }
+
+    let start = 0
+    let fragmentIndex = 0
+    const forceActivity = item.role === "bashExecution"
+    const append = (end: number) => {
+      if (end <= start) return
+      const fragmentParts = parts.slice(start, end)
+      const type =
+        forceActivity || fragmentParts.some(isActivityPart)
+          ? ("activity" as const)
+          : ("commentary" as const)
+      const fragment: ConversationActivityFragment<T> = {
+        item,
+        parts: fragmentParts,
+        key: `${String(item.id)}:${fragmentIndex}`,
+        isSourceTail: end === parts.length,
+      }
+      fragmentIndex += 1
+      const last = blocks.at(-1)
+      if (type === "activity" && last?.type === "activity") {
+        last.fragments.push(fragment)
+      } else {
+        blocks.push({ type, fragments: [fragment] })
+      }
+      start = end
+    }
+
+    if (forceActivity) {
+      append(parts.length)
+      continue
+    }
+
+    let activity = isActivityPart(parts[0]!)
+    for (let index = 1; index < parts.length; index += 1) {
+      const nextActivity = isActivityPart(parts[index]!)
+      if (nextActivity !== activity) {
+        append(index)
+        activity = nextActivity
+      }
+    }
+    append(parts.length)
+  }
+
+  return blocks
+}
+
+/**
+ * Keep one canonical anchor per source item when part ranges are split for
+ * activity rendering. A process fragment derived from the final assistant
+ * item is deliberately suffixed so the final answer owns the canonical id.
+ */
+export function conversationActivityDisplayId<T extends ConversationItem>(
+  fragment: ConversationActivityFragment<T>,
+  finalId: string | number | undefined,
+  suffix: string
+) {
+  const id = String(fragment.item.id)
+  if (finalId !== undefined && id === String(finalId)) return `${id}:process`
+  return fragment.key === `${id}:0` ? id : `${fragment.key}:${suffix}`
+}
+
+export function conversationActivityCommandCount<T extends ConversationItem>(
+  block: Extract<ConversationActivityBlock<T>, { type: "activity" }>
+) {
+  return block.fragments.reduce(
+    (count, fragment) =>
+      count +
+      (fragment.item.role === "bashExecution" ? 1 : 0) +
+      fragment.parts.filter((part) => part.type === "toolCall").length,
+    0
+  )
+}
+
+/**
+ * Identify the one activity block that should advertise live work. A stale
+ * incomplete source item is not enough: it must still be streaming its tail
+ * fragment, or contain a tool call whose explicit live id is active.
+ */
+export function conversationActivityBlockIsRunning<T extends ConversationItem>(
+  block: Extract<ConversationActivityBlock<T>, { type: "activity" }>,
+  activeToolIds: ReadonlySet<string>,
+  runtimeActive: boolean
+) {
+  if (!runtimeActive) return false
+  if (
+    block.fragments.some((fragment) =>
+      fragment.parts.some(
+        (part) => part.type === "toolCall" && activeToolIds.has(part.id)
+      )
+    )
+  )
+    return true
+  if (activeToolIds.size > 0) return false
+  const tail = block.fragments.at(-1)
+  return tail?.isSourceTail === true && tail.item.complete === false
 }
 
 export function isFinalAssistantMessage(item: ConversationItem) {
@@ -113,7 +259,10 @@ export function partitionConversationRound<T extends ConversationItem>(
 
 export function canCollapseConversation(
   hasResponse: boolean,
-  outcome: ConversationOutcome
+  outcome: ConversationOutcome,
+  active = false
 ) {
-  return hasResponse && outcome !== "stopped"
+  return (
+    !active && hasResponse && outcome !== "stopped" && outcome !== "pending"
+  )
 }

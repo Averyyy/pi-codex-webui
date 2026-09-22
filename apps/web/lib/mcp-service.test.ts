@@ -44,6 +44,32 @@ await server.connect(new StdioServerTransport());
 `
 }
 
+function stdioEnvironmentProbeSource() {
+  const mcpUrl = import.meta.resolve("@modelcontextprotocol/sdk/server/mcp.js")
+  const transportUrl = import.meta
+    .resolve("@modelcontextprotocol/sdk/server/stdio.js")
+  const zodUrl = import.meta.resolve("zod")
+  return `
+import { McpServer } from ${JSON.stringify(mcpUrl)};
+import { StdioServerTransport } from ${JSON.stringify(transportUrl)};
+import { z } from ${JSON.stringify(zodUrl)};
+const server = new McpServer({ name: "stdio-env-probe", version: "1.0.0" });
+server.registerTool("env", {
+  title: "Environment probe",
+  inputSchema: { value: z.string().optional() },
+}, async () => ({
+  content: [{ type: "text", text: [
+    process.env.PI_WEB_CODEX_UPDATE_CONTROL_URL,
+    process.env.PI_WEB_CODEX_UPDATE_CONTROL_TOKEN,
+    process.env.PI_WEB_CODEX_UPDATE_OPERATION_ID,
+    process.env.PI_WEB_CODEX_UPDATE_VERIFYING,
+    process.env.PI_WEB_CODEX_MUTATION_TOKEN,
+  ].map((value) => value ?? "").join("|") }],
+}));
+await server.connect(new StdioServerTransport());
+`
+}
+
 function createHttpFixture(expectedAuthorization: string) {
   const app = createMcpExpressApp()
   const transports = new Map<string, StreamableHTTPServerTransport>()
@@ -223,4 +249,122 @@ test("MCP service discovers and calls stdio and HTTP tools without exposing secr
     () => service.callTool("stdio-fixture", "echo", {}, context),
     /disabled/
   )
+})
+
+test("MCP stdio children do not inherit WebUI supervisor secrets", async (t) => {
+  const directory = await mkdtemp(path.join(tmpdir(), "pi-web-mcp-env-"))
+  const previousConfigDir = process.env.PI_WEB_CODEX_CONFIG_DIR
+  const previousEnvironment = {
+    url: process.env.PI_WEB_CODEX_UPDATE_CONTROL_URL,
+    token: process.env.PI_WEB_CODEX_UPDATE_CONTROL_TOKEN,
+    operation: process.env.PI_WEB_CODEX_UPDATE_OPERATION_ID,
+    verifying: process.env.PI_WEB_CODEX_UPDATE_VERIFYING,
+    mutation: process.env.PI_WEB_CODEX_MUTATION_TOKEN,
+  }
+  process.env.PI_WEB_CODEX_CONFIG_DIR = directory
+  process.env.PI_WEB_CODEX_UPDATE_CONTROL_URL = "http://127.0.0.1:43210"
+  process.env.PI_WEB_CODEX_UPDATE_CONTROL_TOKEN = "control-secret"
+  process.env.PI_WEB_CODEX_UPDATE_OPERATION_ID = "operation-id"
+  process.env.PI_WEB_CODEX_UPDATE_VERIFYING = "1"
+  process.env.PI_WEB_CODEX_MUTATION_TOKEN = "mutation-secret"
+
+  const service = new McpService()
+  t.after(async () => {
+    await service.disconnect("stdio-env-probe")
+    if (previousConfigDir === undefined)
+      delete process.env.PI_WEB_CODEX_CONFIG_DIR
+    else process.env.PI_WEB_CODEX_CONFIG_DIR = previousConfigDir
+    for (const [key, value] of Object.entries({
+      PI_WEB_CODEX_UPDATE_CONTROL_URL: previousEnvironment.url,
+      PI_WEB_CODEX_UPDATE_CONTROL_TOKEN: previousEnvironment.token,
+      PI_WEB_CODEX_UPDATE_OPERATION_ID: previousEnvironment.operation,
+      PI_WEB_CODEX_UPDATE_VERIFYING: previousEnvironment.verifying,
+      PI_WEB_CODEX_MUTATION_TOKEN: previousEnvironment.mutation,
+    })) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+    await rm(directory, { recursive: true, force: true })
+  })
+
+  await patchConfig(0, {
+    mcp: {
+      servers: {
+        "stdio-env-probe": {
+          id: "stdio-env-probe",
+          name: "stdio env probe",
+          scope: "global",
+          projectId: null,
+          enabled: true,
+          transport: {
+            type: "stdio",
+            command: process.execPath,
+            args: ["--input-type=module", "-e", stdioEnvironmentProbeSource()],
+            cwd: null,
+          },
+          env: {},
+          timeoutMs: 10_000,
+          enabledTools: [],
+          disabledTools: [],
+        },
+      },
+    },
+  })
+
+  await service.test("stdio-env-probe", context)
+  const result = await service.callTool("stdio-env-probe", "env", {}, context)
+  assert.deepEqual(result.content, [{ type: "text", text: "||||" }])
+})
+
+test("update drain waits for every MCP close and retains failed connections", async () => {
+  const service = new McpService()
+  const internals = service as unknown as {
+    states: Map<
+      string,
+      {
+        client: { close: () => Promise<void> } | null
+        status: string
+        fingerprint: string | null
+        tools: unknown[]
+      }
+    >
+  }
+  let release!: () => void
+  const closing = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  const failedClient = {
+    close: async () => {
+      throw new Error("close failed")
+    },
+  }
+  internals.states.set("failed", {
+    client: failedClient,
+    status: "connected",
+    fingerprint: "failed",
+    tools: [],
+  })
+  internals.states.set("slow", {
+    client: { close: () => closing },
+    status: "connected",
+    fingerprint: "slow",
+    tools: [],
+  })
+  let settled = false
+  const result = service.shutdownForUpdate().then(
+    () => {
+      settled = true
+      return null
+    },
+    (error: unknown) => {
+      settled = true
+      return error
+    }
+  )
+  await new Promise<void>((resolve) => setImmediate(resolve))
+  assert.equal(settled, false)
+  release()
+  assert.ok((await result) instanceof AggregateError)
+  assert.equal(internals.states.get("failed")?.client, failedClient)
+  assert.equal(internals.states.get("slow")?.client, null)
 })

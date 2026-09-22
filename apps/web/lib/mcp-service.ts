@@ -26,6 +26,8 @@ import type {
 import { readSecret } from "./secret-store"
 import { getEventHub } from "./event-hub"
 import { McpServiceError } from "./mcp-service-error"
+import { RuntimeRequestError } from "./runtime-error"
+import { assertUpdateAllowed } from "./update-maintenance"
 
 interface DiscoveredTool {
   name: string
@@ -61,6 +63,13 @@ interface McpCallContext extends McpContext {
 }
 
 const MAX_LOGS = 100
+const SUPERVISOR_SECRET_ENV_KEYS = [
+  "PI_WEB_CODEX_UPDATE_CONTROL_URL",
+  "PI_WEB_CODEX_UPDATE_CONTROL_TOKEN",
+  "PI_WEB_CODEX_UPDATE_OPERATION_ID",
+  "PI_WEB_CODEX_UPDATE_VERIFYING",
+  "PI_WEB_CODEX_MUTATION_TOKEN",
+] as const
 
 declare global {
   var piWebCodexMcpService: McpService | undefined
@@ -109,6 +118,7 @@ function configuredValues(values: Record<string, McpStoredValue>) {
 export class McpService {
   private readonly states = new Map<string, ConnectionState>()
   private readonly operations = new Map<string, Promise<void>>()
+  private readonly activeCalls = new Set<Promise<unknown>>()
 
   private state(serverId: string) {
     let state = this.states.get(serverId)
@@ -170,6 +180,47 @@ export class McpService {
     })
   }
 
+  assertUpdateIdle() {
+    if (this.operations.size > 0 || this.activeCalls.size > 0) {
+      throw new RuntimeRequestError(
+        "RuntimeBusy",
+        "Wait for MCP operations to finish before updating the WebUI."
+      )
+    }
+    if (
+      [...this.states.values()].some((state) => state.status === "connecting")
+    ) {
+      throw new RuntimeRequestError(
+        "RuntimeBusy",
+        "Wait for MCP servers to finish connecting before updating the WebUI."
+      )
+    }
+  }
+
+  async shutdownForUpdate() {
+    // New connect/call attempts are rejected by the maintenance gate. Drain
+    // work admitted before it, then disconnect every app-owned MCP client.
+    while (this.operations.size > 0 || this.activeCalls.size > 0) {
+      const pending = [
+        ...this.operations.values(),
+        ...this.activeCalls.values(),
+      ]
+      await Promise.allSettled(pending)
+    }
+    const results = await Promise.allSettled(
+      [...this.states.keys()].map((serverId) => this.disconnectNow(serverId))
+    )
+    const failures = results.filter(
+      (result): result is PromiseRejectedResult => result.status === "rejected"
+    )
+    if (failures.length > 0) {
+      throw new AggregateError(
+        failures.map((result) => result.reason),
+        "Could not close all MCP connections before updating the WebUI."
+      )
+    }
+  }
+
   private async disconnectNow(
     serverId: string,
     status: McpConnectionStatus = "disconnected"
@@ -181,11 +232,11 @@ export class McpService {
       state.status !== status ||
       state.fingerprint !== null ||
       (status !== "disabled" && state.tools.length > 0)
+    if (client) await client.close()
     state.client = null
     state.fingerprint = null
     state.status = status
     if (status !== "disabled") state.tools = []
-    if (client) await client.close()
     if (changed) this.publishStatus(serverId)
   }
 
@@ -201,6 +252,7 @@ export class McpService {
     client: Client,
     timeoutMs: number
   ) {
+    assertUpdateAllowed()
     const tools: DiscoveredTool[] = []
     let cursor: string | undefined
     do {
@@ -208,6 +260,7 @@ export class McpService {
         timeout: timeoutMs,
         maxTotalTimeout: timeoutMs,
       })
+      assertUpdateAllowed()
       tools.push(
         ...page.tools.map((tool) => ({
           name: tool.name,
@@ -231,6 +284,7 @@ export class McpService {
     context: McpContext,
     force: boolean
   ) {
+    assertUpdateAllowed()
     const state = this.state(server.id)
     const fingerprint = this.fingerprint(server, context)
     if (
@@ -243,6 +297,7 @@ export class McpService {
     }
 
     await this.disconnectNow(server.id)
+    assertUpdateAllowed()
     state.status = "connecting"
     state.lastError = null
     this.log(server.id, "info", `Connecting with ${server.transport.type}.`)
@@ -267,31 +322,50 @@ export class McpService {
       ToolListChangedNotificationSchema,
       async () => {
         if (state.client !== client) return
-        await this.discoverTools(server.id, client, server.timeoutMs)
+        try {
+          await this.discoverTools(server.id, client, server.timeoutMs)
+        } catch (error) {
+          this.log(
+            server.id,
+            "error",
+            `Tool refresh failed: ${errorMessage(error)}`
+          )
+        }
       }
     )
 
-    const transport =
-      server.transport.type === "stdio"
-        ? new StdioClientTransport({
-            command: server.transport.command,
-            args: server.transport.args,
-            cwd:
-              server.transport.cwd ??
-              (server.scope === "project"
-                ? (context.projectPath ?? undefined)
-                : undefined),
-            env: {
-              ...getDefaultEnvironment(),
-              ...(await this.resolveValues(server.env)),
-            },
-            stderr: "pipe",
-          })
-        : new StreamableHTTPClientTransport(new URL(server.transport.url), {
-            requestInit: {
-              headers: await this.resolveValues(server.transport.headers),
-            },
-          })
+    let transport: StdioClientTransport | StreamableHTTPClientTransport
+    if (server.transport.type === "stdio") {
+      const environment = getDefaultEnvironment()
+      for (const key of SUPERVISOR_SECRET_ENV_KEYS) delete environment[key]
+      const configuredEnvironment = await this.resolveValues(server.env)
+      const mcpEnvironment = { ...environment, ...configuredEnvironment }
+      for (const key of SUPERVISOR_SECRET_ENV_KEYS) delete mcpEnvironment[key]
+      transport = new StdioClientTransport({
+        command: server.transport.command,
+        args: server.transport.args,
+        cwd:
+          server.transport.cwd ??
+          (server.scope === "project"
+            ? (context.projectPath ?? undefined)
+            : undefined),
+        env: {
+          ...mcpEnvironment,
+        },
+        stderr: "pipe",
+      })
+    } else {
+      transport = new StreamableHTTPClientTransport(
+        new URL(server.transport.url),
+        {
+          requestInit: {
+            headers: await this.resolveValues(server.transport.headers),
+          },
+        }
+      )
+    }
+
+    assertUpdateAllowed()
 
     if (transport instanceof StdioClientTransport) {
       transport.stderr?.on("data", (chunk: Buffer) =>
@@ -301,6 +375,7 @@ export class McpService {
 
     try {
       await client.connect(transport, { timeout: server.timeoutMs })
+      assertUpdateAllowed()
       state.client = client
       state.fingerprint = fingerprint
       state.status = "connected"
@@ -327,6 +402,7 @@ export class McpService {
   }
 
   async connect(server: McpServerConfig, context: McpContext, force = false) {
+    assertUpdateAllowed()
     await this.serialize(server.id, () =>
       this.connectNow(server, context, force)
     )
@@ -458,7 +534,9 @@ export class McpService {
     arguments_: Record<string, unknown>,
     context: McpCallContext
   ): Promise<McpCallResult> {
+    assertUpdateAllowed()
     const config = await loadConfig()
+    assertUpdateAllowed()
     const server = config.mcp.servers[serverId]
     if (!server || !relevant(server, context) || !executable(server, context)) {
       throw new Error(
@@ -469,31 +547,41 @@ export class McpService {
       throw new Error(`MCP tool ${toolName} is disabled.`)
     }
     await this.connect(server, context)
+    assertUpdateAllowed()
     const state = this.state(serverId)
     if (!state.client || !state.tools.some((tool) => tool.name === toolName)) {
       throw new Error(`MCP tool ${toolName} was not discovered on ${serverId}.`)
     }
 
     this.log(serverId, "info", `Calling ${toolName}.`)
-    try {
-      const result = mcpCallResultSchema.parse(
-        await state.client.callTool(
-          { name: toolName, arguments: arguments_ },
-          undefined,
-          {
-            signal: context.signal,
-            timeout: server.timeoutMs,
-            maxTotalTimeout: server.timeoutMs,
-          }
+    assertUpdateAllowed()
+    const operation = (async () => {
+      try {
+        const result = mcpCallResultSchema.parse(
+          await state.client!.callTool(
+            { name: toolName, arguments: arguments_ },
+            undefined,
+            {
+              signal: context.signal,
+              timeout: server.timeoutMs,
+              maxTotalTimeout: server.timeoutMs,
+            }
+          )
         )
-      )
-      this.log(serverId, "info", `Completed ${toolName}.`)
-      return result
-    } catch (error) {
-      state.lastError = errorMessage(error)
-      this.log(serverId, "error", `${toolName}: ${state.lastError}`)
-      this.publishStatus(serverId)
-      throw error
+        this.log(serverId, "info", `Completed ${toolName}.`)
+        return result
+      } catch (error) {
+        state.lastError = errorMessage(error)
+        this.log(serverId, "error", `${toolName}: ${state.lastError}`)
+        this.publishStatus(serverId)
+        throw error
+      }
+    })()
+    this.activeCalls.add(operation)
+    try {
+      return await operation
+    } finally {
+      this.activeCalls.delete(operation)
     }
   }
 
@@ -503,6 +591,15 @@ export class McpService {
 }
 
 export function getMcpService() {
-  globalThis.piWebCodexMcpService ??= new McpService()
+  const existing = globalThis.piWebCodexMcpService
+  if (existing) {
+    Object.setPrototypeOf(existing, McpService.prototype)
+    const state = existing as unknown as {
+      activeCalls?: Set<Promise<unknown>>
+    }
+    state.activeCalls ??= new Set()
+    return existing
+  }
+  globalThis.piWebCodexMcpService = new McpService()
   return globalThis.piWebCodexMcpService
 }

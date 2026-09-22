@@ -52,6 +52,21 @@ npm install --global pi-web-codex
 pi-web-codex
 ```
 
+The command starts the default instance in the background and returns after it is ready. Closing the launch terminal leaves it running. All instances share the global CLI installation and are managed through these commands:
+
+```bash
+pi-web-codex --port 3000
+pi-web-codex list
+pi-web-codex start <id>
+pi-web-codex stop <id>
+pi-web-codex stop
+pi-web-codex --help
+```
+
+`--port` creates or starts the instance bound to that port. `list` shows saved instance IDs, ports, and whether each instance is running or stopped. `start <id>` resumes a saved instance. `stop <id>` stops that instance; `stop` without an ID stops only the default instance. `--help` lists the available commands and options.
+
+Each instance remembers its WebUI settings, including its default runtime, PiServer URL, and credentials. For example, port 1816 can use Pi Client while port 1818 uses Pi. Changes saved in an instance's settings page remain available after stopping and restarting it. Stopping an instance preserves its data and configuration.
+
 Or install it as a Pi package and start it from a session:
 
 ```bash
@@ -59,6 +74,14 @@ pi install npm:pi-web-codex
 ```
 
 If Pi is already open, run `/reload` (or restart Pi) to load the installed extension. Then run `/pi-web-codex` inside Pi. The host opens its configured URL (default: <http://127.0.0.1:1816>) when the server is ready. Use `pi-web-codex --help` to see all CLI options.
+
+## Updating the WebUI
+
+The packaged server checks npm for a newer stable release. When an update is available, a blue update button appears in the sidebar. Click it to install the release and restart the WebUI at the same address. The page reconnects automatically and restores unsent conversation drafts.
+
+The Pi extension and the `pi-web-codex` command use the same global npm installation. Temporary update packages are used only for validation and recovery. An update is complete only after the global package, CLI, and running server report the target version.
+
+Downloads are prepared while the current server remains available. Active agent work and open terminals must finish or close before the server can switch versions. Installation or startup failures are reported; the updater attempts to restore the previous package and database. Configuration, credentials, and the separate PiServer service are preserved. Source development servers do not support automatic package updates.
 
 ## Development
 

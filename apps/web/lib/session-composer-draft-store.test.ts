@@ -6,7 +6,12 @@ import type { ComposerImage } from "@/lib/prompt-images"
 import {
   draftAfterAcceptedSend,
   NEW_CONVERSATION_DRAFT_ID,
+  parseUpdateDraftHandoff,
+  readUpdateDraftHandoff,
   SessionComposerDraftStore,
+  UPDATE_DRAFT_HANDOFF_STORAGE_KEY,
+  writeUpdateDraftHandoff,
+  restoreUpdateDraftHandoff,
 } from "./session-composer-draft-store"
 
 const image: ComposerImage = {
@@ -75,4 +80,44 @@ test("clears only the exact draft snapshot accepted by the runtime", () => {
     draftAfterAcceptedSend("keep spacing\n", "keep spacing"),
     "keep spacing\n"
   )
+})
+
+test("round-trips the update-only draft handoff and clears it after restore", () => {
+  const values = new Map<string, string>()
+  const storage = {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => values.set(key, value),
+    removeItem: (key: string) => values.delete(key),
+  }
+  const source = new SessionComposerDraftStore()
+  source.setText("session-a", "draft across reload")
+  source.setImages("session-a", [image])
+
+  writeUpdateDraftHandoff(source, storage)
+  assert.ok(values.has(UPDATE_DRAFT_HANDOFF_STORAGE_KEY))
+
+  const restored = new SessionComposerDraftStore()
+  assert.equal(restoreUpdateDraftHandoff(restored, storage), true)
+  assert.deepEqual(restored.read("session-a"), source.read("session-a"))
+  assert.equal(values.has(UPDATE_DRAFT_HANDOFF_STORAGE_KEY), false)
+})
+
+test("reports invalid and quota-limited update handoffs explicitly", () => {
+  assert.throws(
+    () => parseUpdateDraftHandoff({ version: 1, drafts: { bad: {} } }),
+    /saved composer draft handoff is invalid/
+  )
+  const store = new SessionComposerDraftStore()
+  store.setText("session-a", "draft")
+  assert.throws(
+    () =>
+      writeUpdateDraftHandoff(store, {
+        setItem() {
+          throw new Error("quota exceeded")
+        },
+        removeItem() {},
+      }),
+    /Could not preserve composer drafts.*quota exceeded/
+  )
+  assert.equal(readUpdateDraftHandoff({ getItem: () => null }), null)
 })

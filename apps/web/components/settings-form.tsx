@@ -107,10 +107,14 @@ function conflictAppearanceSettings(error: unknown) {
 function settingsErrorMessage(
   error: unknown,
   fallback: string,
-  conflict: string
+  conflict: string,
+  managedPort: string = fallback
 ) {
   if (error instanceof ApiError && error.code === "ConfigConflict") {
     return conflict
+  }
+  if (error instanceof ApiError && error.code === "ManagedInstancePort") {
+    return managedPort
   }
   return error instanceof Error ? error.message : fallback
 }
@@ -134,9 +138,11 @@ function SaveButton({
 export function GeneralSettingsForm({
   initial,
   mutationToken,
+  managedPort,
 }: {
   initial: AppConfig
   mutationToken: string
+  managedPort: number | null
 }) {
   const [config, setConfig] = useState(initial)
   const [port, setPort] = useState(String(initial.server.port))
@@ -148,7 +154,7 @@ export function GeneralSettingsForm({
   const router = useRouter()
   const { t } = useI18n()
   const dirty =
-    port !== String(config.server.port) ||
+    (managedPort === null && port !== String(config.server.port)) ||
     openBrowser !== config.server.openBrowser
 
   useEffect(() => {
@@ -170,12 +176,9 @@ export function GeneralSettingsForm({
         const saved = await persistSettings(
           config,
           mutationToken,
-          {
-            server: {
-              port: Number(port),
-              openBrowser,
-            },
-          },
+          managedPort === null
+            ? { server: { port: Number(port), openBrowser } }
+            : { server: { openBrowser } },
           t("settings.common.saveFailed")
         )
         setConfig(saved)
@@ -186,7 +189,8 @@ export function GeneralSettingsForm({
       } catch (error) {
         const current = conflictServerSettings(error)
         if (current) {
-          const portChanged = port !== String(config.server.port)
+          const portChanged =
+            managedPort === null && port !== String(config.server.port)
           const openBrowserChanged = openBrowser !== config.server.openBrowser
           setConfig((value) => ({
             ...value,
@@ -203,7 +207,8 @@ export function GeneralSettingsForm({
         const message = settingsErrorMessage(
           error,
           t("settings.common.saveFailed"),
-          t("settings.common.conflict")
+          t("settings.common.conflict"),
+          t("settings.general.managedPortError")
         )
         reportError(message)
         toast.error(message)
@@ -226,7 +231,9 @@ export function GeneralSettingsForm({
         <CardHeader>
           <CardTitle>{t("settings.general.localService")}</CardTitle>
           <CardDescription>
-            {t("settings.general.localServiceDescription")}
+            {managedPort === null
+              ? t("settings.general.localServiceDescription")
+              : t("settings.general.managedLocalServiceDescription")}
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-4">
@@ -253,7 +260,9 @@ export function GeneralSettingsForm({
                   {t("settings.general.port")}
                 </FieldLabel>
                 <FieldDescription>
-                  {t("settings.general.portDescription")}
+                  {managedPort === null
+                    ? t("settings.general.portDescription")
+                    : t("settings.general.managedPortDescription")}
                 </FieldDescription>
               </FieldContent>
               <Input
@@ -264,6 +273,7 @@ export function GeneralSettingsForm({
                 max={65535}
                 required
                 value={port}
+                disabled={managedPort !== null}
                 onChange={(event) => {
                   setPort(event.target.value)
                   setError(null)

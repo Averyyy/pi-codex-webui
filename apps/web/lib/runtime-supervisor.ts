@@ -72,7 +72,8 @@ import type {
   RuntimeCrash,
   RuntimeDiagnostics,
 } from "@/lib/runtime-diagnostics"
-import { RuntimeRequestError } from "@/lib/runtime-error"
+import { isRuntimeRequestError, RuntimeRequestError } from "@/lib/runtime-error"
+import { assertUpdateAllowed } from "@/lib/update-maintenance"
 import {
   resolveNewSessionRuntime,
   resolveNewTaskRuntime,
@@ -143,6 +144,7 @@ interface ManagedRuntime {
   stopPromise: Promise<void> | null
   resourceReloadPromise: Promise<RuntimeSnapshot> | null
   modelReloadPromise: Promise<RuntimeSnapshot> | null
+  runtimeLeases: Map<string, number>
   webUiStatuses: Map<string, WebUiExtensionStatus>
   extensionStatuses: Map<string, string>
   extensionUiRequests?: Map<
@@ -161,6 +163,49 @@ interface NewRuntimeOptions {
   initialImages?: PromptImage[]
   model?: { provider: string; modelId: string }
   thinkingLevel?: RuntimeSnapshot["thinkingLevel"]
+}
+
+const RUNTIME_LEASE_TTL_MS = 3 * 60_000
+const DRAFT_CLAIM_RECEIPT_TTL_MS = 5 * 60_000
+
+export interface RuntimeDraftView {
+  draftId: string
+  leaseToken: string
+  projectId: string | null
+  runtimeProfileId: string
+  runtimeKind: "pi" | "pi-client"
+  status: RuntimeStatus
+  snapshot: RuntimeSnapshot | null
+}
+
+interface RuntimeDraft {
+  draftId: string
+  leaseToken: string
+  leaseExpiries: Map<string, number>
+  projectId: string | null
+  cwd: string
+  runtimeProfileId: string
+  runtimeKind: "pi" | "pi-client"
+  draftDirectory: string
+  runtime: ManagedRuntime
+  claimPromise: Promise<RuntimeDraftClaimResult> | null
+  claimResult: RuntimeDraftClaimResult | null
+  claimFingerprint: string | null
+  claimFailure: { code: string; message: string } | null
+  claimedAt: number | null
+}
+
+export interface RuntimeDraftClaimResult {
+  projectId: string | null
+  sessionId: string
+  snapshot: RuntimeSnapshot
+  operationId?: string
+}
+
+export interface ModelSettingsRuntimeTarget {
+  cwd: string
+  runtimeProfileId: string
+  runtimeKind: "pi" | "pi-client"
 }
 
 interface SessionLock {
@@ -203,6 +248,8 @@ type ResourceRequestMessage = Extract<
 const REQUEST_TIMEOUT_MS = 30_000
 const COMPACTION_TIMEOUT_MS = 10 * 60_000
 const IDLE_TIMEOUT_MS = 15 * 60_000
+const RESOURCE_WORKER_STOP_TIMEOUT_MS = 2_000
+const RESOURCE_WORKER_KILL_TIMEOUT_MS = 2_000
 
 const DOMAIN_EVENT_TYPES: Record<string, string> = {
   agent_start: "runtime.busy",
@@ -244,7 +291,15 @@ function processIsAlive(pid: number) {
 
 type WorkerCredentials = Awaited<ReturnType<typeof runtimeWorkerCredentials>>
 
-function workerEnvironment(
+const SUPERVISOR_SECRET_ENV_KEYS = [
+  "PI_WEB_CODEX_UPDATE_CONTROL_URL",
+  "PI_WEB_CODEX_UPDATE_CONTROL_TOKEN",
+  "PI_WEB_CODEX_UPDATE_OPERATION_ID",
+  "PI_WEB_CODEX_UPDATE_VERIFYING",
+  "PI_WEB_CODEX_MUTATION_TOKEN",
+] as const
+
+export function workerEnvironment(
   credentials: WorkerCredentials = { kind: "pi" },
   agentDir = getPiAgentDir()
 ) {
@@ -253,6 +308,7 @@ function workerEnvironment(
   delete environment.PI_SERVER_MODE
   delete environment.PI_SERVER_URL
   delete environment.PI_SERVER_AUTH_TOKEN
+  for (const key of SUPERVISOR_SECRET_ENV_KEYS) delete environment[key]
   if (credentials.kind === "pi-client") {
     environment.PI_SERVER_MODE = "true"
     environment.PI_SERVER_URL = credentials.serverUrl
@@ -269,6 +325,8 @@ function requestId() {
 
 export class RuntimeSupervisor {
   private readonly runtimes = new Map<string, ManagedRuntime>()
+  private runtimeDrafts = new Map<string, RuntimeDraft>()
+  private draftPreparations = new Map<string, Promise<RuntimeDraft>>()
   private readonly knownResources = new Map<string, ResourceCatalog>()
 
   liveState(sessionId: string) {
@@ -285,6 +343,8 @@ export class RuntimeSupervisor {
   private readonly eventHub: EventHub
   private readonly idleTimer: NodeJS.Timeout
   private resourceQueue: Promise<void> = Promise.resolve()
+  private resourceOperationCount = 0
+  private resourceChildren = new Set<ChildProcess>()
 
   constructor(eventHub = getEventHub()) {
     this.eventHub = eventHub
@@ -303,10 +363,15 @@ export class RuntimeSupervisor {
     Object.setPrototypeOf(supervisor, RuntimeSupervisor.prototype)
     supervisor.sessionClosureMap()
     supervisor.resourceQueue ??= Promise.resolve()
+    supervisor.resourceOperationCount ??= 0
+    supervisor.resourceChildren ??= new Set()
     for (const runtime of supervisor.runtimes.values()) {
       runtime.resourceReloadPromise ??= null
       runtime.modelReloadPromise ??= null
+      runtime.runtimeLeases ??= new Map()
     }
+    supervisor.runtimeDrafts ??= new Map()
+    supervisor.draftPreparations ??= new Map()
     return supervisor
   }
 
@@ -317,6 +382,332 @@ export class RuntimeSupervisor {
       status: this.failures.has(sessionId) ? "crashed" : "stopped",
       snapshot: null,
     }
+  }
+
+  /**
+   * Check every app-owned runtime operation before a process replacement.
+   * This deliberately runs without changing runtime state; callers can use a
+   * 409 response without killing a worker or dropping an in-flight request.
+   */
+  assertUpdateIdle() {
+    if (this.activations.size > 0) {
+      throw new RuntimeRequestError(
+        "RuntimeBusy",
+        "Wait for active Pi runtime activation to finish before updating the WebUI."
+      )
+    }
+    if (this.draftPreparations.size > 0) {
+      throw new RuntimeRequestError(
+        "RuntimeBusy",
+        "Wait for the draft runtime preparation to finish before updating the WebUI."
+      )
+    }
+    if (this.sessionClosureMap().size > 0) {
+      throw new RuntimeRequestError(
+        "RuntimeBusy",
+        "Wait for the session operation to finish before updating the WebUI."
+      )
+    }
+    if (this.resourceOperationCount > 0 || this.resourceChildren.size > 0) {
+      throw new RuntimeRequestError(
+        "RuntimeBusy",
+        "Wait for the active resource operation to finish before updating the WebUI."
+      )
+    }
+
+    for (const draft of this.runtimeDrafts.values()) {
+      if (draft.claimPromise) {
+        throw new RuntimeRequestError(
+          "RuntimeBusy",
+          "Wait for the draft message to finish before updating the WebUI."
+        )
+      }
+    }
+
+    for (const runtime of this.runtimes.values()) {
+      if (runtime.cleaned) continue
+      if (runtime.status !== "ready") {
+        throw new RuntimeRequestError(
+          "RuntimeBusy",
+          `The Pi runtime is ${runtime.status}; wait for it to become idle before updating the WebUI.`
+        )
+      }
+      if (
+        runtime.snapshot?.isStreaming ||
+        runtime.snapshot?.isCompacting ||
+        (runtime.snapshot?.queuedPrompts.length ?? 0) > 0
+      ) {
+        throw new RuntimeRequestError(
+          "RuntimeBusy",
+          "A Pi runtime still has active or queued work. Wait for it to become idle before updating the WebUI."
+        )
+      }
+      if (runtime.pending.size > 0 || runtime.mcpCalls.size > 0) {
+        throw new RuntimeRequestError(
+          "RuntimeBusy",
+          "A Pi runtime still has an in-flight request. Wait for it to finish before updating the WebUI."
+        )
+      }
+      if (this.extensionUIRequests(runtime).size > 0) {
+        throw new RuntimeRequestError(
+          "RuntimeBusy",
+          "A Pi runtime is waiting for a UI response. Finish it before updating the WebUI."
+        )
+      }
+      if (
+        runtime.resourceReloadPromise ||
+        runtime.modelReloadPromise ||
+        runtime.webUiRestartPromise ||
+        runtime.stopPromise ||
+        runtime.pendingResourceReload ||
+        runtime.pendingModelReload ||
+        runtime.pendingMcpRestart ||
+        runtime.pendingWebUiRestart
+      ) {
+        throw new RuntimeRequestError(
+          "RuntimeBusy",
+          "A Pi runtime reload is still pending. Wait for it to finish before updating the WebUI."
+        )
+      }
+    }
+  }
+
+  async drainForUpdate() {
+    this.assertUpdateIdle()
+    const runtimes = [...this.runtimes.values()].filter(
+      (runtime) => !runtime.cleaned
+    )
+    const results = await Promise.allSettled(
+      runtimes.map(async (runtime) => {
+        await this.stop(runtime.webSessionId)
+        await runtime.cleanupPromise
+      })
+    )
+    const failure = results.find(
+      (result): result is PromiseRejectedResult => result.status === "rejected"
+    )
+    if (failure) throw failure.reason
+  }
+
+  async retainRuntimeLease(sessionId: string, leaseId: string) {
+    if (!leaseId) {
+      throw new RuntimeRequestError(
+        "RuntimeLeaseInvalid",
+        "A runtime lease ID is required."
+      )
+    }
+    const runtime = await this.activate(sessionId)
+    if (runtime.status !== "ready" && runtime.status !== "busy") {
+      throw new RuntimeRequestError(
+        "RuntimeUnavailable",
+        `The Pi runtime cannot accept a lease while it is ${runtime.status}.`
+      )
+    }
+    this.pruneRuntimeLeases(runtime)
+    const now = Date.now()
+    this.runtimeLeaseMap(runtime).set(leaseId, now + RUNTIME_LEASE_TTL_MS)
+    runtime.lastActivityAt = now
+    return this.state(sessionId)
+  }
+
+  refreshRuntimeLease(sessionId: string, leaseId: string) {
+    const runtime = this.runtimes.get(sessionId)
+    if (!runtime || runtime.cleaned) {
+      throw new RuntimeRequestError(
+        "RuntimeNotActive",
+        "The Pi runtime is not active."
+      )
+    }
+    this.pruneRuntimeLeases(runtime)
+    if (!this.runtimeLeaseMap(runtime).has(leaseId)) {
+      throw new RuntimeRequestError(
+        "RuntimeLeaseNotFound",
+        "The runtime lease is no longer active."
+      )
+    }
+    const now = Date.now()
+    this.runtimeLeaseMap(runtime).set(leaseId, now + RUNTIME_LEASE_TTL_MS)
+    runtime.lastActivityAt = now
+    return this.state(sessionId)
+  }
+
+  releaseRuntimeLease(sessionId: string, leaseId: string) {
+    const runtime = this.runtimes.get(sessionId)
+    if (runtime && !runtime.cleaned) {
+      this.runtimeLeaseMap(runtime).delete(leaseId)
+    }
+  }
+
+  async prepareRuntimeDraft(input: {
+    draftId: string
+    leaseId: string
+    projectId: string | null
+    runtimeProfileId?: string
+    model?: { provider: string; modelId: string }
+    thinkingLevel?: RuntimeSnapshot["thinkingLevel"]
+  }): Promise<RuntimeDraftView> {
+    const target =
+      input.projectId === null
+        ? await resolveNewTaskRuntime(input.runtimeProfileId)
+        : await resolveNewSessionRuntime(
+            input.projectId,
+            input.runtimeProfileId
+          )
+    const existing = this.runtimeDrafts.get(input.draftId)
+    if (existing) {
+      this.assertDraftTarget(existing, target)
+      this.pruneDraftLeases(existing)
+      if (existing.runtime.cleaned) {
+        throw new RuntimeRequestError(
+          "RuntimeDraftUnavailable",
+          "The draft runtime is no longer active."
+        )
+      }
+      existing.leaseExpiries.set(
+        input.leaseId,
+        Date.now() + RUNTIME_LEASE_TTL_MS
+      )
+      return this.runtimeDraftView(existing)
+    }
+
+    const inFlight = this.draftPreparations.get(input.draftId)
+    if (inFlight) {
+      const draft = await inFlight
+      this.assertDraftTarget(draft, target)
+      draft.leaseExpiries.set(input.leaseId, Date.now() + RUNTIME_LEASE_TTL_MS)
+      return this.runtimeDraftView(draft)
+    }
+
+    if (this.runtimes.has(input.draftId)) {
+      throw new RuntimeRequestError(
+        "RuntimeDraftConflict",
+        "The requested draft ID is already used by an active runtime."
+      )
+    }
+
+    const preparation = this.launchRuntimeDraft(input, target, input.draftId)
+    this.draftPreparations.set(input.draftId, preparation)
+    try {
+      const draft = await preparation
+      draft.leaseExpiries.set(input.leaseId, Date.now() + RUNTIME_LEASE_TTL_MS)
+      return this.runtimeDraftView(draft)
+    } finally {
+      if (this.draftPreparations.get(input.draftId) === preparation) {
+        this.draftPreparations.delete(input.draftId)
+      }
+    }
+  }
+
+  refreshRuntimeDraftLease(
+    draftId: string,
+    leaseToken: string,
+    leaseId: string
+  ) {
+    const draft = this.requireDraft(draftId, leaseToken)
+    if (draft.runtime.cleaned) {
+      throw new RuntimeRequestError(
+        "RuntimeDraftUnavailable",
+        "The draft runtime is no longer active."
+      )
+    }
+    this.pruneDraftLeases(draft)
+    if (!draft.leaseExpiries.has(leaseId)) {
+      throw new RuntimeRequestError(
+        "RuntimeDraftLeaseNotFound",
+        "The draft runtime lease is no longer active."
+      )
+    }
+    const now = Date.now()
+    draft.leaseExpiries.set(leaseId, now + RUNTIME_LEASE_TTL_MS)
+    draft.runtime.lastActivityAt = now
+    return this.runtimeDraftView(draft)
+  }
+
+  async releaseRuntimeDraft(
+    draftId: string,
+    leaseToken: string,
+    leaseId: string
+  ) {
+    const draft = this.runtimeDrafts.get(draftId)
+    if (!draft) return
+    this.assertDraftToken(draft, leaseToken)
+    draft.leaseExpiries.delete(leaseId)
+    if (draft.claimPromise) return
+    if (draft.claimResult) {
+      return
+    }
+    if (draft.claimFailure) {
+      return
+    }
+    this.pruneDraftLeases(draft)
+    if (draft.leaseExpiries.size > 0) return
+    this.runtimeDrafts.delete(draftId)
+    await this.disposeRuntimeDraft(draft)
+  }
+
+  async claimRuntimeDraft(input: {
+    draftId: string
+    leaseToken: string
+    leaseId: string
+    message: string
+    images: PromptImage[]
+    model?: { provider: string; modelId: string }
+    thinkingLevel?: RuntimeSnapshot["thinkingLevel"]
+  }): Promise<RuntimeDraftClaimResult> {
+    const draft = this.requireDraft(input.draftId, input.leaseToken)
+    const fingerprint = JSON.stringify({
+      message: input.message,
+      images: input.images,
+      model: input.model ?? null,
+      thinkingLevel: input.thinkingLevel ?? null,
+    })
+    if (draft.claimResult) {
+      if (draft.claimFingerprint !== fingerprint) {
+        throw new RuntimeRequestError(
+          "RuntimeDraftConflict",
+          "The draft already accepted a different message."
+        )
+      }
+      return draft.claimResult
+    }
+    if (draft.claimFailure) {
+      if (draft.claimFingerprint !== fingerprint) {
+        throw new RuntimeRequestError(
+          "RuntimeDraftConflict",
+          "The draft is already reserved for a different message."
+        )
+      }
+      throw new RuntimeRequestError(
+        draft.claimFailure.code,
+        draft.claimFailure.message
+      )
+    }
+    this.pruneDraftLeases(draft)
+    if (!draft.leaseExpiries.has(input.leaseId)) {
+      throw new RuntimeRequestError(
+        "RuntimeDraftLeaseNotFound",
+        "The draft runtime lease is no longer active."
+      )
+    }
+    if (draft.claimPromise) {
+      if (draft.claimFingerprint !== fingerprint) {
+        throw new RuntimeRequestError(
+          "RuntimeDraftConflict",
+          "The draft is already accepting a different message."
+        )
+      }
+      return draft.claimPromise
+    }
+
+    draft.claimFingerprint = fingerprint
+    const claim = this.completeRuntimeDraftClaim(draft, input).finally(() => {
+      if (draft.claimPromise === claim) draft.claimPromise = null
+      if (!draft.claimResult && !draft.claimFailure) {
+        draft.claimFingerprint = null
+      }
+    })
+    draft.claimPromise = claim
+    return claim
   }
 
   diagnostics(sessionId: string): RuntimeDiagnostics {
@@ -373,6 +764,15 @@ export class RuntimeSupervisor {
     })
     this.activations.set(sessionId, activation)
     return activation
+  }
+
+  private async readActiveRuntime(sessionId: string) {
+    let runtime = this.runtimes.get(sessionId)
+    if (runtime?.status === "starting") {
+      const activation = this.activations.get(sessionId)
+      if (activation) runtime = await activation
+    }
+    return runtime && !runtime.cleaned ? runtime : null
   }
 
   async prompt(
@@ -842,8 +1242,8 @@ export class RuntimeSupervisor {
     extensionRequestId: string,
     response: ExtensionUIResponse
   ) {
-    const runtime = this.runtimes.get(sessionId)
-    if (!runtime || runtime.cleaned) {
+    const runtime = await this.readActiveRuntime(sessionId)
+    if (!runtime) {
       throw new RuntimeRequestError(
         "RuntimeNotActive",
         "The Pi runtime is not active."
@@ -871,8 +1271,8 @@ export class RuntimeSupervisor {
   }
 
   async tuiSurfaces(sessionId: string) {
-    const runtime = this.runtimes.get(sessionId)
-    if (!runtime || runtime.cleaned) return []
+    const runtime = await this.readActiveRuntime(sessionId)
+    if (!runtime) return []
     return tuiSurfaceSnapshotsSchema.parse(
       await this.request(runtime, {
         type: "tui.surface.list",
@@ -883,8 +1283,8 @@ export class RuntimeSupervisor {
   }
 
   async webUiViews(sessionId: string) {
-    const runtime = this.runtimes.get(sessionId)
-    if (!runtime || runtime.cleaned) return []
+    const runtime = await this.readActiveRuntime(sessionId)
+    if (!runtime) return []
     return webUiViewSnapshotsSchema.parse(
       await this.request(runtime, {
         type: "webui.view.list",
@@ -895,8 +1295,8 @@ export class RuntimeSupervisor {
   }
 
   async subagents(sessionId: string): Promise<SubagentsSnapshot> {
-    const runtime = this.runtimes.get(sessionId)
-    if (!runtime || runtime.cleaned) {
+    const runtime = await this.readActiveRuntime(sessionId)
+    if (!runtime) {
       return {
         version: 1,
         revision: 0,
@@ -919,8 +1319,8 @@ export class RuntimeSupervisor {
   }
 
   async stopSubagent(sessionId: string, agentId: string) {
-    const runtime = this.runtimes.get(sessionId)
-    if (!runtime || runtime.cleaned) {
+    const runtime = await this.readActiveRuntime(sessionId)
+    if (!runtime) {
       throw new RuntimeRequestError(
         "RuntimeNotActive",
         "The Pi runtime is not active."
@@ -1054,68 +1454,98 @@ export class RuntimeSupervisor {
     return catalog
   }
 
-  async modelSettings(cwd: string, scope: "all" | "enabled" = "all") {
+  async modelSettings(
+    target: ModelSettingsRuntimeTarget,
+    scope: "all" | "enabled" = "all"
+  ) {
     return modelSettingsSchema.parse(
-      await this.resourceRequest({
-        type: "models.catalog",
-        requestId: requestId(),
-        payload: { cwd, agentDir: getPiAgentDir(), scope },
-      })
+      await this.resourceRequest(
+        {
+          type: "models.catalog",
+          requestId: requestId(),
+          payload: {
+            cwd: target.cwd,
+            agentDir: getPiAgentDir(),
+            scope,
+          },
+        },
+        REQUEST_TIMEOUT_MS,
+        target
+      )
     )
   }
 
-  async refreshModelSettings(cwd: string) {
+  async refreshModelSettings(target: ModelSettingsRuntimeTarget) {
     const settings = modelSettingsSchema.parse(
-      await this.resourceRequest({
-        type: "models.refresh",
-        requestId: requestId(),
-        payload: { cwd, agentDir: getPiAgentDir() },
-      })
+      await this.resourceRequest(
+        {
+          type: "models.refresh",
+          requestId: requestId(),
+          payload: { cwd: target.cwd, agentDir: getPiAgentDir() },
+        },
+        REQUEST_TIMEOUT_MS,
+        target
+      )
     )
     await this.reloadModelSettings()
     return settings
   }
 
   async setModelScope(
-    cwd: string,
+    target: ModelSettingsRuntimeTarget,
     enabledModelIds: string[] | null,
     expectedEnabledModelIds: string[]
   ) {
     const settings = modelSettingsSchema.parse(
-      await this.resourceRequest({
-        type: "models.set-scope",
-        requestId: requestId(),
-        payload: {
-          cwd,
-          agentDir: getPiAgentDir(),
-          enabledModelIds,
-          expectedEnabledModelIds,
+      await this.resourceRequest(
+        {
+          type: "models.set-scope",
+          requestId: requestId(),
+          payload: {
+            cwd: target.cwd,
+            agentDir: getPiAgentDir(),
+            enabledModelIds,
+            expectedEnabledModelIds,
+          },
         },
-      })
+        REQUEST_TIMEOUT_MS,
+        target
+      )
     )
     await this.reloadModelSettings()
     return settings
   }
 
-  async removeProvider(cwd: string, provider: string) {
+  async removeProvider(target: ModelSettingsRuntimeTarget, provider: string) {
     const settings = modelSettingsSchema.parse(
-      await this.resourceRequest({
-        type: "providers.remove",
-        requestId: requestId(),
-        payload: { cwd, agentDir: getPiAgentDir(), provider },
-      })
+      await this.resourceRequest(
+        {
+          type: "providers.remove",
+          requestId: requestId(),
+          payload: { cwd: target.cwd, agentDir: getPiAgentDir(), provider },
+        },
+        REQUEST_TIMEOUT_MS,
+        target
+      )
     )
     await this.reloadModelSettings()
     return settings
   }
 
-  async saveCustomProvider(cwd: string, input: ModelSettingsProviderInput) {
+  async saveCustomProvider(
+    target: ModelSettingsRuntimeTarget,
+    input: ModelSettingsProviderInput
+  ) {
     const settings = modelSettingsSchema.parse(
-      await this.resourceRequest({
-        type: "providers.save",
-        requestId: requestId(),
-        payload: { cwd, agentDir: getPiAgentDir(), ...input },
-      })
+      await this.resourceRequest(
+        {
+          type: "providers.save",
+          requestId: requestId(),
+          payload: { cwd: target.cwd, agentDir: getPiAgentDir(), ...input },
+        },
+        REQUEST_TIMEOUT_MS,
+        target
+      )
     )
     await this.reloadModelSettings()
     return settings
@@ -1349,6 +1779,304 @@ export class RuntimeSupervisor {
     return runtime
   }
 
+  private runtimeDraftView(draft: RuntimeDraft): RuntimeDraftView {
+    return {
+      draftId: draft.draftId,
+      leaseToken: draft.leaseToken,
+      projectId: draft.projectId,
+      runtimeProfileId: draft.runtimeProfileId,
+      runtimeKind: draft.runtimeKind,
+      status: draft.runtime.status,
+      snapshot: draft.runtime.snapshot,
+    }
+  }
+
+  private assertDraftToken(draft: RuntimeDraft, leaseToken: string) {
+    if (draft.leaseToken !== leaseToken) {
+      throw new RuntimeRequestError(
+        "RuntimeDraftUnauthorized",
+        "The draft runtime lease token is invalid."
+      )
+    }
+  }
+
+  private requireDraft(draftId: string, leaseToken: string) {
+    const draft = this.runtimeDrafts.get(draftId)
+    if (!draft) {
+      throw new RuntimeRequestError(
+        "RuntimeDraftNotFound",
+        "The draft runtime does not exist."
+      )
+    }
+    this.assertDraftToken(draft, leaseToken)
+    return draft
+  }
+
+  private assertDraftTarget(
+    draft: RuntimeDraft,
+    target: {
+      projectId: string | null
+      cwd: string
+      profileId: string
+      runtimeKind: "pi" | "pi-client"
+    }
+  ) {
+    if (
+      draft.projectId !== target.projectId ||
+      draft.cwd !== target.cwd ||
+      draft.runtimeProfileId !== target.profileId ||
+      draft.runtimeKind !== target.runtimeKind
+    ) {
+      throw new RuntimeRequestError(
+        "RuntimeDraftConflict",
+        "The draft runtime target changed while it was active."
+      )
+    }
+  }
+
+  private pruneDraftLeases(draft: RuntimeDraft) {
+    const now = Date.now()
+    for (const [leaseId, expiresAt] of draft.leaseExpiries) {
+      if (expiresAt <= now) draft.leaseExpiries.delete(leaseId)
+    }
+  }
+
+  private async launchRuntimeDraft(
+    input: {
+      draftId: string
+      leaseId: string
+      projectId: string | null
+      model?: { provider: string; modelId: string }
+      thinkingLevel?: RuntimeSnapshot["thinkingLevel"]
+    },
+    target: {
+      projectId: string | null
+      cwd: string
+      profileId: string
+      runtimeKind: "pi" | "pi-client"
+    },
+    draftId: string
+  ) {
+    const draftDirectory = path.join(
+      getAppPaths().temporary,
+      "runtime-drafts",
+      randomUUID()
+    )
+    let created: { sessionId: string }
+    try {
+      created = await this.launchUnboundRuntime(
+        target,
+        { mode: "new" },
+        null,
+        {
+          ...(input.model ? { model: input.model } : {}),
+          ...(input.thinkingLevel
+            ? { thinkingLevel: input.thinkingLevel }
+            : {}),
+        },
+        "draft",
+        undefined,
+        draftDirectory
+      )
+    } catch (error) {
+      await rm(draftDirectory, { recursive: true, force: true })
+      throw error
+    }
+    const runtime = this.runtimes.get(created.sessionId)
+    if (!runtime || runtime.cleaned) {
+      throw new RuntimeRequestError(
+        "RuntimeDraftUnavailable",
+        "The draft runtime stopped during initialization."
+      )
+    }
+    const draft: RuntimeDraft = {
+      draftId,
+      leaseToken: randomUUID(),
+      leaseExpiries: new Map(),
+      projectId: target.projectId,
+      cwd: target.cwd,
+      runtimeProfileId: target.profileId,
+      runtimeKind: target.runtimeKind,
+      draftDirectory,
+      runtime,
+      claimPromise: null,
+      claimResult: null,
+      claimFingerprint: null,
+      claimFailure: null,
+      claimedAt: null,
+    }
+    this.runtimeDrafts.set(draftId, draft)
+    return draft
+  }
+
+  private async completeRuntimeDraftClaim(
+    draft: RuntimeDraft,
+    input: {
+      draftId: string
+      leaseToken: string
+      leaseId: string
+      message: string
+      images: PromptImage[]
+      model?: { provider: string; modelId: string }
+      thinkingLevel?: RuntimeSnapshot["thinkingLevel"]
+    }
+  ): Promise<RuntimeDraftClaimResult> {
+    const runtime = draft.runtime
+    if (runtime.cleaned) {
+      throw new RuntimeRequestError(
+        "RuntimeDraftUnavailable",
+        "The draft runtime is no longer active."
+      )
+    }
+    let indexedSessionId: string | null = null
+    let promptStarted = false
+    try {
+      if (input.model) {
+        await this.setModel(
+          runtime.webSessionId,
+          input.model.provider,
+          input.model.modelId
+        )
+      }
+      if (input.thinkingLevel) {
+        await this.setThinkingLevel(runtime.webSessionId, input.thinkingLevel)
+      }
+      if (!hasAvailableSelectedModel(runtime.snapshot)) {
+        throw new RuntimeRequestError(
+          "ModelUnavailable",
+          "The selected model is unavailable. Configure its Provider credentials or choose an available model."
+        )
+      }
+
+      const promoted = runtimeSnapshotSchema.parse(
+        await this.request(runtime, {
+          type: "runtime.promote-session",
+          requestId: requestId(),
+          payload: { nativeSessionFile: runtime.nativeSessionFile },
+        })
+      )
+      runtime.snapshot = this.snapshotWithExtensionStatuses(runtime, promoted)
+      const identity = await getSessionIdentityByNativeFile(
+        runtime.nativeSessionFile
+      )
+      if (
+        !identity ||
+        identity.nativeSessionId !== runtime.nativeSessionId ||
+        identity.nativeSessionFile !== runtime.nativeSessionFile
+      ) {
+        throw new RuntimeRequestError(
+          "SessionIdentityMismatch",
+          "The promoted draft session identity did not match the active runtime."
+        )
+      }
+      indexedSessionId = identity.id
+      if (draft.projectId === null) {
+        await markSessionStandalone(identity.id, {
+          cwd: draft.cwd,
+          runtimeKind: draft.runtimeKind,
+          runtimeProfileId: draft.runtimeProfileId,
+        })
+      } else {
+        if (identity.projectId !== draft.projectId) {
+          throw new RuntimeRequestError(
+            "SessionProjectMismatch",
+            "The promoted draft session belongs to a different project."
+          )
+        }
+        await bindSessionRuntime(
+          identity.id,
+          draft.runtimeKind,
+          draft.runtimeProfileId
+        )
+      }
+
+      if (identity.id !== draft.draftId) {
+        runtime.snapshot = this.snapshotWithExtensionStatuses(
+          runtime,
+          runtimeSnapshotSchema.parse(
+            await this.request(runtime, {
+              type: "runtime.rebind-web-session",
+              requestId: requestId(),
+              payload: { webSessionId: identity.id },
+            })
+          )
+        )
+      }
+      runtime.lockPath = await this.acquireSessionLock({
+        webSessionId: identity.id,
+        runtimeProfileId: draft.runtimeProfileId,
+        nativeSessionId: identity.nativeSessionId,
+        nativeSessionFile: identity.nativeSessionFile,
+      })
+      const provisionalRuntimeSessionId = runtime.webSessionId
+      this.runtimes.delete(provisionalRuntimeSessionId)
+      runtime.webSessionId = identity.id
+      runtime.nativeSessionId = identity.nativeSessionId
+      runtime.nativeSessionFile = identity.nativeSessionFile
+      runtime.status = "ready"
+      this.runtimes.set(identity.id, runtime)
+      this.eventHub.publish({
+        type: "runtime.stopped",
+        sessionId: provisionalRuntimeSessionId,
+        payload: {},
+      })
+      this.eventHub.publish({
+        type: "runtime.ready",
+        sessionId: identity.id,
+        payload: runtime.snapshot,
+      })
+
+      const result: RuntimeDraftClaimResult = {
+        projectId: draft.projectId,
+        sessionId: identity.id,
+        snapshot: runtime.snapshot ?? promoted,
+      }
+      promptStarted = true
+      const accepted = await this.prompt(identity.id, {
+        message: input.message,
+        images: input.images,
+        streamingBehavior: "followUp",
+      })
+      result.operationId = accepted.operationId
+      draft.claimResult = result
+      draft.claimedAt = Date.now()
+      return result
+    } catch (error) {
+      if (indexedSessionId) {
+        if (
+          promptStarted &&
+          !(isRuntimeRequestError(error) && error.code === "ModelUnavailable")
+        ) {
+          draft.claimFailure = {
+            code: "RuntimeDraftClaimUncertain",
+            message: `The draft prompt result is uncertain for session ${indexedSessionId}; it was not retried to avoid sending a duplicate message.`,
+          }
+          draft.claimedAt = Date.now()
+        } else {
+          await this.stop(runtime.webSessionId).catch(() => undefined)
+          await archiveStoredSession(indexedSessionId)
+          await deleteStoredArchivedSession(indexedSessionId)
+          this.runtimeDrafts.delete(draft.draftId)
+        }
+      }
+      throw error
+    }
+  }
+
+  private async disposeRuntimeDraft(draft: RuntimeDraft) {
+    if (draft.claimPromise || draft.claimResult || draft.claimFailure) return
+    await this.stop(draft.runtime.webSessionId)
+    await rm(draft.runtime.nativeSessionFile, { force: true })
+    await rm(draft.draftDirectory, { recursive: true, force: true })
+  }
+
+  private isUnclaimedDraftRuntime(runtime: ManagedRuntime) {
+    return [...this.runtimeDrafts.values()].some(
+      (draft) =>
+        draft.runtime === runtime && !draft.claimResult && !draft.claimFailure
+    )
+  }
+
   private async replaceRuntimeSession(
     sessionId: string,
     createMessage: (
@@ -1475,8 +2203,17 @@ export class RuntimeSupervisor {
     },
     initializationTarget: RuntimeInitializeTarget,
     migratedFromSessionId: string | null,
-    options: Pick<NewRuntimeOptions, "model" | "thinkingLevel"> = {}
+    options: Pick<NewRuntimeOptions, "model" | "thinkingLevel"> = {},
+    launchMode: "persisted" | "draft" = "persisted",
+    provisionalWebSessionId = randomUUID(),
+    draftDirectory?: string
   ) {
+    if (launchMode === "draft" && !draftDirectory) {
+      throw new RuntimeRequestError(
+        "RuntimeDraftUnavailable",
+        "A draft runtime requires an isolated storage directory."
+      )
+    }
     if (!target.cwd) {
       throw new RuntimeRequestError(
         "SessionCwdMissing",
@@ -1519,7 +2256,10 @@ export class RuntimeSupervisor {
       ),
     ])
 
-    const provisionalWebSessionId = randomUUID()
+    // All preparation awaits above can yield to the update request.  Check
+    // immediately before forking so no new app-owned worker can escape the
+    // maintenance gate.
+    assertUpdateAllowed()
     const child = fork(workerPath, [], {
       cwd: target.cwd,
       env: workerEnvironment(credentials),
@@ -1556,9 +2296,17 @@ export class RuntimeSupervisor {
       stopPromise: null,
       resourceReloadPromise: null,
       modelReloadPromise: null,
+      runtimeLeases: new Map(),
       webUiStatuses: new Map(),
       extensionStatuses: new Map(),
       extensionUiRequests: new Map(),
+    }
+    if (this.runtimes.has(provisionalWebSessionId)) {
+      child.kill("SIGTERM")
+      throw new RuntimeRequestError(
+        "RuntimeSessionConflict",
+        "The generated runtime session ID is already active."
+      )
     }
     this.runtimes.set(provisionalWebSessionId, managed)
     this.bindChild(managed)
@@ -1583,6 +2331,10 @@ export class RuntimeSupervisor {
               mcpTools,
               webuiAdapters,
               target: initializationTarget,
+              ...(launchMode === "draft" ? { draft: true } : {}),
+              ...(launchMode === "draft" && draftDirectory
+                ? { draftDirectory }
+                : {}),
               ...(options.model ? { model: options.model } : {}),
               ...(options.thinkingLevel
                 ? { thinkingLevel: options.thinkingLevel }
@@ -1591,6 +2343,22 @@ export class RuntimeSupervisor {
           })
         )
       )
+      if (launchMode === "draft") {
+        managed.nativeSessionId = snapshot.nativeSessionId
+        managed.nativeSessionFile = snapshot.nativeSessionFile
+        managed.snapshot = snapshot
+        managed.status = "ready"
+        this.eventHub.publish({
+          type: "runtime.ready",
+          sessionId: provisionalWebSessionId,
+          payload: snapshot,
+        })
+        return {
+          projectId: target.projectId,
+          sessionId: provisionalWebSessionId,
+          snapshot,
+        }
+      }
       const identity = await getSessionIdentityByNativeFile(
         snapshot.nativeSessionFile
       )
@@ -1724,6 +2492,8 @@ export class RuntimeSupervisor {
       nativeSessionFile,
     })
 
+    // The lock/path/MCP awaits above may overlap an update request.
+    assertUpdateAllowed()
     const child = fork(workerPath, [], {
       cwd: target.cwd,
       env: workerEnvironment(credentials),
@@ -1760,6 +2530,7 @@ export class RuntimeSupervisor {
       stopPromise: null,
       resourceReloadPromise: null,
       modelReloadPromise: null,
+      runtimeLeases: new Map(),
       webUiStatuses: new Map(),
       extensionStatuses: new Map(),
       extensionUiRequests: new Map(),
@@ -2152,6 +2923,7 @@ export class RuntimeSupervisor {
     message: HostToWorkerMessage,
     timeoutMs = REQUEST_TIMEOUT_MS
   ) {
+    if (message.type !== "runtime.shutdown") assertUpdateAllowed()
     if (!runtime.child.connected) {
       throw new RuntimeRequestError(
         "RuntimeDisconnected",
@@ -2177,11 +2949,17 @@ export class RuntimeSupervisor {
 
   private resourceRequest(
     message: ResourceRequestMessage,
-    timeoutMs = REQUEST_TIMEOUT_MS
+    timeoutMs = REQUEST_TIMEOUT_MS,
+    runtimeTarget?: ModelSettingsRuntimeTarget
   ) {
-    const operation = this.resourceQueue.then(() =>
-      this.performResourceRequest(message, timeoutMs)
-    )
+    this.resourceOperationCount += 1
+    const operation = this.resourceQueue
+      .then(() =>
+        this.performResourceRequest(message, timeoutMs, runtimeTarget)
+      )
+      .finally(() => {
+        this.resourceOperationCount -= 1
+      })
     this.resourceQueue = operation.then(
       () => undefined,
       () => undefined
@@ -2191,70 +2969,231 @@ export class RuntimeSupervisor {
 
   private async performResourceRequest(
     message: ResourceRequestMessage,
-    timeoutMs: number
+    timeoutMs: number,
+    runtimeTarget?: ModelSettingsRuntimeTarget
   ) {
-    const workerPath = await realpath(getPiWorkerPath())
+    const credentials = runtimeTarget
+      ? await runtimeWorkerCredentials(runtimeTarget.runtimeProfileId)
+      : { kind: "pi" as const }
+    if (runtimeTarget && credentials.kind !== runtimeTarget.runtimeKind) {
+      throw new RuntimeRequestError(
+        "RuntimeProfileMismatch",
+        `Runtime profile ${runtimeTarget.runtimeProfileId} changed while handling a model resource request.`
+      )
+    }
+    const workerPath = await realpath(
+      credentials.kind === "pi-client"
+        ? getPiClientWorkerPath()
+        : getPiWorkerPath()
+    )
     await access(workerPath)
+    assertUpdateAllowed()
     const child = fork(workerPath, [], {
       cwd: message.payload.cwd,
-      env: workerEnvironment(),
+      env: workerEnvironment(credentials),
       execArgv: [],
       stdio: ["ignore", "ignore", "pipe", "ipc"],
     })
+    this.resourceChildren.add(child)
     return new Promise<unknown>((resolve, reject) => {
+      type ResourceOutcome =
+        { kind: "success"; data: unknown } | { kind: "failure"; error: Error }
+
       let settled = false
+      let exited = child.exitCode !== null || child.signalCode !== null
+      let closed = false
+      let terminationStarted = false
+      let outcome: ResourceOutcome | null = null
       let stderr = ""
+      let timeout: NodeJS.Timeout | undefined
+      let stopTimeout: NodeJS.Timeout | undefined
+      let killTimeout: NodeJS.Timeout | undefined
       child.stderr?.setEncoding("utf8")
-      child.stderr?.on("data", (chunk: string) => {
+      const onStderr = (chunk: string) => {
         stderr += chunk
         if (stderr.length > 4_000) stderr = stderr.slice(-4_000)
-      })
-      const finish = (complete: () => void) => {
-        if (settled) return
-        settled = true
-        clearTimeout(timeout)
-        child.removeAllListeners()
-        if (child.exitCode === null && child.signalCode === null) {
-          child.kill("SIGTERM")
-        }
-        complete()
       }
-      const timeout = setTimeout(
-        () =>
-          finish(() =>
-            reject(
+      child.stderr?.on("data", onStderr)
+
+      const clearTimers = () => {
+        if (timeout) clearTimeout(timeout)
+        if (stopTimeout) clearTimeout(stopTimeout)
+        if (killTimeout) clearTimeout(killTimeout)
+        timeout = undefined
+        stopTimeout = undefined
+        killTimeout = undefined
+      }
+
+      const removeRequestListeners = () => {
+        child.off("message", onMessage)
+        child.off("error", onError)
+        child.stderr?.off("data", onStderr)
+      }
+
+      const stopTracking = () => {
+        this.resourceChildren.delete(child)
+        child.off("exit", onExit)
+        child.off("close", onClose)
+      }
+
+      const finishAfterExit = () => {
+        if (!closed || settled) return
+        settled = true
+        clearTimers()
+        removeRequestListeners()
+        stopTracking()
+        if (outcome?.kind === "success") resolve(outcome.data)
+        else {
+          reject(
+            outcome?.error ??
               new RuntimeRequestError(
-                "ResourceRequestTimeout",
-                `The Pi resource worker did not answer within ${timeoutMs}ms.`
+                "ResourceWorkerExited",
+                "The Pi resource worker exited before returning a response."
               )
-            )
-          ),
-        timeoutMs
-      )
-      child.once("error", (error) => finish(() => reject(error)))
-      child.once("exit", (code, signal) =>
-        finish(() =>
+          )
+        }
+      }
+
+      const hardStop = () => {
+        if (closed || settled) {
+          if (closed) finishAfterExit()
+          return
+        }
+        try {
+          child.kill("SIGKILL")
+        } catch {
+          // The exit event or the bounded timeout below supplies the result.
+        }
+        killTimeout = setTimeout(() => {
+          if (closed || settled) {
+            if (closed) finishAfterExit()
+            return
+          }
+          settled = true
+          clearTimers()
+          removeRequestListeners()
+          // Keep the exit listener and resourceChildren entry until the child
+          // is actually observed exiting. Update preparation must still see a
+          // child that ignores both termination signals as busy.
           reject(
             new RuntimeRequestError(
+              "ResourceWorkerStopTimeout",
+              "The Pi resource worker did not exit after termination was requested."
+            )
+          )
+        }, RESOURCE_WORKER_KILL_TIMEOUT_MS)
+        killTimeout.unref?.()
+      }
+
+      const terminate = () => {
+        if (terminationStarted || exited) {
+          if (closed) finishAfterExit()
+          return
+        }
+        terminationStarted = true
+        try {
+          child.kill("SIGTERM")
+        } catch {
+          // Continue to the bounded SIGKILL attempt.
+        }
+        stopTimeout = setTimeout(() => {
+          if (closed || settled) {
+            if (closed) finishAfterExit()
+            return
+          }
+          hardStop()
+        }, RESOURCE_WORKER_STOP_TIMEOUT_MS)
+        stopTimeout.unref?.()
+      }
+
+      const recordOutcome = (next: ResourceOutcome) => {
+        if (outcome || settled) return
+        outcome = next
+        if (timeout) clearTimeout(timeout)
+        timeout = undefined
+        if (closed) finishAfterExit()
+        else terminate()
+      }
+
+      const awaitClose = () => {
+        if (closed || settled || stopTimeout) {
+          if (closed) finishAfterExit()
+          return
+        }
+        stopTimeout = setTimeout(() => {
+          if (closed || settled) {
+            if (closed) finishAfterExit()
+            return
+          }
+          settled = true
+          clearTimers()
+          removeRequestListeners()
+          // Keep the close listener and resourceChildren entry until the
+          // operating system confirms that the child's stdio is released.
+          reject(
+            new RuntimeRequestError(
+              "ResourceWorkerStopTimeout",
+              "The Pi resource worker did not close after exiting."
+            )
+          )
+        }, RESOURCE_WORKER_STOP_TIMEOUT_MS)
+        stopTimeout.unref?.()
+      }
+
+      const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
+        exited = true
+        if (timeout) clearTimeout(timeout)
+        timeout = undefined
+        if (stopTimeout) clearTimeout(stopTimeout)
+        stopTimeout = undefined
+        if (killTimeout) clearTimeout(killTimeout)
+        killTimeout = undefined
+        if (!outcome) {
+          outcome = {
+            kind: "failure",
+            error: new RuntimeRequestError(
               "ResourceWorkerExited",
               `The Pi resource worker exited (${signal ?? code ?? "unknown"}).${
                 stderr.trim() ? `\n${stderr.trim()}` : ""
               }`
-            )
-          )
-        )
-      )
-      child.on("message", (raw: unknown) => {
+            ),
+          }
+        }
+        awaitClose()
+      }
+
+      const onClose = (code: number | null, signal: NodeJS.Signals | null) => {
+        closed = true
+        exited = true
+        this.resourceChildren.delete(child)
+        if (!outcome) {
+          outcome = {
+            kind: "failure",
+            error: new RuntimeRequestError(
+              "ResourceWorkerExited",
+              `The Pi resource worker closed (${signal ?? code ?? "unknown"}).${
+                stderr.trim() ? `\n${stderr.trim()}` : ""
+              }`
+            ),
+          }
+        }
+        finishAfterExit()
+      }
+
+      const onError = (error: Error) => {
+        recordOutcome({ kind: "failure", error })
+      }
+
+      const onMessage = (raw: unknown) => {
         const parsed = workerToHostMessageSchema.safeParse(raw)
         if (!parsed.success) {
-          finish(() =>
-            reject(
-              new RuntimeRequestError(
-                "InvalidWorkerMessage",
-                parsed.error.message
-              )
-            )
-          )
+          recordOutcome({
+            kind: "failure",
+            error: new RuntimeRequestError(
+              "InvalidWorkerMessage",
+              parsed.error.message
+            ),
+          })
           return
         }
         const response = parsed.data
@@ -2264,21 +3203,45 @@ export class RuntimeSupervisor {
         ) {
           return
         }
-        if (response.success) finish(() => resolve(response.data))
-        else {
-          finish(() =>
-            reject(
-              new RuntimeRequestError(
-                response.error?.code ?? "ResourceRequestFailed",
-                response.error?.message ?? "The Pi resource request failed."
-              )
-            )
-          )
+        if (response.success) {
+          recordOutcome({ kind: "success", data: response.data })
+        } else {
+          recordOutcome({
+            kind: "failure",
+            error: new RuntimeRequestError(
+              response.error?.code ?? "ResourceRequestFailed",
+              response.error?.message ?? "The Pi resource request failed."
+            ),
+          })
         }
-      })
-      child.send(message, (error) => {
-        if (error) finish(() => reject(error))
-      })
+      }
+
+      child.once("exit", onExit)
+      child.once("close", onClose)
+      child.on("error", onError)
+      child.on("message", onMessage)
+      timeout = setTimeout(
+        () =>
+          recordOutcome({
+            kind: "failure",
+            error: new RuntimeRequestError(
+              "ResourceRequestTimeout",
+              `The Pi resource worker did not answer within ${timeoutMs}ms.`
+            ),
+          }),
+        timeoutMs
+      )
+      timeout.unref?.()
+      try {
+        child.send(message, (error) => {
+          if (error) recordOutcome({ kind: "failure", error })
+        })
+      } catch (error) {
+        recordOutcome({
+          kind: "failure",
+          error: error instanceof Error ? error : new Error(String(error)),
+        })
+      }
     })
   }
 
@@ -2347,6 +3310,12 @@ export class RuntimeSupervisor {
 
   private async restartWebUiRuntime(runtime: ManagedRuntime) {
     if (runtime.cleaned) return
+    if (this.isUnclaimedDraftRuntime(runtime)) {
+      throw new RuntimeRequestError(
+        "RuntimeDraftUnavailable",
+        "The draft runtime must be claimed before WebUI extensions can reload."
+      )
+    }
     const sessionId = runtime.webSessionId
     runtime.pendingWebUiRestart = false
     runtime.pendingMcpRestart = false
@@ -2364,6 +3333,12 @@ export class RuntimeSupervisor {
 
   private async restartMcpRuntime(runtime: ManagedRuntime) {
     if (runtime.cleaned) return
+    if (this.isUnclaimedDraftRuntime(runtime)) {
+      throw new RuntimeRequestError(
+        "RuntimeDraftUnavailable",
+        "The draft runtime must be claimed before MCP servers can reload."
+      )
+    }
     const sessionId = runtime.webSessionId
     runtime.pendingMcpRestart = false
     runtime.pendingResourceReload = false
@@ -2765,13 +3740,81 @@ export class RuntimeSupervisor {
 
   private recycleIdleRuntimes() {
     const threshold = Date.now() - IDLE_TIMEOUT_MS
+    this.recycleRuntimeDrafts(threshold)
     for (const runtime of this.runtimes.values()) {
-      if (runtime.status !== "ready" || runtime.lastActivityAt >= threshold) {
+      this.pruneRuntimeLeases(runtime)
+      if (this.isUnclaimedDraftRuntime(runtime)) continue
+      if (
+        runtime.status !== "ready" ||
+        runtime.lastActivityAt >= threshold ||
+        this.runtimeLeaseMap(runtime).size > 0
+      ) {
         continue
       }
       void this.stop(runtime.webSessionId).catch((error) => {
         console.error("Could not stop idle Pi runtime:", error)
       })
+    }
+  }
+
+  private recycleRuntimeDrafts(threshold: number) {
+    const now = Date.now()
+    for (const draft of this.runtimeDrafts.values()) {
+      this.pruneDraftLeases(draft)
+      if (draft.claimPromise) continue
+      if (
+        draft.claimFailure &&
+        draft.claimedAt !== null &&
+        draft.leaseExpiries.size === 0 &&
+        draft.claimedAt + DRAFT_CLAIM_RECEIPT_TTL_MS <= now
+      ) {
+        this.runtimeDrafts.delete(draft.draftId)
+        continue
+      }
+      if (!draft.claimResult && !draft.claimFailure && draft.runtime.cleaned) {
+        this.runtimeDrafts.delete(draft.draftId)
+        void Promise.all([
+          rm(draft.runtime.nativeSessionFile, { force: true }),
+          rm(draft.draftDirectory, { recursive: true, force: true }),
+        ]).catch((error: unknown) => {
+          console.error("Could not remove crashed draft session:", error)
+        })
+        continue
+      }
+      if (
+        draft.claimResult &&
+        draft.claimedAt !== null &&
+        draft.leaseExpiries.size === 0 &&
+        draft.claimedAt + DRAFT_CLAIM_RECEIPT_TTL_MS <= now
+      ) {
+        this.runtimeDrafts.delete(draft.draftId)
+        continue
+      }
+      if (
+        !draft.claimResult &&
+        !draft.claimFailure &&
+        !draft.claimPromise &&
+        draft.leaseExpiries.size === 0 &&
+        draft.runtime.status === "ready" &&
+        draft.runtime.lastActivityAt < threshold
+      ) {
+        this.runtimeDrafts.delete(draft.draftId)
+        void this.disposeRuntimeDraft(draft).catch((error: unknown) => {
+          console.error("Could not stop idle draft runtime:", error)
+        })
+      }
+    }
+  }
+
+  private runtimeLeaseMap(runtime: ManagedRuntime) {
+    return (runtime.runtimeLeases ??= new Map<string, number>())
+  }
+
+  private pruneRuntimeLeases(runtime: ManagedRuntime) {
+    const leases = this.runtimeLeaseMap(runtime)
+    const now = Date.now()
+    for (const [leaseId, expiresAt] of leases) {
+      if (expiresAt <= now) leases.delete(leaseId)
     }
   }
 

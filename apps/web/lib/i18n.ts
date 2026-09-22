@@ -66,6 +66,27 @@ const messages = {
     "en-US": "Error reference: {digest}",
   },
 
+  "appUpdate.updateTo": {
+    "zh-CN": "更新到 {version}",
+    "en-US": "Update to {version}",
+  },
+  "appUpdate.checking": {
+    "zh-CN": "正在检查更新",
+    "en-US": "Checking for updates",
+  },
+  "appUpdate.installing": {
+    "zh-CN": "正在安装更新",
+    "en-US": "Installing update",
+  },
+  "appUpdate.restarting": {
+    "zh-CN": "正在重启服务",
+    "en-US": "Restarting service",
+  },
+  "appUpdate.retry": {
+    "zh-CN": "重试更新",
+    "en-US": "Retry update",
+  },
+
   "composer.reasoningEffort": {
     "zh-CN": "推理强度",
     "en-US": "Reasoning effort",
@@ -695,6 +716,22 @@ const messages = {
     "en-US": "Expand conversation setting changes",
   },
   "session.transcript.thought": { "zh-CN": "思考", "en-US": "Thought" },
+  "session.transcript.commands": {
+    "zh-CN": "运行了命令",
+    "en-US": "Ran commands",
+  },
+  "session.transcript.commandsCount": {
+    "zh-CN": "{count} 个命令",
+    "en-US": "{count} commands",
+  },
+  "session.transcript.expandActivity": {
+    "zh-CN": "展开执行活动",
+    "en-US": "Expand activity",
+  },
+  "session.transcript.collapseActivity": {
+    "zh-CN": "收起执行活动",
+    "en-US": "Collapse activity",
+  },
   "session.transcript.thinking": {
     "zh-CN": "思考中",
     "en-US": "Thinking",
@@ -1666,6 +1703,38 @@ const messages = {
     "zh-CN": "展开显示",
     "en-US": "Show more",
   },
+  "workspace.nav.expandConversations": {
+    "zh-CN": "展开显示",
+    "en-US": "Show more",
+  },
+  "workspace.nav.collapseConversations": {
+    "zh-CN": "收起",
+    "en-US": "Show fewer",
+  },
+  "workspace.nav.moveProjectUp": {
+    "zh-CN": "项目上移",
+    "en-US": "Move project up",
+  },
+  "workspace.nav.moveProjectDown": {
+    "zh-CN": "项目下移",
+    "en-US": "Move project down",
+  },
+  "workspace.nav.moveConversationUp": {
+    "zh-CN": "对话上移",
+    "en-US": "Move conversation up",
+  },
+  "workspace.nav.moveConversationDown": {
+    "zh-CN": "对话下移",
+    "en-US": "Move conversation down",
+  },
+  "workspace.nav.persistenceReadFailed": {
+    "zh-CN": "无法读取侧栏状态，已使用默认设置。",
+    "en-US": "Could not read the saved sidebar state; defaults are in use.",
+  },
+  "workspace.nav.persistenceWriteFailed": {
+    "zh-CN": "无法保存侧栏状态。",
+    "en-US": "Could not save the sidebar state.",
+  },
   "workspace.nav.tasks": { "zh-CN": "任务", "en-US": "Tasks" },
   "workspace.nav.settings": { "zh-CN": "设置", "en-US": "Settings" },
   "workspace.nav.pinConversation": {
@@ -2471,6 +2540,12 @@ const messages = {
     "en-US":
       "The service binds to localhost; port changes apply after restart.",
   },
+  "settings.general.managedLocalServiceDescription": {
+    "zh-CN":
+      "服务只绑定本机；此实例的设置会保存在实例目录中，并在停止后重新启动时保留。",
+    "en-US":
+      "The service binds to localhost; this instance's settings are kept in its instance directory across stops and restarts.",
+  },
   "settings.general.host": { "zh-CN": "主机", "en-US": "Host" },
   "settings.general.hostDescription": {
     "zh-CN": "未启用认证时固定为本机回环地址。",
@@ -2481,6 +2556,17 @@ const messages = {
   "settings.general.portDescription": {
     "zh-CN": "启动命令与健康检查共用此端口。",
     "en-US": "The start command and health check use this port.",
+  },
+  "settings.general.managedPortDescription": {
+    "zh-CN":
+      "此实例的端口固定绑定；使用 pi-web-codex --port <端口> 创建或启动其他端口的实例。",
+    "en-US":
+      "This instance's port is fixed. Use pi-web-codex --port <port> to create or start an instance on another port.",
+  },
+  "settings.general.managedPortError": {
+    "zh-CN": "此实例的端口由 pi-web-codex 启动命令管理，不能在设置中修改。",
+    "en-US":
+      "This instance's port is managed by the pi-web-codex CLI and cannot be changed here.",
   },
   "settings.general.openBrowser": {
     "zh-CN": "启动后打开浏览器",

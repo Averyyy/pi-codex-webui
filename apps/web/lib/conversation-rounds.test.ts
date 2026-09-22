@@ -2,6 +2,10 @@ import assert from "node:assert/strict"
 import test from "node:test"
 import {
   canCollapseConversation,
+  conversationActivityBlocks,
+  conversationActivityBlockIsRunning,
+  conversationActivityCommandCount,
+  conversationActivityDisplayId,
   conversationRounds,
   partitionConversationRound,
 } from "./conversation-rounds"
@@ -110,7 +114,7 @@ test("provider errors and length limits are not labeled complete", () => {
   )
 })
 
-test("live final phase allows folding once a final answer starts", () => {
+test("live final phase stays open until the round has finished", () => {
   const round = partitionConversationRound([
     {
       id: 1,
@@ -129,7 +133,13 @@ test("live final phase allows folding once a final answer starts", () => {
   ])
   assert.equal(round.response?.id, 2)
   assert.equal(round.outcome, "pending")
-  assert.equal(canCollapseConversation(true, round.outcome), true)
+  assert.equal(canCollapseConversation(true, round.outcome), false)
+})
+
+test("a live final answer keeps the outer process open until runtime ends", () => {
+  assert.equal(canCollapseConversation(true, "pending", true), false)
+  assert.equal(canCollapseConversation(true, "complete", true), false)
+  assert.equal(canCollapseConversation(true, "complete", false), true)
 })
 
 test("live messages use the same completion contract as persisted messages", () => {
@@ -183,4 +193,98 @@ test("events after the response keep their order outside the activity group", ()
     event,
   ])
   assert.deepEqual(round.trailing, [event])
+})
+
+test("activity grouping keeps commentary around consecutive thinking and tools", () => {
+  const blocks = conversationActivityBlocks([
+    assistant("a", [text, tool, { ...text, text: "After command" }], "toolUse"),
+    assistant("b", [thought], "toolUse"),
+    assistant("c", [text], "commentary"),
+  ])
+
+  assert.deepEqual(
+    blocks.map((block) => [
+      block.type,
+      block.fragments.map((fragment) =>
+        fragment.parts.map((part) => part.type)
+      ),
+    ]),
+    [
+      ["commentary", [["text"]]],
+      ["activity", [["toolCall"]]],
+      ["commentary", [["text"]]],
+      ["activity", [["thinking"]]],
+      ["commentary", [["text"]]],
+    ]
+  )
+  assert.deepEqual(blocks[0]?.fragments[0]?.key, "a:0")
+})
+
+test("bash execution is an activity block even though its parts are text", () => {
+  const bash: TranscriptEntry = {
+    kind: "message",
+    id: "bash-1",
+    timestamp: "2026-09-12T01:00:00Z",
+    role: "bashExecution",
+    parts: [text],
+  }
+  const blocks = conversationActivityBlocks([bash])
+  assert.equal(blocks[0]?.type, "activity")
+  assert.deepEqual(blocks[0]?.fragments[0]?.parts, [text])
+  assert.equal(
+    blocks[0]?.type === "activity"
+      ? conversationActivityCommandCount(blocks[0])
+      : 0,
+    1
+  )
+})
+
+test("split activity fragments keep one canonical entry anchor", () => {
+  const [block] = conversationActivityBlocks([
+    assistant("same", [thought, text], "stop"),
+  ])
+  assert.equal(block?.type, "activity")
+  const fragment = block?.fragments[0]
+  assert.equal(
+    fragment && conversationActivityDisplayId(fragment, "same", "activity"),
+    "same:process"
+  )
+  assert.equal(
+    fragment && conversationActivityDisplayId(fragment, undefined, "activity"),
+    "same"
+  )
+})
+
+test("activity running state follows the source tail and explicit tool ids", () => {
+  const staleThinking = conversationActivityBlocks([
+    {
+      ...assistant("stale", [thought, text], "toolUse"),
+      complete: false,
+    },
+  ])[0]
+  assert.equal(staleThinking?.type, "activity")
+  assert.equal(
+    staleThinking &&
+      conversationActivityBlockIsRunning(staleThinking, new Set(), true),
+    false
+  )
+
+  const parallel = conversationActivityBlocks([
+    { ...assistant("a", [tool], "toolUse"), complete: true },
+    {
+      ...assistant("b", [{ ...tool, id: "tool-b" }], "toolUse"),
+      complete: true,
+    },
+  ])[0]
+  assert.equal(parallel?.type, "activity")
+  assert.equal(
+    parallel &&
+      conversationActivityBlockIsRunning(parallel, new Set(["tool-1"]), true),
+    true
+  )
+  assert.equal(
+    parallel &&
+      conversationActivityBlockIsRunning(parallel, new Set(["tool-1"]), false),
+    false
+  )
 })

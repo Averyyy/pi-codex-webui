@@ -8,6 +8,7 @@ const querySchema = z
   .object({
     scope: z.enum(["tasks", "pinned", "project"]),
     projectId: z.string().min(1).max(200).optional(),
+    order: z.enum(["default", "sidebar"]).default("default"),
     limit: z.coerce.number().int().min(1).max(100).default(SESSION_PAGE_SIZE),
     cursor: z.string().min(1).max(2048).optional(),
   })
@@ -24,6 +25,8 @@ const cursorSchema = z
   .object({
     scope: z.enum(["tasks", "pinned", "project"]),
     projectId: z.string().nullable(),
+    order: z.enum(["default", "sidebar"]).default("default"),
+    position: z.number().int().nonnegative().nullable().default(null),
     pinnedAt: z.string(),
     updatedAt: z.string().min(1),
     id: z.string().min(1),
@@ -43,7 +46,8 @@ export function parseSessionPageQuery(input: SessionPageQuery) {
   )
   if (
     after.scope !== query.scope ||
-    after.projectId !== (query.projectId ?? null)
+    after.projectId !== (query.projectId ?? null) ||
+    after.order !== query.order
   ) {
     throw new Error("Session cursor belongs to a different list.")
   }

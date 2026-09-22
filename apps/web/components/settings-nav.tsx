@@ -33,6 +33,7 @@ import {
 
 import { useI18n } from "@/components/i18n-provider"
 import { PiBrand } from "@/components/pi-brand"
+import { AppUpdateButton } from "@/components/app-update-button"
 
 const sections = [
   {
@@ -126,6 +127,7 @@ export function SettingsNav() {
       </SidebarContent>
       <SidebarFooter inert={navigationHidden} aria-hidden={navigationHidden}>
         <SidebarMenu>
+          <AppUpdateButton />
           <SidebarMenuItem>
             <SidebarMenuButton asChild tooltip={t("settings.back")}>
               <button

@@ -12,6 +12,7 @@ import { SidebarShortcut } from "@/components/sidebar-shortcut"
 import { listWorkspaceProjects, listSessionPage } from "@/lib/catalog"
 import { getMutationToken } from "@/lib/request-security"
 import { getRuntimeSupervisor } from "@/lib/runtime-supervisor"
+import { SIDEBAR_PAGE_SIZE } from "@/lib/workspace-nav-persistence"
 
 export default async function WorkspaceLayout({
   children,
@@ -20,8 +21,16 @@ export default async function WorkspaceLayout({
 }) {
   const [projects, tasks, pinned] = await Promise.all([
     listWorkspaceProjects(),
-    listSessionPage({ scope: "tasks" }),
-    listSessionPage({ scope: "pinned" }),
+    listSessionPage({
+      scope: "tasks",
+      order: "sidebar",
+      limit: SIDEBAR_PAGE_SIZE,
+    }),
+    listSessionPage({
+      scope: "pinned",
+      order: "sidebar",
+      limit: SIDEBAR_PAGE_SIZE,
+    }),
   ])
   const runtimeSupervisor = getRuntimeSupervisor()
   const initialRunningSessionIds = [

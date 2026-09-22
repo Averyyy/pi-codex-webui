@@ -1,10 +1,18 @@
 "use client"
 
-import { useId, useRef, useState } from "react"
+import {
+  useId,
+  useRef,
+  useState,
+  type DragEvent,
+  type SyntheticEvent,
+} from "react"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import {
   ArchiveIcon,
+  ChevronDownIcon,
+  ChevronUpIcon,
   LoaderCircleIcon,
   MessageSquareTextIcon,
   PinIcon,
@@ -29,6 +37,14 @@ import { displaySessionTitle } from "@/lib/session-display"
 import { responseJson } from "@/lib/api-response"
 import type { SessionSummary } from "@/lib/session-types"
 import type { WorkspaceSessionMutationFocusRequest } from "@/lib/workspace-nav-focus"
+import {
+  clearWorkspaceNavDragSource,
+  getWorkspaceNavDragSource,
+  sameWorkspaceNavOrderScope,
+  setWorkspaceNavDragSource,
+  type WorkspaceNavOrderMutation,
+  type WorkspaceNavOrderScope,
+} from "@/lib/workspace-nav-order"
 import { useI18n } from "@/components/i18n-provider"
 import { SESSION_CATALOG_CHANGED } from "@/lib/session-catalog-events"
 
@@ -41,6 +57,10 @@ export function WorkspaceNavSession({
   nested = false,
   shortcut,
   onMutationFocus,
+  orderScope,
+  orderProjectId,
+  orderItems,
+  onOrderRequest,
 }: {
   session: SessionSummary
   href: string
@@ -50,6 +70,10 @@ export function WorkspaceNavSession({
   nested?: boolean
   shortcut?: { label: string; aria: string }
   onMutationFocus: (request: WorkspaceSessionMutationFocusRequest) => void
+  orderScope?: WorkspaceNavOrderScope
+  orderProjectId?: string
+  orderItems?: readonly string[]
+  onOrderRequest?: (mutation: WorkspaceNavOrderMutation) => void
 }) {
   const pathname = usePathname()
   const router = useRouter()
@@ -59,11 +83,152 @@ export function WorkspaceNavSession({
   const [workingAction, setWorkingAction] = useState<"pin" | "archive" | null>(
     null
   )
+  const [dropPosition, setDropPosition] = useState<"before" | "after" | null>(
+    null
+  )
+  const suppressClickRef = useRef(false)
   const working = workingAction !== null
   const title = displaySessionTitle(session, {
     task: t("workspace.nav.newTask"),
     conversation: t("workspace.nav.unnamedConversation"),
   })
+  const orderIndex = orderItems?.indexOf(session.id) ?? -1
+  const previousOrderId =
+    orderIndex > 0 ? orderItems?.[orderIndex - 1] : undefined
+  const nextOrderId =
+    orderIndex >= 0 && orderItems && orderIndex < orderItems.length - 1
+      ? orderItems[orderIndex + 1]
+      : undefined
+
+  function requestMove(position: "before" | "after") {
+    const targetId = position === "before" ? previousOrderId : nextOrderId
+    if (!orderScope || !targetId || !onOrderRequest) return
+    onOrderRequest({
+      scope: orderScope,
+      projectId: orderProjectId,
+      itemId: session.id,
+      targetId,
+      position,
+    })
+  }
+
+  function parseDragData(event: DragEvent) {
+    const raw = event.dataTransfer.getData("application/x-pi-web-codex-order")
+    if (!raw) return null
+    try {
+      const value = JSON.parse(raw) as {
+        scope?: WorkspaceNavOrderScope
+        projectId?: string
+        itemId?: string
+      }
+      if (!value.scope || !value.itemId) return null
+      return value
+    } catch {
+      return null
+    }
+  }
+
+  function handleDragStart(event: DragEvent) {
+    if (!orderScope || !onOrderRequest) return
+    event.stopPropagation()
+    suppressClickRef.current = true
+    const source = {
+      scope: orderScope,
+      projectId: orderProjectId,
+      itemId: session.id,
+    }
+    setWorkspaceNavDragSource(source)
+    event.dataTransfer.effectAllowed = "move"
+    event.dataTransfer.setData(
+      "application/x-pi-web-codex-order",
+      JSON.stringify(source)
+    )
+    event.dataTransfer.setData("text/plain", session.id)
+  }
+
+  function handleDragOver(event: DragEvent) {
+    if (!orderScope || !onOrderRequest) return
+    event.stopPropagation()
+    const source = getWorkspaceNavDragSource() ?? parseDragData(event)
+    if (
+      !source ||
+      source.itemId === session.id ||
+      !sameWorkspaceNavOrderScope(
+        {
+          scope: source.scope!,
+          projectId: source.projectId,
+          itemId: source.itemId!,
+          targetId: session.id,
+          position: "before",
+        },
+        {
+          scope: orderScope,
+          projectId: orderProjectId,
+          itemId: session.id,
+          targetId: session.id,
+          position: "before",
+        }
+      )
+    ) {
+      setDropPosition(null)
+      return
+    }
+    event.preventDefault()
+    event.dataTransfer.dropEffect = "move"
+    const bounds = event.currentTarget.getBoundingClientRect()
+    setDropPosition(
+      event.clientY < bounds.top + bounds.height / 2 ? "before" : "after"
+    )
+  }
+
+  function handleDragLeave(event: DragEvent) {
+    if (
+      event.relatedTarget instanceof Node &&
+      event.currentTarget.contains(event.relatedTarget)
+    ) {
+      return
+    }
+    setDropPosition(null)
+  }
+
+  function handleDrop(event: DragEvent) {
+    event.preventDefault()
+    event.stopPropagation()
+    const bounds = event.currentTarget.getBoundingClientRect()
+    const position: "before" | "after" =
+      event.clientY < bounds.top + bounds.height / 2 ? "before" : "after"
+    const source = getWorkspaceNavDragSource() ?? parseDragData(event)
+    setDropPosition(null)
+    clearWorkspaceNavDragSource()
+    if (!source || !orderScope || !onOrderRequest) return
+    if (source.itemId === session.id) return
+    const mutation: WorkspaceNavOrderMutation = {
+      scope: source.scope!,
+      projectId: source.projectId,
+      itemId: source.itemId!,
+      targetId: session.id,
+      position,
+    }
+    if (
+      !sameWorkspaceNavOrderScope(mutation, {
+        scope: orderScope,
+        projectId: orderProjectId,
+        itemId: session.id,
+        targetId: session.id,
+        position,
+      })
+    ) {
+      return
+    }
+    onOrderRequest(mutation)
+  }
+
+  function handleClickCapture(event: SyntheticEvent) {
+    if (!suppressClickRef.current) return
+    event.preventDefault()
+    event.stopPropagation()
+    suppressClickRef.current = false
+  }
 
   async function mutate(
     action: "pin" | "archive",
@@ -189,6 +354,44 @@ export function WorkspaceNavSession({
           {t("workspace.nav.archiveConversation")}
         </TooltipContent>
       </Tooltip>
+      {orderScope && onOrderRequest ? (
+        <>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                disabled={!previousOrderId}
+                aria-label={t("workspace.nav.moveConversationUp")}
+                onClick={() => requestMove("before")}
+              >
+                <ChevronUpIcon />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="top">
+              {t("workspace.nav.moveConversationUp")}
+            </TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                disabled={!nextOrderId}
+                aria-label={t("workspace.nav.moveConversationDown")}
+                onClick={() => requestMove("after")}
+              >
+                <ChevronDownIcon />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="top">
+              {t("workspace.nav.moveConversationDown")}
+            </TooltipContent>
+          </Tooltip>
+        </>
+      ) : null}
     </div>
   )
   const shortcutHint =
@@ -220,13 +423,30 @@ export function WorkspaceNavSession({
   if (nested) {
     return (
       <SidebarMenuSubItem
-        className="group/session"
+        className={cn(
+          "group/session",
+          dropPosition === "before" && "border-t-2 border-primary",
+          dropPosition === "after" && "border-b-2 border-primary"
+        )}
         style={{ contentVisibility: "auto", containIntrinsicSize: "auto 28px" }}
+        draggable={Boolean(orderScope && onOrderRequest)}
+        onDragStart={handleDragStart}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+        onDragEnd={() => {
+          clearWorkspaceNavDragSource()
+          setDropPosition(null)
+          window.setTimeout(() => {
+            suppressClickRef.current = false
+          }, 0)
+        }}
+        onClickCapture={handleClickCapture}
       >
         <SidebarMenuSubButton
           asChild
           isActive={pathname === href}
-          className="pr-12"
+          className={cn("pr-12", orderScope && "pr-24")}
         >
           <Link
             href={href}
@@ -251,14 +471,31 @@ export function WorkspaceNavSession({
 
   return (
     <SidebarMenuItem
-      className="group/session"
+      className={cn(
+        "group/session",
+        dropPosition === "before" && "border-t-2 border-primary",
+        dropPosition === "after" && "border-b-2 border-primary"
+      )}
       style={{ contentVisibility: "auto", containIntrinsicSize: "auto 32px" }}
+      draggable={Boolean(orderScope && onOrderRequest)}
+      onDragStart={handleDragStart}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+      onDragEnd={() => {
+        clearWorkspaceNavDragSource()
+        setDropPosition(null)
+        window.setTimeout(() => {
+          suppressClickRef.current = false
+        }, 0)
+      }}
+      onClickCapture={handleClickCapture}
     >
       <SidebarMenuButton
         asChild
         isActive={pathname === href}
         tooltip={title}
-        className="pr-12"
+        className={cn("pr-12", orderScope && "pr-24")}
       >
         <Link
           href={href}

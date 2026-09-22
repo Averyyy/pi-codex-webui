@@ -45,6 +45,12 @@ import {
 import { RpcCustomMessageRenderer } from "./custom-message-rendering.js"
 import { WebUiAdapterHost } from "./webui-adapter-host.js"
 import { PromptQueue, type QueuedPromptRecord } from "./prompt-queue.js"
+import {
+  cleanupDraftSession,
+  prepareDraftSession,
+  promoteDraftSession,
+  type DraftSessionPaths,
+} from "./session-draft.js"
 
 type QueuedControl = NonNullable<NonNullable<QueuedPromptRecord["control"]>>
 
@@ -80,6 +86,7 @@ let tuiModule: TuiModule
 let runtime: AgentSessionRuntime | undefined
 let webSessionId: string | undefined
 let nativeSessionFile: string | undefined
+let draftSession: DraftSessionPaths | undefined
 let unsubscribe: (() => void) | undefined
 let eventSequence = 0
 let surfaceManager: TuiSurfaceManager | undefined
@@ -662,6 +669,17 @@ async function initialize(
     throw new Error("Pi session has no native session ID.")
   }
 
+  const isDraft = message.payload.draft === true
+  if (isDraft) {
+    if (message.payload.target.mode !== "new") {
+      throw new Error("Pi draft runtimes must start from a new session.")
+    }
+    if (!message.payload.draftDirectory) {
+      throw new Error("Pi draft runtimes require an explicit draft directory.")
+    }
+    draftSession = prepareDraftSession(target, message.payload.draftDirectory)
+  }
+
   webSessionId = message.payload.webSessionId
   const mcpTools = createMcpToolDefinitions(
     message.payload.mcpTools,
@@ -897,42 +915,51 @@ async function initialize(
     return { ...created, services, diagnostics: services.diagnostics }
   }
 
-  runtime = await codingAgent.createAgentSessionRuntime(createRuntime, {
-    cwd: message.payload.cwd,
-    agentDir: message.payload.agentDir,
-    sessionManager: target,
-    sessionStartEvent: {
-      type: "session_start",
-      reason:
-        message.payload.target.mode === "resume"
-          ? "resume"
-          : message.payload.target.mode === "duplicate"
-            ? "fork"
-            : "new",
-      ...(message.payload.target.mode === "duplicate"
-        ? { previousSessionFile: message.payload.target.sourceSessionFile }
-        : {}),
-    },
-  })
-  nativeSessionFile = runtime.session.sessionFile
-  if (!nativeSessionFile) {
-    throw new Error("Pi did not assign a file to the initialized session.")
-  }
-  if (message.payload.target.mode !== "resume") {
-    runtime.session.exportToJsonl(nativeSessionFile)
-    runtime.session.sessionManager.setSessionFile(nativeSessionFile)
-  }
-  runtime.setRebindSession(async (session) => {
-    nativeSessionFile = session.sessionFile
-    await bindSession(session)
-  })
-  await bindSession(runtime.session)
+  try {
+    runtime = await codingAgent.createAgentSessionRuntime(createRuntime, {
+      cwd: message.payload.cwd,
+      agentDir: message.payload.agentDir,
+      sessionManager: target,
+      sessionStartEvent: {
+        type: "session_start",
+        reason:
+          message.payload.target.mode === "resume"
+            ? "resume"
+            : message.payload.target.mode === "duplicate"
+              ? "fork"
+              : "new",
+        ...(message.payload.target.mode === "duplicate"
+          ? { previousSessionFile: message.payload.target.sourceSessionFile }
+          : {}),
+      },
+    })
+    nativeSessionFile =
+      draftSession?.promotionTarget ?? runtime.session.sessionFile
+    if (!nativeSessionFile) {
+      throw new Error("Pi did not assign a file to the initialized session.")
+    }
+    if (message.payload.target.mode !== "resume" && !isDraft) {
+      runtime.session.exportToJsonl(nativeSessionFile)
+      runtime.session.sessionManager.setSessionFile(nativeSessionFile)
+    }
+    runtime.setRebindSession(async (session) => {
+      nativeSessionFile = session.sessionFile
+      await bindSession(session)
+    })
+    await bindSession(runtime.session)
 
-  send({
-    type: "runtime.ready",
-    requestId: message.requestId,
-    payload: snapshot(runtime.session),
-  })
+    send({
+      type: "runtime.ready",
+      requestId: message.requestId,
+      payload: snapshot(runtime.session),
+    })
+  } catch (error) {
+    if (draftSession) {
+      cleanupDraftSession(draftSession)
+      draftSession = undefined
+    }
+    throw error
+  }
 }
 
 async function shutdown() {
@@ -952,7 +979,13 @@ async function shutdown() {
     pending.reject(new Error("Pi runtime is shutting down."))
   }
   pendingMcpCalls.clear()
-  await runtime?.dispose()
+  const draftToCleanup = draftSession
+  draftSession = undefined
+  try {
+    await runtime?.dispose()
+  } finally {
+    if (draftToCleanup) cleanupDraftSession(draftToCleanup)
+  }
   process.disconnect?.()
   setImmediate(() => process.exit(0))
 }
@@ -1153,6 +1186,26 @@ async function dispatch(message: HostToWorkerMessage) {
     respond(message.requestId, {
       success: true,
       data: snapshot(currentRuntime().session),
+    })
+    return
+  }
+  if (message.type === "runtime.promote-session") {
+    const draft = draftSession
+    if (!draft) {
+      throw new Error("Pi runtime does not own an unclaimed draft session.")
+    }
+    const session = currentRuntime().session
+    promoteDraftSession(
+      session.sessionManager,
+      draft,
+      message.payload.nativeSessionFile
+    )
+    nativeSessionFile = draft.promotionTarget
+    draftSession = undefined
+    cleanupDraftSession(draft)
+    respond(message.requestId, {
+      success: true,
+      data: snapshot(session),
     })
     return
   }

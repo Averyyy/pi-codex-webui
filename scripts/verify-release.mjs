@@ -41,11 +41,7 @@ async function exists(target) {
 // tarball path as a remote host; prefer the native bsdtar shipped with Windows.
 function resolveTarCommand() {
   if (process.platform !== "win32" || !process.env.SystemRoot) return "tar"
-  const systemTar = path.join(
-    process.env.SystemRoot,
-    "System32",
-    "tar.exe"
-  )
+  const systemTar = path.join(process.env.SystemRoot, "System32", "tar.exe")
   return existsSync(systemTar) ? systemTar : "tar"
 }
 
@@ -582,73 +578,25 @@ async function assertPiClientTask(url, mutationHeaders) {
   await expectOk(deleteResponse, "Pi Client task deletion")
 }
 
-async function stopProcessTree(processHandle) {
-  const hasExited = () =>
-    processHandle.exitCode !== null || processHandle.signalCode !== null
-  if (!processHandle || hasExited()) return
-  if (process.platform === "win32") {
-    try {
-      await runCommand(
-        "taskkill.exe",
-        ["/pid", String(processHandle.pid), "/t", "/f"],
-        { windowsHide: true }
-      )
-    } catch (error) {
-      if (!hasExited()) throw error
+async function assertLauncherExited(child) {
+  const code = await new Promise((resolve, reject) => {
+    if (child.exitCode !== null || child.signalCode !== null) {
+      resolve(child.exitCode)
+      return
     }
-  } else {
-    if (!processHandle.kill("SIGTERM") && !hasExited()) {
-      throw new Error(
-        `Could not stop installed CLI (PID ${processHandle.pid}).`
-      )
-    }
-  }
-  try {
-    await new Promise((resolve, reject) => {
-      if (hasExited()) {
-        resolve()
-        return
-      }
-      const timeout = setTimeout(
-        () =>
-          reject(
-            new Error(`Installed CLI did not exit (PID ${processHandle.pid}).`)
-          ),
-        5_000
-      )
-      processHandle.once("exit", () => {
-        clearTimeout(timeout)
-        resolve()
-      })
+    const timeout = setTimeout(
+      () => reject(new Error("Installed CLI did not return after readiness.")),
+      5_000
+    )
+    child.once("exit", (exitCode) => {
+      clearTimeout(timeout)
+      resolve(exitCode)
     })
-    return
-  } catch (error) {
-    if (process.platform === "win32" || hasExited()) throw error
-    if (!processHandle.kill("SIGKILL") && !hasExited()) throw error
-    await new Promise((resolve, reject) => {
-      if (hasExited()) {
-        resolve()
-        return
-      }
-      const timeout = setTimeout(
-        () =>
-          reject(
-            new Error(
-              `Installed CLI remained alive after forced termination (PID ${processHandle.pid}).`
-            )
-          ),
-        2_000
-      )
-      processHandle.once("exit", () => {
-        clearTimeout(timeout)
-        resolve()
-      })
-    })
-    throw error
-  }
+  })
+  assert.equal(code, 0, "Installed background launcher failed.")
 }
 
-let child
+let stopInstalledHost
 try {
   const packageJson = JSON.parse(
     await readFile(path.join(root, "package.json"), "utf8")
@@ -712,8 +660,20 @@ try {
   const port = await availablePort()
   const configRoot = path.join(temporary, "config")
   const agentRoot = path.join(temporary, "agent")
-  await Promise.all([mkdir(configRoot), mkdir(agentRoot)])
+  const userRoot = path.join(temporary, "user")
+  await Promise.all([mkdir(configRoot), mkdir(agentRoot), mkdir(userRoot)])
   const mutationToken = "pi-web-codex-release-verify"
+  // Isolate the operating-system user paths as well as app data: lifecycle
+  // ownership is global and must never target the user's real background host.
+  const runtimeEnv = {
+    ...process.env,
+    HOME: userRoot,
+    USERPROFILE: userRoot,
+    APPDATA: path.join(userRoot, "AppData", "Roaming"),
+    XDG_CONFIG_HOME: path.join(userRoot, ".config"),
+    PI_CODING_AGENT_DIR: agentRoot,
+    PI_WEB_CODEX_MUTATION_TOKEN: mutationToken,
+  }
   const cliScript = path.join(installedRoot, "bin", "pi-web-codex.mjs")
   const startupCommand =
     process.platform === "win32" ? process.execPath : executable
@@ -728,17 +688,43 @@ try {
           configRoot,
         ]
       : ["--no-open", "--port", String(port), "--config-dir", configRoot]
-  child = spawn(startupCommand, startupArgs, {
-    env: {
-      ...process.env,
-      PI_CODING_AGENT_DIR: agentRoot,
-      PI_WEB_CODEX_MUTATION_TOKEN: mutationToken,
-    },
+  let instanceId
+  const listInstances = async () => {
+    const result = await runCommand(executable, ["list", "--json"], {
+      env: runtimeEnv,
+      timeout: 30_000,
+      windowsHide: true,
+    })
+    const registry = JSON.parse(result.stdout)
+    assert.ok(Array.isArray(registry.instances))
+    return registry.instances
+  }
+  stopInstalledHost = async () => {
+    if (!instanceId) {
+      const instances = await listInstances()
+      instanceId = instances.find((instance) => instance.port === port)?.id
+    }
+    if (!instanceId) return
+    await runCommand(executable, ["stop", instanceId], {
+      env: runtimeEnv,
+      timeout: 60_000,
+      windowsHide: true,
+    })
+  }
+  const child = spawn(startupCommand, startupArgs, {
+    env: runtimeEnv,
     stdio: ["ignore", "pipe", "pipe"],
   })
   child.stderr.pipe(process.stderr)
   console.log("Starting installed host...")
   await waitForReady(child)
+  await assertLauncherExited(child)
+  const listedInstance = (await listInstances()).find(
+    (instance) => instance.port === port
+  )
+  assert.ok(listedInstance, "Started instance was not registered.")
+  instanceId = listedInstance.id
+  assert.equal(listedInstance.status, "running")
   const url = `http://127.0.0.1:${port}`
   const health = await fetch(`${url}/api/v1/health`)
   assert.equal(health.ok, true)
@@ -757,13 +743,43 @@ try {
   await assertTaskTerminal(url, mutationHeaders, packageJson.version)
   console.log("Checking Pi Client worker...")
   await assertPiClientTask(url, mutationHeaders)
+  const savedRuntimeSettings = await (
+    await fetch(`${url}/api/v1/runtimes`)
+  ).json()
   console.log("Stopping installed host...")
-  await stopProcessTree(child)
-  child = undefined
+  await stopInstalledHost()
+  await assert.rejects(
+    fetch(`${url}/api/v1/health`, { signal: AbortSignal.timeout(2_000) }),
+    "Stopped host still accepts health requests."
+  )
+  assert.equal(
+    (await listInstances()).find((instance) => instance.id === instanceId)
+      ?.status,
+    "stopped"
+  )
+  console.log("Restarting the saved instance and checking retained settings...")
+  await runCommand(executable, ["start", instanceId, "--no-open"], {
+    env: runtimeEnv,
+    timeout: 60_000,
+    windowsHide: true,
+  })
+  assert.deepEqual(
+    await (await fetch(`${url}/api/v1/runtimes`)).json(),
+    savedRuntimeSettings,
+    "Runtime settings changed across stop/start."
+  )
+  assert.equal(
+    (await (await fetch(`${url}/api/v1/settings`)).json()).server.port,
+    port,
+    "Instance settings do not show its bound port."
+  )
+  await stopInstalledHost()
+  await stopInstalledHost()
+  stopInstalledHost = undefined
 
   console.log(`Release verified: ${filename}`)
 } finally {
-  await stopProcessTree(child)
+  if (stopInstalledHost) await stopInstalledHost()
   console.log("Removing isolated release installation...")
   await rm(temporary, { recursive: true, force: true })
 }

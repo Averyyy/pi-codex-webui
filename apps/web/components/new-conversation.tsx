@@ -1,7 +1,14 @@
 "use client"
 
 import Link from "next/link"
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+} from "react"
 import { useRouter } from "next/navigation"
 import {
   BugIcon,
@@ -42,6 +49,12 @@ import {
   draftAfterAcceptedSend,
   NEW_CONVERSATION_DRAFT_ID,
 } from "@/lib/session-composer-draft-store"
+import {
+  createSingleFlight,
+  isRecoverableRuntimeDraftLeaseError,
+  sameRuntimeDraftRequest,
+  type RuntimeDraftRequestIdentity,
+} from "@/lib/runtime-draft-controller"
 
 function noop() {}
 
@@ -54,6 +67,15 @@ interface NewConversationProject {
 interface CreatedSession {
   projectId: string | null
   sessionId: string
+}
+
+interface RuntimeDraftLease {
+  draftId: string
+  leaseId: string
+  leaseToken: string
+  projectId: string | null
+  status: "starting" | "ready" | "busy" | "stopping" | "stopped" | "crashed"
+  snapshot: unknown
 }
 
 interface ModelSelection {
@@ -172,6 +194,32 @@ export function NewConversation({
   const [submitting, setSubmitting] = useState(false)
   const submittingRef = useRef(false)
   const [error, setError] = useState<ApiError | null>(null)
+  const [draftError, setDraftError] = useState<string | null>(() =>
+    typeof globalThis.crypto?.randomUUID === "function"
+      ? null
+      : "The browser cannot create a runtime draft identity."
+  )
+  const [draftPreparing, setDraftPreparing] = useState(false)
+  const [draftClaimed, setDraftClaimed] = useState(false)
+  const [draftRevision, setDraftRevision] = useState(0)
+  const draftGeneration = useMemo(
+    () => ({
+      projectId,
+      settings: initialModelSettings,
+      mutationToken,
+      revision: draftRevision,
+    }),
+    [draftRevision, initialModelSettings, mutationToken, projectId]
+  )
+  const [draftBinding, setDraftBinding] = useState<{
+    lease: RuntimeDraftLease
+    generation: typeof draftGeneration
+  } | null>(null)
+  const draftLease = draftBinding?.lease ?? null
+  const draftLeaseGeneration = draftBinding?.generation ?? null
+  const mountedRef = useRef(false)
+  const draftLeaseRef = useRef<RuntimeDraftLease | null>(null)
+  const draftLeaseGenerationRef = useRef<typeof draftGeneration | null>(null)
   const messageInputRef = useRef<HTMLTextAreaElement>(null)
   const updateStoredComposerImages = useCallback(
     (images: ComposerImage[]) =>
@@ -184,6 +232,237 @@ export function NewConversation({
   )
   const selectedProject = projects.find((project) => project.id === projectId)
   const models = enabledModels(initialModelSettings)
+
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
+
+  useEffect(() => {
+    const generation = draftGeneration
+    let cancelled = false
+    let leaseToken: string | null = null
+    draftLeaseRef.current = null
+    draftLeaseGenerationRef.current = null
+    queueMicrotask(() => {
+      if (cancelled) return
+      setDraftBinding(null)
+      setDraftClaimed(false)
+      setSubmitting(false)
+      submittingRef.current = false
+      setError(null)
+      setDraftPreparing(Boolean(initialModelSettings))
+      setDraftError(null)
+    })
+
+    if (!initialModelSettings) {
+      queueMicrotask(() => {
+        if (!cancelled) setDraftPreparing(false)
+      })
+      return
+    }
+    if (typeof globalThis.crypto?.randomUUID !== "function") {
+      queueMicrotask(() => {
+        if (cancelled) return
+        setDraftPreparing(false)
+        setDraftError("The browser cannot create a runtime draft identity.")
+      })
+      return
+    }
+
+    const draftModel = initialModel(initialModelSettings)
+    const draftId = globalThis.crypto.randomUUID()
+    const leaseId = globalThis.crypto.randomUUID()
+
+    const release = () => {
+      if (!leaseToken) return
+      const token = leaseToken
+      leaseToken = null
+      void fetch(`/api/v1/runtime-drafts/${encodeURIComponent(draftId)}`, {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Pi-Web-Codex-Mutation-Token": mutationToken,
+        },
+        body: JSON.stringify({ leaseToken: token, leaseId }),
+        keepalive: true,
+      })
+        .then((response) => {
+          if (!response.ok) {
+            throw new Error(`Draft lease release failed (${response.status}).`)
+          }
+        })
+        .catch((failure: unknown) => {
+          console.error("Could not release the runtime draft lease:", failure)
+        })
+    }
+
+    void (async () => {
+      try {
+        const prepared = await responseJson<RuntimeDraftLease>(
+          await fetch("/api/v1/runtime-drafts", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-Pi-Web-Codex-Mutation-Token": mutationToken,
+            },
+            body: JSON.stringify({
+              draftId,
+              leaseId,
+              projectId,
+              ...(draftModel
+                ? {
+                    model: {
+                      provider: draftModel.provider,
+                      modelId: draftModel.id,
+                    },
+                    thinkingLevel: draftModel.defaultThinkingLevel,
+                  }
+                : {}),
+            }),
+          })
+        )
+        leaseToken = prepared.leaseToken
+        if (cancelled || generation !== draftGeneration) {
+          release()
+          return
+        }
+        if (prepared.projectId !== projectId) {
+          release()
+          setDraftPreparing(false)
+          setDraftError(
+            "The runtime draft target changed while it was starting."
+          )
+          return
+        }
+        const nextLease = { ...prepared, leaseId }
+        draftLeaseRef.current = nextLease
+        draftLeaseGenerationRef.current = generation
+        setDraftBinding({ lease: nextLease, generation })
+        setDraftPreparing(false)
+      } catch (failure) {
+        if (cancelled || generation !== draftGeneration) return
+        setDraftPreparing(false)
+        setDraftError(
+          failure instanceof Error ? failure.message : String(failure)
+        )
+      }
+    })()
+
+    return () => {
+      cancelled = true
+      release()
+      if (draftLeaseGenerationRef.current === generation) {
+        draftLeaseRef.current = null
+        draftLeaseGenerationRef.current = null
+      }
+    }
+  }, [draftGeneration, initialModelSettings, mutationToken, projectId])
+
+  useEffect(() => {
+    if (!draftLease || draftClaimed) return
+    const generation = draftLeaseGenerationRef.current
+    if (
+      generation === null ||
+      generation !== draftGeneration ||
+      draftLease.projectId !== projectId
+    ) {
+      return
+    }
+    const lease = draftLease
+    const identity: RuntimeDraftRequestIdentity = {
+      generation,
+      projectId: lease.projectId,
+      draftId: lease.draftId,
+      leaseId: lease.leaseId,
+    }
+    let disposed = false
+    let recoveryRequested = false
+    const flight = createSingleFlight<void>()
+    const isCurrent = () => {
+      const current = draftLeaseRef.current
+      return (
+        !disposed &&
+        sameRuntimeDraftRequest(identity, {
+          generation: draftGeneration,
+          projectId,
+          draftId: current?.draftId ?? "",
+          leaseId: current?.leaseId ?? "",
+        })
+      )
+    }
+    const recoverLease = () => {
+      if (!isCurrent() || recoveryRequested) return
+      recoveryRequested = true
+      draftLeaseRef.current = null
+      draftLeaseGenerationRef.current = null
+      setDraftBinding(null)
+      setDraftClaimed(false)
+      setDraftError(null)
+      setDraftPreparing(true)
+      setDraftRevision((value) => value + 1)
+    }
+    const refresh = () =>
+      flight.run(async () => {
+        if (!isCurrent()) return
+        try {
+          const refreshed = await responseJson<RuntimeDraftLease>(
+            await fetch(
+              `/api/v1/runtime-drafts/${encodeURIComponent(lease.draftId)}`,
+              {
+                method: "PUT",
+                headers: {
+                  "Content-Type": "application/json",
+                  "X-Pi-Web-Codex-Mutation-Token": mutationToken,
+                },
+                body: JSON.stringify({
+                  leaseToken: lease.leaseToken,
+                  leaseId: lease.leaseId,
+                }),
+              }
+            )
+          )
+          if (!isCurrent()) return
+          if (refreshed.projectId !== projectId) {
+            setDraftError(
+              "The runtime draft target changed while it was active."
+            )
+            return
+          }
+          const nextLease = { ...refreshed, leaseId: lease.leaseId }
+          draftLeaseRef.current = nextLease
+          setDraftBinding({ lease: nextLease, generation })
+          if (refreshed.status === "ready" || refreshed.status === "busy") {
+            setDraftError(null)
+          } else {
+            setDraftError(t("session.runtime.inactive"))
+          }
+        } catch (failure) {
+          if (!isCurrent()) return
+          if (isRecoverableRuntimeDraftLeaseError(failure)) {
+            recoverLease()
+            return
+          }
+          setDraftError(
+            failure instanceof Error ? failure.message : String(failure)
+          )
+        }
+      })
+    const timer = window.setInterval(() => void refresh(), 60_000)
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") void refresh()
+    }
+    window.addEventListener("online", refresh)
+    document.addEventListener("visibilitychange", refreshWhenVisible)
+    return () => {
+      disposed = true
+      window.clearInterval(timer)
+      window.removeEventListener("online", refresh)
+      document.removeEventListener("visibilitychange", refreshWhenVisible)
+    }
+  }, [draftClaimed, draftGeneration, draftLease, mutationToken, projectId, t])
 
   useEffect(() => {
     if (
@@ -218,10 +497,42 @@ export function NewConversation({
     const text = message.trim()
     const submittedMessage = message
     const submittedImages = composerImages.images
+    const lease = draftLeaseRef.current
+    const leaseGeneration = draftLeaseGeneration
+    const generation = draftGeneration
+    const identity: RuntimeDraftRequestIdentity | null =
+      lease && leaseGeneration !== null
+        ? {
+            generation: leaseGeneration,
+            projectId: lease.projectId,
+            draftId: lease.draftId,
+            leaseId: lease.leaseId,
+          }
+        : null
+    const isCurrentClaim = () => {
+      if (!identity || !lease) return false
+      return (
+        mountedRef.current &&
+        sameRuntimeDraftRequest(identity, {
+          generation,
+          projectId,
+          draftId: draftLeaseRef.current?.draftId ?? "",
+          leaseId: draftLeaseRef.current?.leaseId ?? "",
+        }) &&
+        lease.projectId === projectId &&
+        leaseGeneration === generation
+      )
+    }
     if (
       (!text && submittedImages.length === 0) ||
       submittingRef.current ||
-      !initialModelSettings
+      !initialModelSettings ||
+      !lease ||
+      lease.projectId !== projectId ||
+      leaseGeneration !== generation ||
+      draftError !== null ||
+      draftPreparing ||
+      lease.status !== "ready"
     ) {
       return
     }
@@ -232,9 +543,7 @@ export function NewConversation({
     try {
       const created = await responseJson<CreatedSession>(
         await fetch(
-          projectId === null
-            ? "/api/v1/tasks"
-            : `/api/v1/projects/${encodeURIComponent(projectId)}/sessions`,
+          `/api/v1/runtime-drafts/${encodeURIComponent(lease.draftId)}/claim`,
           {
             method: "POST",
             headers: {
@@ -244,6 +553,8 @@ export function NewConversation({
             body: JSON.stringify({
               message: text || t("home.imageOnlyPrompt"),
               images: promptImages(submittedImages),
+              leaseToken: lease.leaseToken,
+              leaseId: lease.leaseId,
               ...(model
                 ? { model: { provider: model.provider, modelId: model.id } }
                 : {}),
@@ -253,6 +564,14 @@ export function NewConversation({
         )
       )
 
+      if (!isCurrentClaim()) return
+      if (created.projectId !== projectId) {
+        throw new ApiError(
+          "The runtime draft target changed while sending.",
+          "RuntimeDraftTargetMismatch"
+        )
+      }
+      setDraftClaimed(true)
       setMessage(draftAfterAcceptedSend(messageRef.current, submittedMessage))
       composerImages.clearAcceptedImages(submittedImages)
       router.push(
@@ -262,6 +581,7 @@ export function NewConversation({
       )
       router.refresh()
     } catch (failure) {
+      if (!isCurrentClaim()) return
       setError(
         failure instanceof ApiError
           ? failure
@@ -275,6 +595,12 @@ export function NewConversation({
   }
 
   const modelUnavailable = error?.code === "ModelUnavailable"
+  const draftRuntimeActive =
+    draftError === null &&
+    !draftPreparing &&
+    draftLease?.projectId === projectId &&
+    draftLeaseGeneration === draftGeneration &&
+    (draftLease.status === "ready" || draftLease.status === "busy")
 
   return (
     <div className="flex min-h-[calc(100svh-3rem)] flex-col px-4 py-6 md:min-h-svh md:px-8 md:py-8">
@@ -317,18 +643,41 @@ export function NewConversation({
       </section>
 
       <div className="mx-auto flex w-full max-w-[52rem] min-w-0 flex-col gap-3">
-        {error ? (
+        {error || draftError ? (
           <div
             role="alert"
             className="flex items-start gap-3 rounded-xl border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive"
           >
             <CircleAlertIcon className="mt-0.5 size-4 shrink-0" />
             <p className="min-w-0 flex-1 break-words">
-              {modelUnavailable ? t("home.modelUnavailable") : error.message}
+              {draftError ??
+                (modelUnavailable
+                  ? t("home.modelUnavailable")
+                  : error?.message)}
             </p>
-            {modelUnavailable ? (
+            {modelUnavailable && !draftError ? (
               <Button asChild variant="outline" size="sm">
                 <Link href="/settings/models">{t("home.openSettings")}</Link>
+              </Button>
+            ) : null}
+            {draftError ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setDraftError(null)
+                  setDraftPreparing(true)
+                  draftLeaseRef.current = null
+                  draftLeaseGenerationRef.current = null
+                  setDraftBinding(null)
+                  setDraftClaimed(false)
+                  submittingRef.current = false
+                  setSubmitting(false)
+                  setDraftRevision((value) => value + 1)
+                }}
+              >
+                {t("session.runtime.restart")}
               </Button>
             ) : null}
           </div>
@@ -341,7 +690,13 @@ export function NewConversation({
           placeholder={t("home.composer.placeholder")}
           ariaLabel={t("home.composer.ariaLabel")}
           submitting={submitting}
-          sendDisabled={composerImages.loading || !initialModelSettings}
+          sendDisabled={
+            composerImages.loading ||
+            !initialModelSettings ||
+            draftPreparing ||
+            !draftRuntimeActive ||
+            draftError !== null
+          }
           images={composerImages.images}
           imageError={composerImages.error}
           imagesSupported={model?.input.includes("image") ?? false}
@@ -410,8 +765,12 @@ export function NewConversation({
           sessionControls={{
             goal: { disabled: true },
             runtime: {
-              active: false,
-              label: t("session.runtime.inactive"),
+              active: draftRuntimeActive,
+              label: t(
+                draftRuntimeActive
+                  ? "session.runtime.active"
+                  : "session.runtime.inactive"
+              ),
             },
             compact: { disabled: true },
           }}
@@ -425,6 +784,15 @@ export function NewConversation({
                 >
                   <LoaderCircleIcon className="size-3 animate-spin motion-reduce:animate-none" />
                   {t("home.status.creatingTask")}
+                </span>
+              ) : draftPreparing ? (
+                <span
+                  role="status"
+                  aria-live="polite"
+                  className="flex items-center gap-1.5 text-xs text-muted-foreground"
+                >
+                  <LoaderCircleIcon className="size-3 animate-spin motion-reduce:animate-none" />
+                  {t("session.runtime.inactive")}
                 </span>
               ) : composerImages.loading ? (
                 <span

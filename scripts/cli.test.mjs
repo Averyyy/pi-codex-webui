@@ -17,6 +17,8 @@ import test from "node:test"
 
 const root = path.resolve(import.meta.dirname, "..")
 const cli = path.join(root, "bin", "pi-web-codex.mjs")
+const instanceRegistry = path.join(root, "bin", "instance-registry.mjs")
+const updateSupervisor = path.join(root, "bin", "update-supervisor.mjs")
 const packageJson = JSON.parse(
   await readFile(path.join(root, "package.json"), "utf8")
 )
@@ -62,6 +64,16 @@ async function createCliFixture() {
   const fixtureRoot = await mkdtemp(path.join(tmpdir(), "pi-web-cli-fixture-"))
   try {
     const fixtureCli = path.join(fixtureRoot, "bin", "pi-web-codex.mjs")
+    const fixtureSupervisor = path.join(
+      fixtureRoot,
+      "bin",
+      "update-supervisor.mjs"
+    )
+    const fixtureRegistry = path.join(
+      fixtureRoot,
+      "bin",
+      "instance-registry.mjs"
+    )
     const fixtureServer = path.join(
       fixtureRoot,
       "dist",
@@ -73,9 +85,16 @@ async function createCliFixture() {
     await mkdir(path.dirname(fixtureCli), { recursive: true })
     await mkdir(path.dirname(fixtureServer), { recursive: true })
     await copyFile(cli, fixtureCli)
+    await copyFile(updateSupervisor, fixtureSupervisor)
+    await copyFile(instanceRegistry, fixtureRegistry)
     await writeFile(
       path.join(fixtureRoot, "package.json"),
-      JSON.stringify({ type: "module", version: packageJson.version })
+      JSON.stringify({
+        name: "pi-web-codex",
+        type: "module",
+        version: packageJson.version,
+        bin: { "pi-web-codex": "./bin/pi-web-codex.mjs" },
+      })
     )
     await writeFile(
       fixtureServer,
@@ -102,19 +121,25 @@ server.listen(Number(process.env.PORT), process.env.HOSTNAME ?? "127.0.0.1")
   }
 }
 
-function runCli(port, configDir, cliPath = cli) {
-  const child = spawn(
-    process.execPath,
-    [cliPath, "--no-open", "--port", String(port), "--config-dir", configDir],
-    {
-      cwd: root,
-      env: {
-        ...process.env,
-        PI_CODING_AGENT_DIR: path.join(configDir, "agent"),
-      },
-      stdio: ["ignore", "pipe", "pipe"],
-    }
-  )
+function invokeCli(args, configDir, cliPath = cli) {
+  const osRoot = path.join(configDir, "os-user")
+  const env = {
+    ...process.env,
+    PI_CODING_AGENT_DIR: path.join(configDir, "agent"),
+    HOME: osRoot,
+    USERPROFILE: osRoot,
+    APPDATA: path.join(osRoot, "AppData", "Roaming"),
+    XDG_CONFIG_HOME: path.join(osRoot, ".config"),
+  }
+  delete env.PI_WEB_CODEX_CONFIG_DIR
+  delete env.PI_WEB_CODEX_INSTANCE_PORT
+  delete env.PI_WEB_CODEX_REGISTRY_ROOT
+  const child = spawn(process.execPath, [cliPath, ...args], {
+    cwd: root,
+    env,
+    stdio: ["ignore", "pipe", "pipe"],
+    windowsHide: true,
+  })
   let output = ""
   child.stdout.on("data", (chunk) => (output += chunk.toString()))
   child.stderr.on("data", (chunk) => (output += chunk.toString()))
@@ -122,6 +147,14 @@ function runCli(port, configDir, cliPath = cli) {
     child.once("error", reject)
     child.once("close", (code, signal) => resolve({ code, signal, output }))
   })
+}
+
+function runCli(port, configDir, cliPath = cli) {
+  return invokeCli(
+    ["--no-open", "--port", String(port), "--config-dir", configDir],
+    configDir,
+    cliPath
+  )
 }
 
 async function freePort() {
@@ -139,64 +172,25 @@ async function freePort() {
 }
 
 function startCli(port, configDir, cliPath = cli) {
-  const child = spawn(
-    process.execPath,
-    [cliPath, "--no-open", "--port", String(port), "--config-dir", configDir],
-    {
-      cwd: root,
-      env: {
-        ...process.env,
-        PI_CODING_AGENT_DIR: path.join(configDir, "agent"),
-      },
-      stdio: ["ignore", "pipe", "pipe", "ipc"],
-    }
-  )
-  let output = ""
-  let observedReady = false
-  let observeReady
-  let failReadyObservation
-  const readyObserved = new Promise((resolve, reject) => {
-    observeReady = resolve
-    failReadyObservation = reject
+  const closed = runCli(port, configDir, cliPath)
+  const readyObserved = closed.then((result) => {
+    assert.equal(result.code, 0, result.output)
+    assert.match(result.output, /pi-web-codex is ready at/)
   })
-  const markReady = () => {
-    if (observedReady) return
-    observedReady = true
-    observeReady()
-  }
-  const observe = (chunk) => {
-    output += chunk.toString()
-    if (output.includes("pi-web-codex is ready at")) markReady()
-  }
-  child.stdout.on("data", observe)
-  child.stderr.on("data", observe)
-  child.on("message", (message) => {
-    if (message?.type === "ready") markReady()
-  })
-  child.once("close", (code, signal) => {
-    if (!observedReady) {
-      failReadyObservation(
-        new Error(
-          `CLI exited before becoming ready (${code ?? signal ?? "unknown"}): ${output}`
-        )
-      )
-    }
-  })
-  const closed = new Promise((resolve, reject) => {
-    child.once("error", reject)
-    child.once("close", (code, signal) => resolve({ code, signal, output }))
-  })
-  return { child, closed, readyObserved }
+  return { closed, readyObserved, configDir, cliPath, port }
 }
 
 async function stopCli(instance) {
-  if (instance.child.exitCode === null && instance.child.signalCode === null) {
-    instance.child.kill("SIGTERM")
-  }
-  return instance.closed
+  if ((await instance.closed).code !== 0) return
+  const result = await invokeCli(
+    ["stop", String(instance.port)],
+    instance.configDir,
+    instance.cliPath
+  )
+  assert.equal(result.code, 0, result.output)
 }
 
-test("CLI diagnoses version conflicts and non-JSON occupied ports", async () => {
+test("CLI refuses unregistered services even when their health/version match", async () => {
   const temporary = await mkdtemp(path.join(tmpdir(), "pi-web-cli-test-"))
   const health = listenHealthServer()
   try {
@@ -207,11 +201,7 @@ test("CLI diagnoses version conflicts and non-JSON occupied ports", async () => 
     })
     const mismatch = await runCli(port, path.join(temporary, "mismatch"))
     assert.equal(mismatch.code, 1)
-    assert.match(
-      mismatch.output,
-      new RegExp(`already running at http://127\\.0\\.0\\.1:${port}`)
-    )
-    assert.match(mismatch.output, /Stop the existing instance before starting/)
+    assert.match(mismatch.output, /already in use by an unregistered service/)
 
     health.setResponse({ status: 500, body: "not JSON" })
     const occupied = await runCli(port, path.join(temporary, "occupied"))
@@ -241,10 +231,10 @@ test("CLI diagnoses version conflicts and non-JSON occupied ports", async () => 
       }),
     })
     const sameVersion = await runCli(port, path.join(temporary, "same"))
-    assert.equal(sameVersion.code, 0)
+    assert.equal(sameVersion.code, 1)
     assert.match(
       sameVersion.output,
-      new RegExp(`pi-web-codex is ready at http://127\\.0\\.0\\.1:${port}`)
+      /already in use by an unregistered service/
     )
   } finally {
     await new Promise((resolve) => health.server.close(resolve))
@@ -360,31 +350,14 @@ test("CLI recovers a dead instance lock and serializes concurrent startup", asyn
       )
 
       const owner = JSON.parse(await readFile(lockPath, "utf8"))
-      assert.ok([first.child.pid, second.child.pid].includes(owner.pid))
-      assert.equal(
-        instances.filter(
-          (instance) =>
-            instance.child.exitCode === null &&
-            instance.child.signalCode === null
-        ).length,
-        1
-      )
-      assert.equal(
-        instances.filter((instance) => instance.child.pid === owner.pid).length,
-        1
-      )
+      assert.doesNotThrow(() => process.kill(owner.pid, 0))
+      const results = await Promise.all(instances.map((item) => item.closed))
+      assert.equal(results.filter((result) => result.code === 0).length, 1)
       assert.deepEqual(await readdir(lockDirectory), ["instance.lock"])
     } finally {
       await Promise.all(instances.map((instance) => stopCli(instance)))
     }
-    if (process.platform === "win32") {
-      // Windows terminates the process without running SIGTERM handlers, so
-      // the lock file cannot be removed programmatically; stale locks are
-      // recovered on the next startup instead.
-      await assert.doesNotReject(readFile(lockPath, "utf8"))
-    } else {
-      await assert.rejects(readFile(lockPath, "utf8"), { code: "ENOENT" })
-    }
+    await assert.rejects(readFile(lockPath, "utf8"), { code: "ENOENT" })
   } finally {
     await rm(temporary, { recursive: true, force: true })
     if (fixture) await rm(fixture.root, { recursive: true, force: true })

@@ -107,6 +107,22 @@ import { useStreamingRuntimeStatus } from "@/components/session-streaming-contex
 import { draftAfterAcceptedSend } from "@/lib/session-composer-draft-store"
 import { isVisibleTuiSurface } from "@/lib/tui-surface"
 import type { Translator } from "@/lib/i18n"
+import {
+  createRuntimeLeaseId,
+  RuntimeLeaseController,
+} from "@/lib/runtime-lease"
+
+interface RuntimeStatePayload {
+  status: RuntimeStatus
+  snapshot: RuntimeSnapshot | null
+}
+
+interface RuntimeLeaseResult {
+  state: RuntimeStatePayload
+  generation: number
+}
+
+type RuntimeLeasePhase = "connecting" | "ready" | "error" | "paused"
 
 type ActiveExtensionRequest = Extract<
   ExtensionUIRequest,
@@ -261,6 +277,24 @@ function retryDescription(t: Translator, payload: unknown) {
   })
 }
 
+function parseRuntimeStatePayload(body: unknown): RuntimeStatePayload {
+  if (
+    typeof body !== "object" ||
+    body === null ||
+    !("status" in body) ||
+    !("snapshot" in body)
+  ) {
+    throw new Error("Runtime returned an invalid state response.")
+  }
+  return {
+    status: runtimeStatusSchema.parse(body.status),
+    snapshot:
+      body.snapshot === null
+        ? null
+        : runtimeSnapshotSchema.parse(body.snapshot),
+  }
+}
+
 export function SessionRuntime({
   sessionId,
   mutationToken,
@@ -338,6 +372,13 @@ export function SessionRuntime({
   const [goalTokenBudget, setGoalTokenBudget] = useState("")
   const [error, setError] = useState<string | null>(null)
   const [connectionError, setConnectionError] = useState<string | null>(null)
+  const [leasePhase, setLeasePhase] = useState<RuntimeLeasePhase>("connecting")
+  const [leaseError, setLeaseError] = useState<string | null>(null)
+  const leaseControllerRef =
+    useRef<RuntimeLeaseController<RuntimeLeaseResult> | null>(null)
+  const leaseStarterRef = useRef<(() => void) | null>(null)
+  const runtimeSessionGeneration = useRef(0)
+  const connectionStateRef = useRef<"open" | "error" | null>(null)
   const [queuedMessages, setQueuedMessages] = useState<QueuedPromptItem[]>(
     initialSnapshot?.queuedPrompts ?? []
   )
@@ -422,6 +463,20 @@ export function SessionRuntime({
     }
   }, [])
 
+  const applyRuntimeState = useCallback(
+    (nextState: RuntimeStatePayload) => {
+      updateRuntimeStatus(nextState.status)
+      setSnapshot(nextState.snapshot)
+      updateQueuedMessages(nextState.snapshot?.queuedPrompts ?? [])
+      setExtensionStatuses(nextState.snapshot?.extensionStatuses ?? {})
+      setCompacting(nextState.snapshot?.isCompacting ?? false)
+      setCompactionNotice(nextState.snapshot?.isCompacting ? "running" : null)
+      agentRunActive.current = nextState.status === "busy"
+      wasBusy.current = nextState.status === "busy"
+    },
+    [updateQueuedMessages, updateRuntimeStatus]
+  )
+
   async function mutate<T>(
     path: string,
     method: "POST" | "PUT",
@@ -452,7 +507,9 @@ export function SessionRuntime({
     if (
       (!text && images.length === 0) ||
       submittingRef.current ||
-      abortingRef.current
+      abortingRef.current ||
+      leasePhase !== "ready" ||
+      !["ready", "busy"].includes(status)
     ) {
       return false
     }
@@ -620,43 +677,44 @@ export function SessionRuntime({
     }
   })
 
-  const loadRuntimeState = useEffectEvent(async () => {
-    for (;;) {
-      const generation = runtimeStateGeneration.current
-      const sequence = ++runtimeStateLoadSequence.current
-      const response = await fetch(`/api/v1/sessions/${sessionId}/runtime`, {
-        cache: "no-store",
-      })
-      const body = (await response.json()) as {
-        status?: unknown
-        snapshot?: unknown
-        error?: string
-      }
-      if (!response.ok) {
-        throw new Error(
-          body.error ??
-            t("session.runtime.stateSyncFailed", { status: response.status })
+  const loadRuntimeState = useEffectEvent(
+    async (
+      expectedSessionId = sessionId,
+      expectedSessionGeneration = runtimeSessionGeneration.current
+    ) => {
+      for (;;) {
+        if (expectedSessionGeneration !== runtimeSessionGeneration.current)
+          return
+        const generation = runtimeStateGeneration.current
+        const sequence = ++runtimeStateLoadSequence.current
+        const response = await fetch(
+          `/api/v1/sessions/${expectedSessionId}/runtime`,
+          {
+            cache: "no-store",
+          }
         )
-      }
-      const nextStatus = runtimeStatusSchema.parse(body.status)
-      const nextSnapshot =
-        body.snapshot === null
-          ? null
-          : runtimeSnapshotSchema.parse(body.snapshot)
-      if (sequence !== runtimeStateLoadSequence.current) return
-      if (generation !== runtimeStateGeneration.current) continue
+        const body = (await response.json()) as {
+          status?: unknown
+          snapshot?: unknown
+          error?: string
+        }
+        if (!response.ok) {
+          throw new Error(
+            body.error ??
+              t("session.runtime.stateSyncFailed", { status: response.status })
+          )
+        }
+        const nextState = parseRuntimeStatePayload(body)
+        if (sequence !== runtimeStateLoadSequence.current) return
+        if (generation !== runtimeStateGeneration.current) continue
+        if (expectedSessionGeneration !== runtimeSessionGeneration.current)
+          return
 
-      updateRuntimeStatus(nextStatus)
-      setSnapshot(nextSnapshot)
-      updateQueuedMessages(nextSnapshot?.queuedPrompts ?? [])
-      setExtensionStatuses(nextSnapshot?.extensionStatuses ?? {})
-      setCompacting(nextSnapshot?.isCompacting ?? false)
-      setCompactionNotice(nextSnapshot?.isCompacting ? "running" : null)
-      agentRunActive.current = nextStatus === "busy"
-      wasBusy.current = nextStatus === "busy"
-      return
+        applyRuntimeState(nextState)
+        return
+      }
     }
-  })
+  )
 
   async function actOnTuiSurface(surfaceId: string, action: TuiSurfaceAction) {
     await mutate(`/api/v1/tui-surfaces/${surfaceId}`, "POST", {
@@ -666,8 +724,126 @@ export function SessionRuntime({
   }
 
   useEffect(() => {
+    let disposed = false
+    const sessionGeneration = ++runtimeSessionGeneration.current
+    const requestLease = async (
+      method: "POST" | "PUT",
+      targetSessionId: string,
+      leaseId: string
+    ): Promise<RuntimeLeaseResult> => {
+      const generation = runtimeStateGeneration.current
+      const response = await fetch(
+        `/api/v1/sessions/${targetSessionId}/runtime/lease`,
+        {
+          method,
+          headers: {
+            "Content-Type": "application/json",
+            "X-Pi-Web-Codex-Mutation-Token": mutationToken,
+          },
+          body: JSON.stringify({ leaseId }),
+          cache: "no-store",
+        }
+      )
+      const body = await responseJson<unknown>(
+        response,
+        t("session.runtime.operationFailed", { status: response.status })
+      )
+      return { state: parseRuntimeStatePayload(body), generation }
+    }
+    const controller = new RuntimeLeaseController<RuntimeLeaseResult>(
+      {
+        acquire: (targetSessionId, leaseId) =>
+          requestLease("POST", targetSessionId, leaseId),
+        renew: (targetSessionId, leaseId) =>
+          requestLease("PUT", targetSessionId, leaseId),
+        async release(targetSessionId, leaseId) {
+          const response = await fetch(
+            `/api/v1/sessions/${targetSessionId}/runtime/lease`,
+            {
+              method: "DELETE",
+              keepalive: true,
+              headers: {
+                "Content-Type": "application/json",
+                "X-Pi-Web-Codex-Mutation-Token": mutationToken,
+              },
+              body: JSON.stringify({ leaseId }),
+              cache: "no-store",
+            }
+          )
+          if (!response.ok) {
+            await responseJson<unknown>(
+              response,
+              t("session.runtime.operationFailed", {
+                status: response.status,
+              })
+            )
+          }
+        },
+      },
+      {
+        onReady: (result) => {
+          if (disposed) return
+          setLeasePhase("ready")
+          setLeaseError(null)
+          if (result.generation !== runtimeStateGeneration.current) {
+            void loadRuntimeState(sessionId, sessionGeneration).catch(
+              (failure: unknown) =>
+                setLeaseError(
+                  failure instanceof Error ? failure.message : String(failure)
+                )
+            )
+            return
+          }
+          applyRuntimeState(result.state)
+          setError(null)
+        },
+        onError: (failure: unknown) => {
+          if (disposed) return
+          setLeasePhase("error")
+          setLeaseError(
+            failure instanceof Error ? failure.message : String(failure)
+          )
+        },
+        onReleaseError: (failure: unknown) => {
+          console.error("Could not release the runtime lease:", failure)
+          if (disposed) return
+          setLeaseError(
+            failure instanceof Error ? failure.message : String(failure)
+          )
+        },
+      }
+    )
+    leaseControllerRef.current = controller
+    const startLease = () => {
+      if (disposed) return
+      runtimeStateGeneration.current += 1
+      setLeasePhase("connecting")
+      setLeaseError(null)
+      try {
+        controller.start(sessionId, createRuntimeLeaseId())
+      } catch (failure) {
+        setLeasePhase("error")
+        setLeaseError(
+          failure instanceof Error ? failure.message : String(failure)
+        )
+      }
+    }
+    leaseStarterRef.current = startLease
+    startLease()
+
+    const reconnect = () => {
+      if (disposed) return
+      controller.reconnect()
+    }
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") reconnect()
+    }
+    window.addEventListener("online", reconnect)
+    document.addEventListener("visibilitychange", onVisibilityChange)
+
+    const expectedSessionGeneration = runtimeSessionGeneration.current
     void Promise.all([
-      loadRuntimeState(),
+      loadRuntimeState(sessionId, expectedSessionGeneration),
       loadTuiSurfaces(),
       loadExtensionRequests(),
     ]).catch((failure: unknown) =>
@@ -752,6 +928,9 @@ export function SessionRuntime({
       }
       if (event.type === "runtime.stopping") updateRuntimeStatus("stopping")
       if (event.type === "runtime.stopped") {
+        leaseControllerRef.current?.release()
+        setLeasePhase("paused")
+        setLeaseError(null)
         if (agentRunActive.current) {
           agentRunActive.current = false
           handoffTranscript()
@@ -769,6 +948,9 @@ export function SessionRuntime({
         clearExtensionUi()
       }
       if (event.type === "runtime.crashed") {
+        leaseControllerRef.current?.release()
+        setLeasePhase("paused")
+        setLeaseError(null)
         if (agentRunActive.current) {
           agentRunActive.current = false
           handoffTranscript()
@@ -999,16 +1181,39 @@ export function SessionRuntime({
     }
 
     const unsubscribeEvents = sessionEvents.subscribe(EVENT_TYPES, handle)
-    const unsubscribeConnection = sessionEvents.subscribeConnection((state) =>
+    const unsubscribeConnection = sessionEvents.subscribeConnection((state) => {
+      const previous = connectionStateRef.current
+      connectionStateRef.current = state
       setConnectionError(
         state === "error" ? t("session.runtime.connectionLost") : null
       )
-    )
+      if (state === "open" && previous === "error") {
+        leaseControllerRef.current?.reconnect()
+        void Promise.all([
+          loadRuntimeState(sessionId, expectedSessionGeneration),
+          loadTuiSurfaces(),
+          loadExtensionRequests(),
+        ]).catch((failure: unknown) =>
+          setError(failure instanceof Error ? failure.message : String(failure))
+        )
+      }
+    })
     return () => {
+      disposed = true
+      runtimeSessionGeneration.current += 1
+      runtimeStateGeneration.current += 1
+      window.removeEventListener("online", reconnect)
+      document.removeEventListener("visibilitychange", onVisibilityChange)
+      if (leaseStarterRef.current === startLease) leaseStarterRef.current = null
+      if (leaseControllerRef.current === controller)
+        leaseControllerRef.current = null
+      controller.release()
       unsubscribeEvents()
       unsubscribeConnection()
     }
   }, [
+    applyRuntimeState,
+    mutationToken,
     router,
     sessionEvents,
     sessionId,
@@ -1077,6 +1282,7 @@ export function SessionRuntime({
       updateQueuedMessages(state.snapshot?.queuedPrompts ?? [])
       setCompacting(state.snapshot?.isCompacting ?? false)
       setCompactionNotice(state.snapshot?.isCompacting ? "running" : null)
+      leaseStarterRef.current?.()
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure))
     } finally {
@@ -1331,7 +1537,10 @@ export function SessionRuntime({
     runtimeActive ? "session.runtime.active" : "session.runtime.inactive"
   )
   const settingsDisabled =
-    !["ready", "busy"].includes(status) || updating || compacting
+    leasePhase !== "ready" ||
+    !["ready", "busy"].includes(status) ||
+    updating ||
+    compacting
   const reloadDisabled =
     ["starting", "busy", "stopping", "crashed"].includes(status) ||
     updating ||
@@ -1398,7 +1607,11 @@ export function SessionRuntime({
             ? FileTextIcon
             : TerminalIcon,
       disabled:
-        submitting || aborting || status === "crashed" || status === "stopping",
+        leasePhase !== "ready" ||
+        submitting ||
+        aborting ||
+        status === "crashed" ||
+        status === "stopping",
       onSelect: () =>
         void sendMessage(`/${command.name}`, { clearDraft: true }),
     }))
@@ -1440,7 +1653,9 @@ export function SessionRuntime({
           <PromptQueue
             items={queuedMessages}
             onReplace={replaceQueuedMessages}
-            disabled={submitting || aborting || queueUpdating}
+            disabled={
+              leasePhase !== "ready" || submitting || aborting || queueUpdating
+            }
             fallbackFocusRef={composerTextareaRef}
           />
         </div>
@@ -1450,6 +1665,8 @@ export function SessionRuntime({
           onSubmit={submit}
           submitting={submitting}
           sendDisabled={
+            leasePhase !== "ready" ||
+            !["ready", "busy"].includes(status) ||
             status === "crashed" ||
             aborting ||
             queueUpdating ||
@@ -1579,6 +1796,16 @@ export function SessionRuntime({
           actions={
             <>
               <SessionStreamingToolStatus />
+              {leasePhase === "connecting" ? (
+                <span
+                  role="status"
+                  aria-live="polite"
+                  className="flex items-center gap-1.5 text-xs text-muted-foreground"
+                >
+                  <LoaderCircleIcon className="size-3 animate-spin" />
+                  {t("session.status.starting")}
+                </span>
+              ) : null}
               {composerImages.loading ? (
                 <span
                   role="status"
@@ -1715,10 +1942,13 @@ export function SessionRuntime({
           returnFocusRef={composerTextareaRef}
         />
         <div className="grid max-h-[18svh] min-h-0 gap-3 overflow-y-auto overscroll-contain empty:hidden">
-          {status === "crashed" ? (
+          {status === "crashed" ||
+          (status === "stopped" && leasePhase === "paused") ? (
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3">
               <p role="alert" className="text-sm text-destructive">
-                {error ?? t("session.runtime.crashMessage")}
+                {status === "crashed"
+                  ? (error ?? t("session.runtime.crashMessage"))
+                  : t("session.runtime.inactive")}
               </p>
               <Button
                 type="button"
@@ -1731,6 +1961,25 @@ export function SessionRuntime({
                   className={updating ? "animate-spin" : undefined}
                 />
                 {t("session.runtime.restart")}
+              </Button>
+            </div>
+          ) : leasePhase === "error" && leaseError ? (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3">
+              <p role="alert" className="text-sm text-destructive">
+                {leaseError}
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setLeasePhase("connecting")
+                  setLeaseError(null)
+                  leaseStarterRef.current?.()
+                }}
+              >
+                <RefreshCwIcon />
+                {t("app.error.retry")}
               </Button>
             </div>
           ) : error || connectionError ? (

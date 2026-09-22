@@ -692,7 +692,7 @@ export const resourceCatalogSchema = z.object({
 
 export const modelSettingsModelSchema = runtimeModelSchema.extend({
   enabled: z.boolean(),
-  availableThinkingLevels: z.array(thinkingLevelSchema).min(1),
+  availableThinkingLevels: z.array(thinkingLevelSchema),
   defaultThinkingLevel: thinkingLevelSchema,
 })
 
@@ -774,6 +774,10 @@ const initializeMessageSchema = z.object({
         sourceSessionFile: z.string().min(1),
       }),
     ]),
+    draft: z.boolean().optional(),
+    // Private storage supplied by the runtime supervisor for an unclaimed
+    // draft. The worker preserves the SDK-selected destination separately.
+    draftDirectory: z.string().min(1).optional(),
     model: z
       .object({
         provider: z.string().min(1),
@@ -916,6 +920,12 @@ const rebindWebSessionMessageSchema = z.object({
   type: z.literal("runtime.rebind-web-session"),
   requestId: z.string().min(1),
   payload: z.object({ webSessionId: z.string().min(1) }),
+})
+
+const promoteSessionMessageSchema = z.object({
+  type: z.literal("runtime.promote-session"),
+  requestId: z.string().min(1),
+  payload: z.object({ nativeSessionFile: z.string().min(1) }),
 })
 
 const extensionUIResponseMessageSchema = z.object({
@@ -1118,6 +1128,7 @@ export const hostToWorkerMessageSchema = z.discriminatedUnion("type", [
   exportMessageSchema,
   importMessageSchema,
   rebindWebSessionMessageSchema,
+  promoteSessionMessageSchema,
   extensionUIResponseMessageSchema,
   tuiSurfaceListMessageSchema,
   tuiSurfaceActionMessageSchema,

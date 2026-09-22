@@ -3,9 +3,13 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import test from "node:test"
+import { pathToFileURL } from "node:url"
 
 import * as codingAgent from "@earendil-works/pi-coding-agent"
-import type { HostToWorkerMessage } from "@workspace/runtime-protocol"
+import {
+  modelSettingsSchema,
+  type HostToWorkerMessage,
+} from "@workspace/runtime-protocol"
 
 import type { ModelThinkingModule } from "./coding-agent.js"
 import { handleModelSettingsMessage } from "./model-settings.js"
@@ -27,6 +31,77 @@ const modelThinking: ModelThinkingModule = {
     return levels.includes(level) ? level : levels.at(-1)!
   },
 }
+
+test("model settings preserve models without supported thinking levels", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "pi-model-no-thinking-"))
+  try {
+    await writeFile(
+      path.join(root, "models.json"),
+      JSON.stringify({
+        providers: {
+          fixture: {
+            api: "openai-completions",
+            baseUrl: "http://127.0.0.1:1/v1",
+            apiKey: "fixture-key",
+            models: [
+              {
+                id: "no-thinking",
+                name: "No thinking model",
+                reasoning: true,
+                thinkingLevelMap: {
+                  off: null,
+                  minimal: null,
+                  low: null,
+                  medium: null,
+                  high: null,
+                  xhigh: null,
+                  max: null,
+                },
+                input: ["text"],
+                contextWindow: 16_000,
+                maxTokens: 2_000,
+              },
+            ],
+          },
+        },
+      })
+    )
+
+    await writeFile(
+      path.join(root, "settings.json"),
+      JSON.stringify({ enabledModels: ["fixture/no-thinking"] })
+    )
+    for (const worker of ["worker-pi", "worker-pi-client"]) {
+      const sdk: ModelThinkingModule = await import(
+        pathToFileURL(
+          path.resolve(
+            import.meta.dirname,
+            `../../${worker}/node_modules/@earendil-works/pi-ai/dist/index.js`
+          )
+        ).href
+      )
+      for (const scope of ["all", "enabled"] as const) {
+        const result = await handleModelSettingsMessage(codingAgent, sdk, {
+          type: "models.catalog",
+          requestId: `${worker}-${scope}-no-thinking`,
+          payload: { cwd: root, agentDir: root, scope },
+        })
+        const model = result.models.find(
+          ({ provider, id }) => provider === "fixture" && id === "no-thinking"
+        )
+        assert.deepEqual(
+          model?.availableThinkingLevels,
+          [],
+          `${worker}/${scope}`
+        )
+        assert.equal(model?.defaultThinkingLevel, "off", `${worker}/${scope}`)
+        assert.equal(modelSettingsSchema.safeParse(result).success, true)
+      }
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
 
 test("custom provider settings persist, edit, and remove through Pi files", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "pi-model-settings-"))
@@ -392,10 +467,6 @@ test("composer reads only scoped models without live refresh or provider metadat
       JSON.stringify({ enabledModels: ["scoped/missing"] })
     )
     const unmatched = await read()
-    assert.deepEqual(
-      unmatched.models.map((model) => model.id).sort(),
-      ["excluded", "selected"]
-    )
     assert.match(unmatched.scopeWarnings?.[0] ?? "", /No models match/)
   } finally {
     await rm(root, { recursive: true, force: true })

@@ -1,6 +1,7 @@
 import { GeneralSettingsForm } from "@/components/settings-form"
 import { NotificationSettings } from "@/components/notification-settings"
 import { SettingsSection } from "@/components/settings-section"
+import { getManagedInstancePort } from "@/lib/config"
 import { getLocalizedConfig } from "@/lib/i18n-server"
 import { getMutationToken } from "@/lib/request-security"
 
@@ -16,6 +17,7 @@ export default async function GeneralSettingsPage() {
         key={config.revision}
         initial={config}
         mutationToken={getMutationToken()}
+        managedPort={getManagedInstancePort() ?? null}
       />
       <NotificationSettings />
     </SettingsSection>

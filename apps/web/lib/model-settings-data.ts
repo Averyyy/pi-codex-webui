@@ -1,15 +1,18 @@
 import "server-only"
 
-import { mkdir } from "node:fs/promises"
-
 import {
-  getProjectRuntimeTarget,
   getSessionRuntimeTarget,
   listWorkspaceProjectChoices,
 } from "@/lib/catalog"
-import { getAppPaths } from "@/lib/app-paths"
 import { getMutationToken } from "@/lib/request-security"
-import { getRuntimeSupervisor } from "@/lib/runtime-supervisor"
+import {
+  getRuntimeSupervisor,
+  type ModelSettingsRuntimeTarget,
+} from "@/lib/runtime-supervisor"
+import {
+  resolveNewSessionRuntime,
+  resolveNewTaskRuntime,
+} from "@/lib/runtime-profiles"
 
 export async function resolveModelSettingsCwd(sessionId?: string) {
   if (sessionId) {
@@ -21,12 +24,61 @@ export async function resolveModelSettingsCwd(sessionId?: string) {
   return projects[0]?.path ?? process.cwd()
 }
 
-export async function loadModelSettings(sessionId?: string) {
-  const cwd = await resolveModelSettingsCwd(sessionId)
+export async function resolveModelSettingsTarget(
+  sessionId?: string
+): Promise<ModelSettingsRuntimeTarget | null> {
+  if (sessionId) {
+    const session = await getSessionRuntimeTarget(sessionId)
+    if (!session) return null
+    return {
+      cwd: session.cwd,
+      runtimeProfileId: session.runtimeProfileId,
+      runtimeKind: session.runtimeKind,
+    }
+  }
+
+  const [cwd, runtime] = await Promise.all([
+    resolveModelSettingsCwd(),
+    resolveNewTaskRuntime(),
+  ])
   if (!cwd) return null
+  return {
+    cwd,
+    runtimeProfileId: runtime.profileId,
+    runtimeKind: runtime.runtimeKind,
+  }
+}
+
+export async function resolveNewConversationModelSettingsTarget(
+  projectId: string | null
+): Promise<ModelSettingsRuntimeTarget | null> {
+  const runtime = projectId
+    ? await resolveNewSessionRuntime(projectId)
+    : await resolveNewTaskRuntime()
+  return {
+    cwd: runtime.cwd,
+    runtimeProfileId: runtime.profileId,
+    runtimeKind: runtime.runtimeKind,
+  }
+}
+
+export async function resolveModelSettingsRequestTarget(options: {
+  sessionId?: string
+  projectId?: string
+  newTask?: boolean
+}) {
+  if (options.projectId !== undefined || options.newTask) {
+    return resolveNewConversationModelSettingsTarget(options.projectId ?? null)
+  }
+  return resolveModelSettingsTarget(options.sessionId)
+}
+
+export async function loadModelSettings(sessionId?: string) {
+  const target = await resolveModelSettingsTarget(sessionId)
+  if (!target) return null
 
   return {
-    settings: await getRuntimeSupervisor().modelSettings(cwd),
+    settings: await getRuntimeSupervisor().modelSettings(target),
     sessionId: sessionId ?? null,
     mutationToken: getMutationToken(),
   }
@@ -35,18 +87,14 @@ export async function loadModelSettings(sessionId?: string) {
 export async function resolveNewConversationModelSettingsCwd(
   projectId: string | null
 ) {
-  if (projectId) {
-    return (await getProjectRuntimeTarget(projectId))?.cwd ?? null
-  }
-
-  const cwd = getAppPaths().taskWorkspace
-  await mkdir(cwd, { recursive: true, mode: 0o700 })
-  return cwd
+  return (
+    (await resolveNewConversationModelSettingsTarget(projectId))?.cwd ?? null
+  )
 }
 
 export async function loadNewConversationModelSettings(
   projectId: string | null
 ) {
-  const cwd = await resolveNewConversationModelSettingsCwd(projectId)
-  return cwd ? getRuntimeSupervisor().modelSettings(cwd, "enabled") : null
+  const target = await resolveNewConversationModelSettingsTarget(projectId)
+  return target ? getRuntimeSupervisor().modelSettings(target, "enabled") : null
 }

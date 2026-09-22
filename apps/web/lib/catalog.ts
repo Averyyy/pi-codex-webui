@@ -19,6 +19,10 @@ import {
   type SessionPageQuery,
 } from "@/lib/session-pagination"
 import type {
+  WorkspaceNavOrderMutation,
+  WorkspaceNavOrderScope,
+} from "@/lib/workspace-nav-order"
+import type {
   ProjectSummary,
   ArchivedSession,
   SessionSearchResult,
@@ -35,6 +39,7 @@ interface ProjectRow {
   session_count: number
   updated_at: string
   pinned_at: string | null
+  nav_position: number | null
 }
 
 export class ProjectPathError extends Error {
@@ -62,6 +67,7 @@ interface SessionRow {
   runtime_kind: "pi" | "pi-client"
   runtime_profile_id: string
   migrated_from_session_id: string | null
+  nav_position?: number | null
 }
 
 interface SnapshotRow extends SessionRow {
@@ -108,6 +114,15 @@ interface ProjectRuntimeRow {
   default_runtime_profile_id: string | null
 }
 
+export type WorkspaceNavOrderInput = WorkspaceNavOrderMutation
+
+export class WorkspaceNavOrderError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = "WorkspaceNavOrderError"
+  }
+}
+
 declare global {
   var piWebCodexProjectRegistrations:
     Map<string, Promise<ProjectSummary>> | undefined
@@ -143,6 +158,26 @@ function sessionSummary(row: SessionRow): SessionSummary {
     runtimeProfileId: row.runtime_profile_id,
     migratedFromSessionId: row.migrated_from_session_id,
   }
+}
+
+function workspaceNavScopeKey(
+  scope: WorkspaceNavOrderScope,
+  projectId?: string | null
+) {
+  if (scope === "project") {
+    if (!projectId) {
+      throw new WorkspaceNavOrderError(
+        "A projectId is required for project ordering."
+      )
+    }
+    return `project:${projectId}`
+  }
+  if (projectId) {
+    throw new WorkspaceNavOrderError(
+      "projectId is only valid for project ordering."
+    )
+  }
+  return scope
 }
 
 function refreshProject(
@@ -307,11 +342,27 @@ export async function markSessionRead(sessionId: string) {
 
 export async function removeWorkspaceProject(projectId: string) {
   const database = await getDatabase()
-  return (
+  return inTransaction(database, () => {
+    const removed =
+      database
+        .prepare("DELETE FROM project_registrations WHERE project_id = ?")
+        .run(projectId).changes === 1
+    if (!removed) return false
+
+    // A registration is a fresh sidebar item when it is added again. Clear
+    // both its project rank and any session ranks scoped to the old project.
     database
-      .prepare("DELETE FROM project_registrations WHERE project_id = ?")
-      .run(projectId).changes === 1
-  )
+      .prepare(
+        `DELETE FROM workspace_nav_order
+         WHERE (scope_key = 'projects' AND item_id = ?)
+            OR scope_key = ?
+            OR (scope_key = 'pinned' AND item_id IN (
+              SELECT id FROM sessions WHERE project_id = ?
+            ))`
+      )
+      .run(projectId, `project:${projectId}`, projectId)
+    return true
+  })
 }
 
 // Project selectors need identities only, not counts or conversation previews.
@@ -325,8 +376,13 @@ export async function listWorkspaceProjectChoices(): Promise<
     SELECT projects.id, display_name AS name, canonical_path AS path
     FROM project_registrations
     JOIN projects ON projects.id = project_registrations.project_id
-    ORDER BY projects.pinned_at IS NULL, projects.pinned_at DESC,
-             projects.updated_at DESC, display_name COLLATE NOCASE
+    LEFT JOIN workspace_nav_order AS nav_order
+      ON nav_order.scope_key = 'projects'
+     AND nav_order.item_id = projects.id
+    ORDER BY projects.pinned_at IS NULL,
+             nav_order.position IS NOT NULL, nav_order.position ASC,
+             project_registrations.registered_at DESC,
+             project_registrations.rowid DESC, projects.id DESC
   `
     )
     .all() as unknown as Pick<ProjectSummary, "id" | "name" | "path">[]
@@ -339,36 +395,51 @@ export async function listWorkspaceProjects(): Promise<WorkspaceProject[]> {
     .prepare(
       `SELECT projects.id, canonical_path, display_name,
               count(sessions.id) AS session_count,
-              projects.updated_at, projects.pinned_at
+              projects.updated_at, projects.pinned_at,
+              nav_order.position AS nav_position
        FROM project_registrations
        JOIN projects ON projects.id = project_registrations.project_id
+       LEFT JOIN workspace_nav_order AS nav_order
+         ON nav_order.scope_key = 'projects'
+        AND nav_order.item_id = projects.id
        LEFT JOIN sessions
          ON sessions.project_id = projects.id
         AND sessions.archived_at IS NULL
         AND sessions.parent_session_file IS NULL
        GROUP BY projects.id
-       ORDER BY projects.pinned_at IS NULL, projects.pinned_at DESC,
-                projects.updated_at DESC, display_name COLLATE NOCASE`
+       ORDER BY projects.pinned_at IS NULL,
+                nav_order.position IS NOT NULL, nav_order.position ASC,
+                project_registrations.registered_at DESC,
+                project_registrations.rowid DESC, projects.id DESC`
     )
     .all() as unknown as ProjectRow[]
   const sessions = database
     .prepare(
       `WITH previews AS (
          SELECT sessions.*,
+                nav_order.position AS nav_position,
                 row_number() OVER (
-                  PARTITION BY project_id ORDER BY updated_at DESC, id DESC
+                  PARTITION BY project_id
+                  ORDER BY nav_order.position IS NOT NULL,
+                           nav_order.position ASC,
+                           updated_at DESC, id DESC
                 ) AS position
          FROM sessions
+         LEFT JOIN workspace_nav_order AS nav_order
+           ON nav_order.scope_key = 'project:' || sessions.project_id
+          AND nav_order.item_id = sessions.id
          WHERE project_id IN (SELECT project_id FROM project_registrations)
            AND archived_at IS NULL AND parent_session_file IS NULL
+           AND pinned_at IS NULL
        )
        SELECT id, project_id, cwd, native_session_id, native_session_file,
               parent_session_file, title, created_at, updated_at,
               message_count, substr(first_message, 1, 512) AS first_message, archived_at, pinned_at,
               completion_unread, runtime_kind,
-              runtime_profile_id, migrated_from_session_id
+              runtime_profile_id, migrated_from_session_id,
+              nav_position
        FROM previews WHERE position <= 5
-       ORDER BY updated_at DESC, id DESC`
+       ORDER BY position ASC`
     )
     .all() as unknown as SessionRow[]
   const byProject = new Map<string, SessionRow[]>()
@@ -390,8 +461,12 @@ export async function listSessionPage(
 ): Promise<SessionPage> {
   const query = parseSessionPageQuery(input)
   const database = await getDatabase()
+  const sidebar = query.order === "sidebar"
+  const scopeKey = sidebar
+    ? workspaceNavScopeKey(query.scope, query.projectId)
+    : null
   const filters = ["archived_at IS NULL", "parent_session_file IS NULL"]
-  const values: (string | number)[] = []
+  const values: (string | number)[] = sidebar && scopeKey ? [scopeKey] : []
   if (query.scope === "tasks") {
     filters.push("project_id IS NULL", "pinned_at IS NULL")
   } else if (query.scope === "pinned") {
@@ -402,8 +477,23 @@ export async function listSessionPage(
   } else {
     filters.push("project_id = ?")
     values.push(query.projectId!)
+    if (sidebar) filters.push("pinned_at IS NULL")
   }
-  if (query.after) {
+  if (query.after && sidebar) {
+    if (query.after.position === null) {
+      filters.push(
+        `((nav_order.position IS NULL AND
+           (coalesce(pinned_at, ''), updated_at, id) < (?, ?, ?)) OR
+          nav_order.position IS NOT NULL)`
+      )
+      values.push(query.after.pinnedAt, query.after.updatedAt, query.after.id)
+    } else {
+      filters.push(
+        "(nav_order.position IS NOT NULL AND nav_order.position > ?)"
+      )
+      values.push(query.after.position)
+    }
+  } else if (query.after) {
     filters.push("(coalesce(pinned_at, ''), updated_at, id) < (?, ?, ?)")
     values.push(query.after.pinnedAt, query.after.updatedAt, query.after.id)
   }
@@ -412,9 +502,18 @@ export async function listSessionPage(
       `SELECT id, project_id, cwd, native_session_id, native_session_file,
             parent_session_file, title, created_at, updated_at, message_count,
             substr(first_message, 1, 512) AS first_message, archived_at, pinned_at,
-            completion_unread, runtime_kind, runtime_profile_id, migrated_from_session_id
-     FROM sessions WHERE ${filters.join(" AND ")}
-     ORDER BY coalesce(pinned_at, '') DESC, updated_at DESC, id DESC
+            completion_unread, runtime_kind, runtime_profile_id, migrated_from_session_id,
+            ${sidebar ? "nav_order.position AS nav_position" : "NULL AS nav_position"}
+     FROM sessions
+     ${
+       sidebar
+         ? "LEFT JOIN workspace_nav_order AS nav_order ON nav_order.scope_key = ? AND nav_order.item_id = sessions.id"
+         : ""
+     }
+     WHERE ${filters.join(" AND ")}
+     ORDER BY
+       ${sidebar ? "nav_order.position IS NOT NULL, nav_order.position ASC," : ""}
+       coalesce(pinned_at, '') DESC, updated_at DESC, id DESC
      LIMIT ?`
     )
     .all(...values, query.limit + 1) as unknown as SessionRow[]
@@ -428,12 +527,160 @@ export async function listSessionPage(
         ? sessionPageCursor({
             scope: query.scope,
             projectId: query.projectId ?? null,
+            order: query.order,
+            position: sidebar ? (last.nav_position ?? null) : null,
             pinnedAt: last.pinned_at ?? "",
             updatedAt: last.updated_at,
             id: last.id,
           })
         : null,
   }
+}
+
+function sidebarProjectIds(database: Awaited<ReturnType<typeof getDatabase>>) {
+  return database
+    .prepare(
+      `SELECT projects.id
+       FROM project_registrations
+       JOIN projects ON projects.id = project_registrations.project_id
+       LEFT JOIN workspace_nav_order AS nav_order
+         ON nav_order.scope_key = 'projects'
+        AND nav_order.item_id = projects.id
+       ORDER BY projects.pinned_at IS NULL,
+                nav_order.position IS NOT NULL, nav_order.position ASC,
+                project_registrations.registered_at DESC,
+                project_registrations.rowid DESC, projects.id DESC`
+    )
+    .all()
+    .map((row) => String((row as { id: string }).id))
+}
+
+function persistWorkspaceNavOrder(
+  database: Awaited<ReturnType<typeof getDatabase>>,
+  scopeKey: string,
+  ids: string[]
+) {
+  database
+    .prepare("DELETE FROM workspace_nav_order WHERE scope_key = ?")
+    .run(scopeKey)
+  const insert = database.prepare(
+    `INSERT INTO workspace_nav_order(scope_key, item_id, position)
+     VALUES (?, ?, ?)`
+  )
+  for (const [position, itemId] of ids.entries()) {
+    insert.run(scopeKey, itemId, position)
+  }
+}
+
+function sidebarSessionIds(
+  database: Awaited<ReturnType<typeof getDatabase>>,
+  scope: Exclude<WorkspaceNavOrderScope, "projects" | "project"> | "project",
+  projectId?: string
+) {
+  const filters = [
+    "sessions.archived_at IS NULL",
+    "sessions.parent_session_file IS NULL",
+  ]
+  const values: string[] = [
+    `${scope === "project" ? `project:${projectId}` : scope}`,
+  ]
+  if (scope === "tasks") {
+    filters.push("sessions.project_id IS NULL", "sessions.pinned_at IS NULL")
+  } else if (scope === "pinned") {
+    filters.push(
+      "sessions.pinned_at IS NOT NULL",
+      "(sessions.project_id IS NULL OR sessions.project_id IN (SELECT project_id FROM project_registrations))"
+    )
+  } else {
+    if (!projectId) {
+      throw new WorkspaceNavOrderError(
+        "A projectId is required for project ordering."
+      )
+    }
+    filters.push("sessions.project_id = ?", "sessions.pinned_at IS NULL")
+    values.push(projectId)
+  }
+  return database
+    .prepare(
+      `SELECT sessions.id
+       FROM sessions
+       LEFT JOIN workspace_nav_order AS nav_order
+         ON nav_order.scope_key = ?
+        AND nav_order.item_id = sessions.id
+       WHERE ${filters.join(" AND ")}
+       ORDER BY nav_order.position IS NOT NULL, nav_order.position ASC,
+                coalesce(sessions.pinned_at, '') DESC,
+                sessions.updated_at DESC, sessions.id DESC`
+    )
+    .all(...values)
+    .map((row) => String((row as { id: string }).id))
+}
+
+export async function reorderWorkspaceNav(input: WorkspaceNavOrderInput) {
+  const database = await getDatabase()
+  const scopeKey = workspaceNavScopeKey(input.scope, input.projectId)
+  return inTransaction(database, () => {
+    if (input.scope === "project") {
+      const project = database
+        .prepare("SELECT 1 FROM project_registrations WHERE project_id = ?")
+        .get(input.projectId!)
+      if (!project) throw new WorkspaceNavOrderError("Project not found.")
+    }
+
+    if (input.scope === "projects") {
+      const projectRows = database
+        .prepare(
+          `SELECT projects.id, projects.pinned_at
+           FROM project_registrations
+           JOIN projects ON projects.id = project_registrations.project_id
+           WHERE projects.id IN (?, ?)`
+        )
+        .all(input.itemId, input.targetId) as {
+        id: string
+        pinned_at: string | null
+      }[]
+      const item = projectRows.find((row) => row.id === input.itemId)
+      const target = projectRows.find((row) => row.id === input.targetId)
+      if (!item || !target) {
+        throw new WorkspaceNavOrderError(
+          "The item and target must belong to the same sidebar group."
+        )
+      }
+      if ((item.pinned_at !== null) !== (target.pinned_at !== null)) {
+        throw new WorkspaceNavOrderError(
+          "Pinned and unpinned projects cannot be reordered together."
+        )
+      }
+    }
+
+    const ids =
+      input.scope === "projects"
+        ? sidebarProjectIds(database)
+        : sidebarSessionIds(database, input.scope, input.projectId)
+    if (input.itemId === input.targetId) {
+      throw new WorkspaceNavOrderError(
+        "The item and target must be different sidebar entries."
+      )
+    }
+    const itemIndex = ids.indexOf(input.itemId)
+    const targetIndex = ids.indexOf(input.targetId)
+    if (itemIndex < 0 || targetIndex < 0) {
+      throw new WorkspaceNavOrderError(
+        "The item and target must belong to the same sidebar group."
+      )
+    }
+
+    ids.splice(itemIndex, 1)
+    const adjustedTargetIndex = ids.indexOf(input.targetId)
+    ids.splice(
+      adjustedTargetIndex + (input.position === "after" ? 1 : 0),
+      0,
+      input.itemId
+    )
+
+    persistWorkspaceNavOrder(database, scopeKey, ids)
+    return ids
+  })
 }
 
 export async function getProject(projectId: string) {

@@ -1,11 +1,11 @@
 import { spawn } from "node:child_process"
-import { dirname, join } from "node:path"
+import { dirname } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent"
+import { resolveGlobalLaunchTarget } from "../bin/global-launcher.mjs"
 
 const packageRoot = dirname(dirname(fileURLToPath(import.meta.url)))
-const cliPath = join(packageRoot, "bin", "pi-web-codex.mjs")
 
 type CliMessage =
   { type: "ready"; url: string } | { type: "error"; message: string }
@@ -14,21 +14,18 @@ export default function piWebCodexExtension(pi: ExtensionAPI): void {
   pi.registerCommand("pi-web-codex", {
     description: "Start the pi-web-codex local web host and print its URL",
     async handler(_args, ctx) {
-      const child = spawn(process.execPath, [cliPath], {
-        detached: true,
-        stdio: ["ignore", "ignore", "ignore", "ipc"],
-        env: process.env,
-      })
-      child.unref()
+      let child: ReturnType<typeof spawn> | null = null
 
       try {
-        const url = await waitForReady(child)
+        const launch = await resolveGlobalLaunchTarget({ packageRoot })
+        child = launch.child
+        const url = child ? await waitForReady(child) : launch.url
         ctx.ui.notify(`pi-web-codex is ready at ${url}`, "info")
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
         ctx.ui.notify(`pi-web-codex did not become ready: ${message}`, "error")
       } finally {
-        if (child.connected) child.disconnect()
+        if (child?.connected) child.disconnect()
       }
     },
   })

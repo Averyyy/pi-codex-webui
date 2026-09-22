@@ -7,7 +7,11 @@ import type {
 } from "@workspace/runtime-protocol"
 
 import { EventHub } from "./event-hub"
-import { RuntimeSupervisor } from "./runtime-supervisor"
+import {
+  RuntimeSupervisor,
+  type ModelSettingsRuntimeTarget,
+  workerEnvironment,
+} from "./runtime-supervisor"
 
 interface FakeRuntime {
   webSessionId: string
@@ -33,6 +37,7 @@ interface RuntimeSupervisorInternals {
   sessionClosures: Map<string, Promise<unknown>>
   request(runtime: FakeRuntime, message: { type: string }): Promise<unknown>
   startRuntime(sessionId: string): Promise<FakeRuntime>
+  stop(sessionId: string): Promise<void>
   runSessionClosure<T>(
     sessionIds: string[],
     operation: () => Promise<T>
@@ -41,14 +46,19 @@ interface RuntimeSupervisorInternals {
   reloadRuntimeResources(runtime: FakeRuntime): Promise<RuntimeSnapshot>
   reloadModelSettings(): Promise<void>
   resourceQueue: Promise<void>
-  resourceRequest(message: {
-    type: "models.catalog" | "models.refresh"
-    requestId: string
-    payload: { cwd: string; agentDir: string }
-  }): Promise<unknown>
+  resourceRequest(
+    message: {
+      type: "models.catalog" | "models.refresh"
+      requestId: string
+      payload: { cwd: string; agentDir: string; scope?: "all" | "enabled" }
+    },
+    timeoutMs?: number,
+    runtimeTarget?: ModelSettingsRuntimeTarget
+  ): Promise<unknown>
   performResourceRequest(
     message: { requestId: string },
-    timeoutMs: number
+    timeoutMs: number,
+    runtimeTarget?: ModelSettingsRuntimeTarget
   ): Promise<unknown>
   refreshSettledRuntimeSnapshot(runtime: FakeRuntime): Promise<void>
   waitForExit(runtime: FakeRuntime["child"], timeoutMs: number): Promise<void>
@@ -115,9 +125,189 @@ test("model refresh invokes Pi refresh before reloading active runtimes", async 
     calls.push("runtime.reload-model-settings")
   }
 
-  await supervisor.refreshModelSettings("/workspace")
+  await supervisor.refreshModelSettings({
+    cwd: "/workspace",
+    runtimeProfileId: "pi",
+    runtimeKind: "pi",
+  })
 
   assert.deepEqual(calls, ["models.refresh", "runtime.reload-model-settings"])
+})
+
+test("model resource operations carry the selected runtime target", async () => {
+  const supervisor = new RuntimeSupervisor(new EventHub())
+  const state = internals(supervisor)
+  const target = {
+    cwd: "/workspace",
+    runtimeProfileId: "pi-client-default",
+    runtimeKind: "pi-client" as const,
+  }
+  const calls: {
+    type: string
+    runtimeTarget: ModelSettingsRuntimeTarget | undefined
+  }[] = []
+  const settings = {
+    models: [],
+    providers: [],
+    enabledModels: null,
+    defaultModel: null,
+  }
+  state.resourceRequest = async (message, _timeoutMs, runtimeTarget) => {
+    calls.push({ type: message.type, runtimeTarget })
+    return settings
+  }
+  state.reloadModelSettings = async () => {}
+
+  await supervisor.modelSettings(target, "enabled")
+  await supervisor.refreshModelSettings(target)
+  await supervisor.setModelScope(target, null, [])
+  await supervisor.saveCustomProvider(target, {
+    provider: "fixture",
+    api: "openai-completions",
+    baseUrl: "https://example.test/v1",
+    models: [
+      {
+        id: "fixture-model",
+        name: "Fixture model",
+        reasoning: false,
+        input: ["text"],
+        contextWindow: 16_000,
+        maxTokens: 2_000,
+      },
+    ],
+  })
+  await supervisor.removeProvider(target, "fixture")
+
+  assert.deepEqual(
+    calls.map(({ type }) => type),
+    [
+      "models.catalog",
+      "models.refresh",
+      "models.set-scope",
+      "providers.save",
+      "providers.remove",
+    ]
+  )
+  assert.equal(
+    calls.every(
+      ({ runtimeTarget }) =>
+        runtimeTarget?.cwd === target.cwd &&
+        runtimeTarget.runtimeProfileId === target.runtimeProfileId &&
+        runtimeTarget.runtimeKind === target.runtimeKind
+    ),
+    true
+  )
+})
+
+test("model worker environment preserves the selected Pi Server credentials", () => {
+  const original = {
+    PI_SERVER_MODE: process.env.PI_SERVER_MODE,
+    PI_SERVER_URL: process.env.PI_SERVER_URL,
+    PI_SERVER_AUTH_TOKEN: process.env.PI_SERVER_AUTH_TOKEN,
+    PI_WEB_CODEX_UPDATE_CONTROL_URL:
+      process.env.PI_WEB_CODEX_UPDATE_CONTROL_URL,
+    PI_WEB_CODEX_UPDATE_CONTROL_TOKEN:
+      process.env.PI_WEB_CODEX_UPDATE_CONTROL_TOKEN,
+    PI_WEB_CODEX_UPDATE_OPERATION_ID:
+      process.env.PI_WEB_CODEX_UPDATE_OPERATION_ID,
+    PI_WEB_CODEX_UPDATE_VERIFYING: process.env.PI_WEB_CODEX_UPDATE_VERIFYING,
+    PI_WEB_CODEX_MUTATION_TOKEN: process.env.PI_WEB_CODEX_MUTATION_TOKEN,
+  }
+  process.env.PI_SERVER_MODE = "stale"
+  process.env.PI_SERVER_URL = "http://stale.invalid"
+  process.env.PI_SERVER_AUTH_TOKEN = "stale-token"
+  process.env.PI_WEB_CODEX_UPDATE_CONTROL_URL = "http://127.0.0.1:1234"
+  process.env.PI_WEB_CODEX_UPDATE_CONTROL_TOKEN = "update-secret"
+  process.env.PI_WEB_CODEX_UPDATE_OPERATION_ID = "operation-id"
+  process.env.PI_WEB_CODEX_UPDATE_VERIFYING = "1"
+  process.env.PI_WEB_CODEX_MUTATION_TOKEN = "mutation-secret"
+  try {
+    const clientEnvironment = workerEnvironment(
+      {
+        kind: "pi-client",
+        serverUrl: "http://127.0.0.1:4217",
+        authToken: "fixture-token",
+      },
+      "/fixture-agent"
+    )
+    assert.equal(clientEnvironment.PI_CODING_AGENT_DIR, "/fixture-agent")
+    assert.equal(clientEnvironment.PI_SERVER_MODE, "true")
+    assert.equal(clientEnvironment.PI_SERVER_URL, "http://127.0.0.1:4217")
+    assert.equal(clientEnvironment.PI_SERVER_AUTH_TOKEN, "fixture-token")
+    for (const key of [
+      "PI_WEB_CODEX_UPDATE_CONTROL_URL",
+      "PI_WEB_CODEX_UPDATE_CONTROL_TOKEN",
+      "PI_WEB_CODEX_UPDATE_OPERATION_ID",
+      "PI_WEB_CODEX_UPDATE_VERIFYING",
+      "PI_WEB_CODEX_MUTATION_TOKEN",
+    ]) {
+      assert.equal(clientEnvironment[key], undefined, key)
+    }
+
+    const piEnvironment = workerEnvironment({ kind: "pi" }, "/fixture-agent")
+    assert.equal(piEnvironment.PI_CODING_AGENT_DIR, "/fixture-agent")
+    assert.equal(piEnvironment.PI_SERVER_MODE, undefined)
+    assert.equal(piEnvironment.PI_SERVER_URL, undefined)
+    assert.equal(piEnvironment.PI_SERVER_AUTH_TOKEN, undefined)
+  } finally {
+    for (const [key, value] of Object.entries(original)) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+  }
+})
+
+test("update busy checks do not stop a non-ready worker", () => {
+  const supervisor = new RuntimeSupervisor(new EventHub())
+  const state = internals(supervisor)
+  let kills = 0
+  state.runtimes.set("busy-session", {
+    ...runtime("busy-session", "busy", snapshot("busy-session", "leaf"), () => {
+      kills += 1
+      return true
+    }),
+    mcpCalls: new Map(),
+    pendingMcpRestart: false,
+    pendingWebUiRestart: false,
+    webUiRestartPromise: null,
+    extensionUiRequests: new Map(),
+  } as never)
+
+  assert.throws(
+    () => supervisor.assertUpdateIdle(),
+    (error: unknown) =>
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      error.code === "RuntimeBusy"
+  )
+  assert.equal(kills, 0)
+})
+
+test("update runtime drain waits for every worker before reporting a failure", async () => {
+  const supervisor = new RuntimeSupervisor(new EventHub())
+  const state = internals(supervisor)
+  const stopped: string[] = []
+  state.stop = async (sessionId: string) => {
+    await new Promise((resolve) =>
+      setTimeout(resolve, sessionId === "first" ? 5 : 15)
+    )
+    stopped.push(sessionId)
+    if (sessionId === "first") throw new Error("first stop failed")
+  }
+  for (const sessionId of ["first", "second"]) {
+    state.runtimes.set(sessionId, {
+      ...runtime(sessionId, "ready", snapshot(sessionId, "leaf")),
+      mcpCalls: new Map(),
+      pendingMcpRestart: false,
+      pendingWebUiRestart: false,
+      webUiRestartPromise: null,
+      extensionUiRequests: new Map(),
+    } as never)
+  }
+
+  await assert.rejects(() => supervisor.drainForUpdate(), /first stop failed/)
+  assert.deepEqual(stopped.sort(), ["first", "second"])
 })
 
 test("activate waits for the registered activation instead of returning its starting runtime", async () => {

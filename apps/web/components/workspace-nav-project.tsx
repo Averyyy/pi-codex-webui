@@ -1,10 +1,20 @@
 "use client"
 
-import { Fragment, useEffect, useRef, useState, type FormEvent } from "react"
+import {
+  Fragment,
+  useEffect,
+  useRef,
+  useState,
+  type DragEvent,
+  type FormEvent,
+  type SyntheticEvent,
+} from "react"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import {
   ArchiveIcon,
+  ChevronDownIcon,
+  ChevronUpIcon,
   ChevronRightIcon,
   FolderIcon,
   FolderOpenIcon,
@@ -59,27 +69,37 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarMenuSub,
+  SidebarMenuSubButton,
+  SidebarMenuSubItem,
 } from "@workspace/ui/components/sidebar"
 import {
   rememberFocusTarget,
   restoreFocusTarget,
 } from "@workspace/ui/lib/focus-restoration"
+import { cn } from "@workspace/ui/lib/utils"
 
 import type { SessionSummary, WorkspaceProject } from "@/lib/session-types"
 import { useSessionPage } from "@/hooks/use-session-page"
-import { SessionPageSentinel } from "@/components/session-page-sentinel"
 import type { WorkspaceSessionMutationFocusRequest } from "@/lib/workspace-nav-focus"
 import { responseJson } from "@/lib/api-response"
 import { WorkspaceNavSession } from "@/components/workspace-nav-session"
 import { useI18n } from "@/components/i18n-provider"
 import { SESSION_CATALOG_CHANGED } from "@/lib/session-catalog-events"
+import {
+  clearWorkspaceNavDragSource,
+  getWorkspaceNavDragSource,
+  sameWorkspaceNavOrderScope,
+  setWorkspaceNavDragSource,
+  type WorkspaceNavOrderMutation,
+} from "@/lib/workspace-nav-order"
+import { SIDEBAR_PAGE_SIZE } from "@/lib/workspace-nav-persistence"
 
 const pendingProjectMutations = new Set<string>()
 
 type DialogKind = "archive" | "rename" | "worktree" | "remove"
 
 interface MenuAction {
-  kind: "pin" | "reveal" | DialogKind
+  kind: "pin" | "reveal" | "moveUp" | "moveDown" | DialogKind
   label: string
   icon: LucideIcon
   disabled?: boolean
@@ -95,7 +115,12 @@ export function WorkspaceNavProject({
   activeSessionId,
   conversationShortcuts,
   open,
+  persistenceReady,
+  sessionVisibleCount,
   onOpenChange,
+  onSessionVisibleCountChange,
+  projectOrderItems,
+  onOrderRequest,
   onSessionMutationFocus,
   onSessionsLoaded,
 }: {
@@ -106,7 +131,12 @@ export function WorkspaceNavProject({
   activeSessionId: string | null
   conversationShortcuts: ReadonlyMap<string, { label: string; aria: string }>
   open: boolean
+  persistenceReady: boolean
+  sessionVisibleCount: number
   onOpenChange: (open: boolean) => void
+  onSessionVisibleCountChange: (count: number) => void
+  projectOrderItems: readonly { id: string; isPinned: boolean }[]
+  onOrderRequest: (mutation: WorkspaceNavOrderMutation) => void
   onSessionMutationFocus: (
     request: WorkspaceSessionMutationFocusRequest
   ) => void
@@ -120,21 +150,71 @@ export function WorkspaceNavProject({
   const page = useSessionPage({
     scope: "project",
     projectId: project.id,
-    enabled: open,
+    enabled: open && persistenceReady,
     revision: JSON.stringify(project),
+    sidebar: true,
   })
-  const sessions = page.sessions.filter((session) => !session.isPinned)
+  const {
+    sessions: pageSessions,
+    started: pageStarted,
+    loading: pageLoading,
+    error: pageError,
+    hasMore: pageHasMore,
+    loadMore: loadProjectMore,
+  } = page
+  const sessions = pageSessions.filter((session) => !session.isPinned)
+  const visibleSessions = sessions.slice(0, sessionVisibleCount)
   useEffect(() => {
-    onSessionsLoaded(project.id, page.sessions)
-  }, [project.id, page.sessions, onSessionsLoaded])
+    if (open && pageStarted) onSessionsLoaded(project.id, pageSessions)
+  }, [open, pageSessions, pageStarted, project.id, onSessionsLoaded])
+  useEffect(() => {
+    if (
+      !open ||
+      !persistenceReady ||
+      pageLoading ||
+      pageError ||
+      sessions.length >= sessionVisibleCount ||
+      !pageHasMore
+    ) {
+      return
+    }
+    void loadProjectMore()
+  }, [
+    open,
+    persistenceReady,
+    loadProjectMore,
+    pageError,
+    pageHasMore,
+    pageLoading,
+    sessions.length,
+    sessionVisibleCount,
+  ])
   const [dialog, setDialog] = useState<DialogKind | null>(null)
   const [name, setName] = useState(project.name)
   const [worktreePath, setWorktreePath] = useState("")
   const [branch, setBranch] = useState("")
   const [working, setWorking] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [dropPosition, setDropPosition] = useState<"before" | "after" | null>(
+    null
+  )
+  const suppressClickRef = useRef(false)
   const dialogReturnFocusRef = useRef<HTMLElement>(null)
   const localizedSessionCount = project.sessionCount.toLocaleString(locale)
+  const projectOrderBucket = projectOrderItems.filter(
+    (item) => item.isPinned === project.isPinned
+  )
+  const projectOrderIndex = projectOrderBucket.findIndex(
+    (item) => item.id === project.id
+  )
+  const previousProjectId =
+    projectOrderIndex > 0
+      ? projectOrderBucket[projectOrderIndex - 1]?.id
+      : undefined
+  const nextProjectId =
+    projectOrderIndex >= 0 && projectOrderIndex < projectOrderBucket.length - 1
+      ? projectOrderBucket[projectOrderIndex + 1]?.id
+      : undefined
 
   async function mutate(
     url: string,
@@ -229,6 +309,18 @@ export function WorkspaceNavProject({
       icon: FolderOpenIcon,
     },
     {
+      kind: "moveUp",
+      label: t("workspace.nav.moveProjectUp"),
+      icon: ChevronUpIcon,
+      disabled: !previousProjectId,
+    },
+    {
+      kind: "moveDown",
+      label: t("workspace.nav.moveProjectDown"),
+      icon: ChevronDownIcon,
+      disabled: !nextProjectId,
+    },
+    {
       kind: "worktree",
       label: t("workspace.project.createWorktree"),
       icon: GitBranchPlusIcon,
@@ -255,6 +347,10 @@ export function WorkspaceNavProject({
   ]
 
   function selectAction(kind: MenuAction["kind"]) {
+    if (kind === "moveUp" || kind === "moveDown") {
+      requestProjectMove(kind === "moveUp" ? "before" : "after")
+      return
+    }
     if (kind === "pin") {
       void mutate(`/api/v1/projects/${project.id}`, {
         method: "PATCH",
@@ -269,6 +365,115 @@ export function WorkspaceNavProject({
     setError(null)
     if (kind === "rename") setName(project.name)
     setDialog(kind)
+  }
+
+  function requestProjectMove(position: "before" | "after") {
+    const targetId = position === "before" ? previousProjectId : nextProjectId
+    if (!targetId) return
+    onOrderRequest({
+      scope: "projects",
+      itemId: project.id,
+      targetId,
+      position,
+    })
+  }
+
+  function handleProjectDragStart(event: DragEvent) {
+    event.stopPropagation()
+    suppressClickRef.current = true
+    const source = {
+      scope: "projects" as const,
+      itemId: project.id,
+      projectPinned: project.isPinned,
+    }
+    setWorkspaceNavDragSource(source)
+    event.dataTransfer.effectAllowed = "move"
+    event.dataTransfer.setData(
+      "application/x-pi-web-codex-order",
+      JSON.stringify(source)
+    )
+    event.dataTransfer.setData("text/plain", project.id)
+  }
+
+  function handleProjectDragOver(event: DragEvent) {
+    event.stopPropagation()
+    const source = getWorkspaceNavDragSource()
+    if (
+      !source ||
+      source.itemId === project.id ||
+      !sameWorkspaceNavOrderScope(
+        {
+          ...source,
+          targetId: project.id,
+          position: "before",
+        },
+        {
+          scope: "projects",
+          projectPinned: project.isPinned,
+          itemId: project.id,
+          targetId: project.id,
+          position: "before",
+        }
+      )
+    ) {
+      setDropPosition(null)
+      return
+    }
+    event.preventDefault()
+    event.dataTransfer.dropEffect = "move"
+    const bounds = event.currentTarget.getBoundingClientRect()
+    setDropPosition(
+      event.clientY < bounds.top + bounds.height / 2 ? "before" : "after"
+    )
+  }
+
+  function handleProjectDragLeave(event: DragEvent) {
+    if (
+      event.relatedTarget instanceof Node &&
+      event.currentTarget.contains(event.relatedTarget)
+    ) {
+      return
+    }
+    setDropPosition(null)
+  }
+
+  function handleProjectDrop(event: DragEvent) {
+    event.preventDefault()
+    event.stopPropagation()
+    const source = getWorkspaceNavDragSource()
+    const bounds = event.currentTarget.getBoundingClientRect()
+    const position: "before" | "after" =
+      event.clientY < bounds.top + bounds.height / 2 ? "before" : "after"
+    setDropPosition(null)
+    clearWorkspaceNavDragSource()
+    if (!source || source.itemId === project.id) return
+    const mutation: WorkspaceNavOrderMutation = {
+      scope: "projects",
+      itemId: source.itemId,
+      targetId: project.id,
+      position,
+    }
+    if (
+      sameWorkspaceNavOrderScope(
+        { ...mutation, projectPinned: source.projectPinned },
+        {
+          scope: "projects",
+          projectPinned: project.isPinned,
+          itemId: project.id,
+          targetId: project.id,
+          position,
+        }
+      )
+    ) {
+      onOrderRequest(mutation)
+    }
+  }
+
+  function handleProjectClickCapture(event: SyntheticEvent) {
+    if (!suppressClickRef.current) return
+    event.preventDefault()
+    event.stopPropagation()
+    suppressClickRef.current = false
   }
 
   const dropdownItems = actions.map((action) => (
@@ -310,7 +515,24 @@ export function WorkspaceNavProject({
           <ContextMenu>
             <ContextMenuTrigger asChild>
               <div
-                className="group/project relative"
+                className={cn(
+                  "group/project relative",
+                  dropPosition === "before" && "border-t-2 border-primary",
+                  dropPosition === "after" && "border-b-2 border-primary"
+                )}
+                draggable
+                onDragStart={handleProjectDragStart}
+                onDragOver={handleProjectDragOver}
+                onDragLeave={handleProjectDragLeave}
+                onDrop={handleProjectDrop}
+                onDragEnd={() => {
+                  clearWorkspaceNavDragSource()
+                  setDropPosition(null)
+                  window.setTimeout(() => {
+                    suppressClickRef.current = false
+                  }, 0)
+                }}
+                onClickCapture={handleProjectClickCapture}
                 onContextMenu={(event) => {
                   rememberFocusTarget(
                     dialogReturnFocusRef,
@@ -438,7 +660,7 @@ export function WorkspaceNavProject({
 
           <CollapsibleContent>
             <SidebarMenuSub>
-              {sessions.map((session) => (
+              {visibleSessions.map((session) => (
                 <WorkspaceNavSession
                   key={session.id}
                   session={session}
@@ -454,12 +676,68 @@ export function WorkspaceNavProject({
                   )}
                   onMutationFocus={onSessionMutationFocus}
                   nested
+                  orderScope="project"
+                  orderProjectId={project.id}
+                  orderItems={visibleSessions.map((item) => item.id)}
+                  onOrderRequest={onOrderRequest}
                 />
               ))}
-              {page.hasMore || page.error ? (
-                <li>
-                  <SessionPageSentinel {...page} />
-                </li>
+              {pageError ? (
+                <SidebarMenuSubItem>
+                  <SidebarMenuSubButton asChild>
+                    <button
+                      type="button"
+                      className="text-destructive"
+                      onClick={() => void loadProjectMore()}
+                    >
+                      {pageError} · {t("app.error.retry")}
+                    </button>
+                  </SidebarMenuSubButton>
+                </SidebarMenuSubItem>
+              ) : pageLoading && !pageStarted ? (
+                <SidebarMenuSubItem>
+                  <span className="block px-2 py-1 text-xs text-muted-foreground">
+                    {t("session.list.loading")}
+                  </span>
+                </SidebarMenuSubItem>
+              ) : null}
+              {pageHasMore || sessions.length > sessionVisibleCount ? (
+                <SidebarMenuSubItem>
+                  <SidebarMenuSubButton asChild>
+                    <button
+                      type="button"
+                      className="text-muted-foreground"
+                      disabled={pageLoading}
+                      onClick={() => {
+                        const nextCount =
+                          sessionVisibleCount + SIDEBAR_PAGE_SIZE
+                        onSessionVisibleCountChange(nextCount)
+                        if (sessions.length < nextCount) {
+                          void loadProjectMore()
+                        }
+                      }}
+                    >
+                      <ChevronRightIcon />
+                      <span>{t("workspace.nav.expandConversations")}</span>
+                    </button>
+                  </SidebarMenuSubButton>
+                </SidebarMenuSubItem>
+              ) : null}
+              {sessionVisibleCount > SIDEBAR_PAGE_SIZE ? (
+                <SidebarMenuSubItem>
+                  <SidebarMenuSubButton asChild>
+                    <button
+                      type="button"
+                      className="text-muted-foreground"
+                      onClick={() =>
+                        onSessionVisibleCountChange(SIDEBAR_PAGE_SIZE)
+                      }
+                    >
+                      <ChevronDownIcon />
+                      <span>{t("workspace.nav.collapseConversations")}</span>
+                    </button>
+                  </SidebarMenuSubButton>
+                </SidebarMenuSubItem>
               ) : null}
             </SidebarMenuSub>
           </CollapsibleContent>

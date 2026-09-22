@@ -1,6 +1,6 @@
 import { modelSettingsProviderInputSchema } from "@workspace/runtime-protocol"
 
-import { resolveModelSettingsCwd } from "@/lib/model-settings-data"
+import { resolveModelSettingsRequestTarget } from "@/lib/model-settings-data"
 import { validateLocalMutation } from "@/lib/request-security"
 import { readJsonBody, runtimeErrorResponse } from "@/lib/runtime-api"
 import { getRuntimeSupervisor } from "@/lib/runtime-supervisor"
@@ -40,13 +40,16 @@ export async function PATCH(
         { status: 400 }
       )
     }
-    const sessionId =
-      new URL(request.url).searchParams.get("sessionId") ?? undefined
-    const cwd = await resolveModelSettingsCwd(sessionId)
-    if (!cwd)
+    const searchParams = new URL(request.url).searchParams
+    const target = await resolveModelSettingsRequestTarget({
+      sessionId: searchParams.get("sessionId") ?? undefined,
+      projectId: searchParams.get("projectId") ?? undefined,
+      newTask: searchParams.get("newTask") === "1",
+    })
+    if (!target)
       return Response.json({ error: "Session not found." }, { status: 404 })
     const settings = await getRuntimeSupervisor().saveCustomProvider(
-      cwd,
+      target,
       parsed.data
     )
     return Response.json(settings, { headers: { "Cache-Control": "no-store" } })
@@ -66,12 +69,18 @@ export async function DELETE(
 
   try {
     const { provider } = await context.params
-    const sessionId =
-      new URL(request.url).searchParams.get("sessionId") ?? undefined
-    const cwd = await resolveModelSettingsCwd(sessionId)
-    if (!cwd)
+    const searchParams = new URL(request.url).searchParams
+    const target = await resolveModelSettingsRequestTarget({
+      sessionId: searchParams.get("sessionId") ?? undefined,
+      projectId: searchParams.get("projectId") ?? undefined,
+      newTask: searchParams.get("newTask") === "1",
+    })
+    if (!target)
       return Response.json({ error: "Session not found." }, { status: 404 })
-    const settings = await getRuntimeSupervisor().removeProvider(cwd, provider)
+    const settings = await getRuntimeSupervisor().removeProvider(
+      target,
+      provider
+    )
     return Response.json(settings, { headers: { "Cache-Control": "no-store" } })
   } catch (error) {
     return runtimeErrorResponse(error)

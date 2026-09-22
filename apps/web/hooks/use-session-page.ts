@@ -3,8 +3,12 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 
 import { responseJson } from "@/lib/api-response"
-import { SESSION_CATALOG_CHANGED } from "@/lib/session-catalog-events"
+import {
+  SESSION_CATALOG_CHANGED,
+  type SessionCatalogChangedDetail,
+} from "@/lib/session-catalog-events"
 import type { SessionListScope, SessionPage } from "@/lib/session-types"
+import { SIDEBAR_PAGE_SIZE } from "@/lib/workspace-nav-persistence"
 
 const emptyPage: SessionPage = { sessions: [], nextCursor: null }
 
@@ -12,11 +16,16 @@ async function fetchPage(
   scope: SessionListScope,
   projectId: string | undefined,
   cursor: string | null,
-  signal: AbortSignal
+  signal: AbortSignal,
+  sidebar: boolean
 ) {
   const params = new URLSearchParams({ scope })
   if (projectId) params.set("projectId", projectId)
   if (cursor) params.set("cursor", cursor)
+  if (sidebar) {
+    params.set("order", "sidebar")
+    params.set("limit", String(SIDEBAR_PAGE_SIZE))
+  }
   const page = await responseJson<SessionPage>(
     await fetch(`/api/v1/session-catalog?${params}`, {
       cache: "no-store",
@@ -46,12 +55,14 @@ export function useSessionPage({
   initialPage = null,
   enabled = true,
   revision = "",
+  sidebar = false,
 }: {
   scope: SessionListScope
   projectId?: string
   initialPage?: SessionPage | null
   enabled?: boolean
   revision?: string
+  sidebar?: boolean
 }) {
   const [mutationRevision, setMutationRevision] = useState(0)
   const key = JSON.stringify([
@@ -59,6 +70,7 @@ export function useSessionPage({
     projectId,
     initialPage,
     revision,
+    sidebar,
     mutationRevision,
   ])
   const [state, setState] = useState(() => ({
@@ -75,10 +87,20 @@ export function useSessionPage({
   const [retryRevision, setRetryRevision] = useState(0)
 
   useEffect(() => {
-    const invalidate = () => setMutationRevision((value) => value + 1)
+    const invalidate = (event: Event) => {
+      const detail = (event as CustomEvent<SessionCatalogChangedDetail>).detail
+      if (
+        detail?.scope &&
+        (detail.scope !== scope ||
+          (detail.scope === "project" && detail.projectId !== projectId))
+      ) {
+        return
+      }
+      setMutationRevision((value) => value + 1)
+    }
     window.addEventListener(SESSION_CATALOG_CHANGED, invalidate)
     return () => window.removeEventListener(SESSION_CATALOG_CHANGED, invalidate)
-  }, [])
+  }, [projectId, scope])
 
   const loadMore = useCallback(async () => {
     if (!enabled) return
@@ -98,7 +120,8 @@ export function useSessionPage({
         scope,
         projectId,
         state.page.nextCursor,
-        controller.signal
+        controller.signal,
+        sidebar
       )
       if (!controller.signal.aborted) {
         setState({
@@ -117,9 +140,27 @@ export function useSessionPage({
           error: error instanceof Error ? error.message : String(error),
         })
     } finally {
-      if (requestRef.current === request) requestRef.current = null
+      if (requestRef.current === request) {
+        requestRef.current = null
+        if (controller.signal.aborted) {
+          setState((current) =>
+            current.key === key && current.loading
+              ? { ...current, loading: false }
+              : current
+          )
+        }
+      }
     }
-  }, [enabled, state, key, scope, projectId])
+  }, [enabled, state, key, scope, projectId, sidebar])
+
+  useEffect(() => {
+    if (enabled) return
+    requestRef.current?.controller.abort()
+    requestRef.current = null
+    setState((current) =>
+      current.loading ? { ...current, loading: false } : current
+    )
+  }, [enabled])
 
   // A mutation can affect a row outside the first server-rendered page.
   // Refresh the loaded window through bounded requests, keeping the existing
@@ -132,7 +173,13 @@ export function useSessionPage({
     requestRef.current = request
     void (async () => {
       try {
-        let page = await fetchPage(scope, projectId, null, controller.signal)
+        let page = await fetchPage(
+          scope,
+          projectId,
+          null,
+          controller.signal,
+          sidebar
+        )
         while (
           page.nextCursor &&
           page.sessions.length < state.page.sessions.length
@@ -143,7 +190,8 @@ export function useSessionPage({
               scope,
               projectId,
               page.nextCursor,
-              controller.signal
+              controller.signal,
+              sidebar
             )
           )
         }
@@ -158,7 +206,16 @@ export function useSessionPage({
             error: error instanceof Error ? error.message : String(error),
           }))
       } finally {
-        if (requestRef.current === request) requestRef.current = null
+        if (requestRef.current === request) {
+          requestRef.current = null
+          if (controller.signal.aborted) {
+            setState((current) =>
+              current.key === key && current.loading
+                ? { ...current, loading: false }
+                : current
+            )
+          }
+        }
       }
     })()
     return () => controller.abort()
@@ -169,6 +226,7 @@ export function useSessionPage({
     enabled,
     scope,
     projectId,
+    sidebar,
     retryRevision,
   ])
 
@@ -181,6 +239,7 @@ export function useSessionPage({
 
   return {
     sessions: state.page.sessions,
+    started: state.started,
     hasMore: !state.started || state.page.nextCursor !== null,
     loading: state.loading || state.key !== key,
     error: state.error,

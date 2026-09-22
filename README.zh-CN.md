@@ -52,6 +52,21 @@ npm install --global pi-web-codex
 pi-web-codex
 ```
 
+命令会在后台启动默认实例，等待服务就绪后返回；关闭启动终端后，服务仍会继续运行。所有实例共用全局 CLI 安装，通过以下命令统一管理：
+
+```bash
+pi-web-codex --port 3000
+pi-web-codex list
+pi-web-codex start <id>
+pi-web-codex stop <id>
+pi-web-codex stop
+pi-web-codex --help
+```
+
+`--port` 创建或启动绑定该端口的实例。`list` 显示已保存实例的 ID、端口以及运行中／已停止状态。`start <id>` 恢复指定实例；`stop <id>` 停止指定实例，不带 ID 的 `stop` 只停止默认实例。`--help` 列出全部可用指令和选项。
+
+每个实例分别记忆 WebUI 设置，包括默认 runtime、PiServer URL 和凭据。例如，1816 端口可以连接 Pi Client，1818 端口可以使用 Pi。在实例设置页保存的修改会在停止、重新启动后保留；停止实例不会删除其数据或配置。
+
 也可以作为 Pi package 安装，并在会话里启动：
 
 ```bash
@@ -59,6 +74,14 @@ pi install npm:pi-web-codex
 ```
 
 如果 Pi 会话已经打开，先运行 `/reload`（或重启 Pi）加载新安装的扩展，再运行 `/pi-web-codex`。服务就绪后会打开配置的地址（默认 <http://127.0.0.1:1816>）。使用 `pi-web-codex --help` 查看全部 CLI 选项。
+
+## 更新 WebUI
+
+通过安装包启动的服务会检查 npm 上是否有更新的稳定版本。有新版时，侧栏会显示蓝色更新按钮；点击后自动安装并在原地址重启 WebUI，页面自动重连并恢复未发送的对话草稿。
+
+Pi 扩展和 `pi-web-codex` 命令使用同一份全局 npm 安装。更新过程中的临时安装仅用于校验与恢复；只有全局包、CLI 和运行中的服务都报告目标版本，才算更新完成。
+
+下载准备期间，当前服务继续运行。切换版本前，需要等待执行中的任务结束并关闭终端。安装或启动失败会明确显示错误，更新器会尝试恢复原安装和数据库。配置、凭据及独立的 PiServer 服务会保留。源码开发服务器不支持自动更新安装包。
 
 ## 本地开发
 

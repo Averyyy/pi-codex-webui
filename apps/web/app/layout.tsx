@@ -8,6 +8,7 @@ import { TooltipProvider } from "@workspace/ui/components/tooltip"
 import { ProjectPickerProvider } from "@/components/project-picker-provider"
 import { ThemeProvider } from "@/components/theme-provider"
 import { I18nProvider } from "@/components/i18n-provider"
+import { AppUpdateProvider } from "@/components/app-update-provider"
 import { KeyboardShortcutsProvider } from "@/components/keyboard-shortcuts-provider"
 import { PwaRegistration } from "@/components/pwa-registration"
 import { SessionComposerDraftProvider } from "@/components/session-composer-draft-context"
@@ -26,6 +27,7 @@ export default async function RootLayout({
 }>) {
   await connection()
   const { config, t } = await getLocalizedConfig()
+  const mutationToken = getMutationToken()
 
   return (
     <html
@@ -44,7 +46,7 @@ export default async function RootLayout({
             <ThemeProvider defaultTheme={config.appearance.theme}>
               <KeyboardShortcutsProvider
                 platform={process.platform}
-                mutationToken={getMutationToken()}
+                mutationToken={mutationToken}
               >
                 <a
                   href="#main-content"
@@ -53,7 +55,9 @@ export default async function RootLayout({
                   {t("ui.skipToMain")}
                 </a>
                 <SessionComposerDraftProvider>
-                  <TooltipProvider>{children}</TooltipProvider>
+                  <AppUpdateProvider mutationToken={mutationToken}>
+                    <TooltipProvider>{children}</TooltipProvider>
+                  </AppUpdateProvider>
                 </SessionComposerDraftProvider>
                 <Toaster />
                 <PwaRegistration />

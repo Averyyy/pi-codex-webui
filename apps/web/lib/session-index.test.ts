@@ -852,10 +852,7 @@ test("standalone sessions survive reindexing and remain outside projects", async
     assert.equal(await setProjectPinned(projectId, true), true)
     assert.equal((await listWorkspaceProjects())[0]?.isPinned, true)
     assert.equal(await setSessionPinned(projectSession.id, true), true)
-    assert.equal(
-      (await listWorkspaceProjects())[0]?.sessions[0]?.isPinned,
-      true
-    )
+    assert.deepEqual((await listWorkspaceProjects())[0]?.sessions, [])
     await setProjectPinned(projectId, false)
     await setSessionPinned(projectSession.id, false)
     assert.equal(await markSessionCompleted(projectSession.id), true)

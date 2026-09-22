@@ -4,6 +4,7 @@ import process from "node:process"
 import { spawn, type IPty } from "node-pty"
 
 import { RuntimeRequestError } from "./runtime-error"
+import { assertUpdateAllowed } from "./update-maintenance"
 
 const MAX_SNAPSHOT_LENGTH = 2 * 1024 * 1024
 const DISCONNECT_GRACE_MS = 5_000
@@ -54,6 +55,15 @@ function shellEnvironment() {
   )
   environment.TERM = "xterm-256color"
   environment.COLORTERM = "truecolor"
+  for (const key of [
+    "PI_WEB_CODEX_UPDATE_CONTROL_URL",
+    "PI_WEB_CODEX_UPDATE_CONTROL_TOKEN",
+    "PI_WEB_CODEX_UPDATE_OPERATION_ID",
+    "PI_WEB_CODEX_UPDATE_VERIFYING",
+    "PI_WEB_CODEX_MUTATION_TOKEN",
+  ]) {
+    delete environment[key]
+  }
   return environment
 }
 
@@ -67,6 +77,7 @@ export class ShellSupervisor {
   private readonly sessions = new Map<string, ShellSession>()
 
   start(sessionId: string, cwd: string, columns: number, rows: number) {
+    assertUpdateAllowed()
     const existing = this.sessions.get(sessionId)
     if (existing?.process) {
       existing.process.resize(columns, rows)
@@ -119,7 +130,19 @@ export class ShellSupervisor {
   }
 
   input(sessionId: string, data: string) {
+    assertUpdateAllowed()
     this.requireProcess(sessionId).write(data)
+  }
+
+  assertUpdateIdle() {
+    if (
+      [...this.sessions.values()].some((session) => session.process !== null)
+    ) {
+      throw new RuntimeRequestError(
+        "RuntimeBusy",
+        "Close open shell terminals before updating the WebUI."
+      )
+    }
   }
 
   resize(sessionId: string, columns: number, rows: number) {

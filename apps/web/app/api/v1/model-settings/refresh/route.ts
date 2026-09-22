@@ -1,4 +1,4 @@
-import { resolveModelSettingsCwd } from "@/lib/model-settings-data"
+import { resolveModelSettingsRequestTarget } from "@/lib/model-settings-data"
 import { validateLocalMutation } from "@/lib/request-security"
 import { runtimeErrorResponse } from "@/lib/runtime-api"
 import { getRuntimeSupervisor } from "@/lib/runtime-supervisor"
@@ -13,14 +13,17 @@ export async function POST(request: Request) {
   }
 
   try {
-    const sessionId =
-      new URL(request.url).searchParams.get("sessionId") ?? undefined
-    const cwd = await resolveModelSettingsCwd(sessionId)
-    if (!cwd) {
+    const searchParams = new URL(request.url).searchParams
+    const target = await resolveModelSettingsRequestTarget({
+      sessionId: searchParams.get("sessionId") ?? undefined,
+      projectId: searchParams.get("projectId") ?? undefined,
+      newTask: searchParams.get("newTask") === "1",
+    })
+    if (!target) {
       return Response.json({ error: "Session not found." }, { status: 404 })
     }
     return Response.json(
-      await getRuntimeSupervisor().refreshModelSettings(cwd),
+      await getRuntimeSupervisor().refreshModelSettings(target),
       { headers: { "Cache-Control": "no-store" } }
     )
   } catch (error) {
