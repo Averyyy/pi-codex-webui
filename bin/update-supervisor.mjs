@@ -407,10 +407,26 @@ function childHasExited(child) {
   )
 }
 
-async function terminateChildBounded(child) {
+function signalChild(child, signal, processGroup) {
+  if (
+    processGroup &&
+    process.platform !== "win32" &&
+    Number.isSafeInteger(child.pid)
+  ) {
+    try {
+      process.kill(-child.pid, signal)
+      return
+    } catch (error) {
+      if (error?.code !== "ESRCH") throw error
+    }
+  }
+  child.kill(signal)
+}
+
+async function terminateChildBounded(child, { processGroup = false } = {}) {
   if (childHasExited(child)) return true
   try {
-    child.kill("SIGTERM")
+    signalChild(child, "SIGTERM", processGroup)
   } catch (error) {
     if (error?.code !== "ESRCH") throw error
   }
@@ -422,7 +438,7 @@ async function terminateChildBounded(child) {
     return childHasExited(child)
   }
   try {
-    child.kill("SIGKILL")
+    signalChild(child, "SIGKILL", processGroup)
   } catch (error) {
     if (error?.code !== "ESRCH") throw error
   }
@@ -452,7 +468,7 @@ async function terminateWindowsTree(pid) {
 
 async function stopChild(child) {
   if (!child || childHasExited(child)) return
-  if (!(await terminateChildBounded(child))) {
+  if (!(await terminateChildBounded(child, { processGroup: true }))) {
     throw new Error(
       "Child process remained alive after graceful and forced shutdown."
     )
@@ -1573,6 +1589,7 @@ export class UpdateSupervisor {
     return this.spawnImpl(process.execPath, [serverPath], {
       cwd: path.dirname(serverPath),
       env: this.runtimeEnvironment(runtimeRoot, verifying),
+      detached: process.platform !== "win32",
       stdio: "inherit",
       windowsHide: true,
       shell: false,

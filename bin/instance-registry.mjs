@@ -10,7 +10,7 @@ export const DEFAULT_HOST = "127.0.0.1"
 export const DEFAULT_PORT = 1816
 
 const INSTANCE_ID_PATTERN = /^[a-z0-9][a-z0-9_-]{0,63}$/
-const LOCK_RETRY_COUNT = 150
+const LOCK_RETRY_COUNT = 500
 const LOCK_RETRY_DELAY_MS = 20
 
 function userHome(env) {
