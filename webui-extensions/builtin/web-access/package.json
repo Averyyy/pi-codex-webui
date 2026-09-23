@@ -34,12 +34,13 @@
         "target": {
           "packageName": "pi-web-access",
           "extensionPath": "**/index.{ts,js}",
-          "version": ">=0.25.0 <0.31.0",
+          "version": ">=0.25.0 <0.32.0",
           "testedVersions": [
             "0.25.0",
             "0.28.0",
             "0.29.0",
-            "0.30.0"
+            "0.30.0",
+            "0.31.0"
           ],
           "compatibility": {
             "mode": "probe",
