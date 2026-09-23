@@ -37,12 +37,42 @@ function preference(
     : { ...DEFAULT_WEBUI_EXTENSION_PREFERENCE }
 }
 
+const DISCOVERY_CACHE_TTL_MS = 30_000
+const discoveryCache = new Map<
+  string,
+  {
+    result: ReturnType<typeof discoverWebUiExtensions>
+    expiresAt: number
+  }
+>()
+
+function cachedDiscovery(context: RegistryContext) {
+  const key = `${context.cwd ?? ""}:${context.projectId ?? ""}:${
+    context.projectTrusted ? 1 : 0
+  }`
+  const cached = discoveryCache.get(key)
+  if (cached && cached.expiresAt > Date.now()) return cached.result
+  const result = discoverWebUiExtensions(context)
+  result.catch(() => {
+    if (discoveryCache.get(key)?.result === result) discoveryCache.delete(key)
+  })
+  discoveryCache.set(key, {
+    result,
+    expiresAt: Date.now() + DISCOVERY_CACHE_TTL_MS,
+  })
+  return result
+}
+
+export function invalidateWebUiExtensionCaches() {
+  discoveryCache.clear()
+}
+
 export async function webUiExtensionCatalog(
   context: RegistryContext = {}
 ): Promise<WebUiExtensionCatalogView> {
   const [config, discovered] = await Promise.all([
     loadConfig(),
-    discoverWebUiExtensions(context),
+    cachedDiscovery(context),
   ])
   const groups = new Map<string, WebUiExtensionGroupView>()
   for (const candidate of discovered.extensions) {
@@ -99,7 +129,7 @@ export async function webUiAdaptersForRuntime(
 ): Promise<WorkerWebUiAdapterDescriptor[]> {
   const [config, discovered] = await Promise.all([
     loadConfig(),
-    discoverWebUiExtensions(context),
+    cachedDiscovery(context),
   ])
   return discovered.extensions
     .filter((candidate) => candidate.extension.runtimes.includes(runtime))

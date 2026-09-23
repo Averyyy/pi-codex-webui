@@ -109,7 +109,6 @@ export function SettingsNav() {
                       tooltip={label}
                     >
                       <Link
-                        prefetch={false}
                         href={href}
                         replace
                         aria-current={pathname === href ? "page" : undefined}

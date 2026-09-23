@@ -220,6 +220,10 @@ const messages = {
     "zh-CN": "子智能体",
     "en-US": "Subagents",
   },
+  "session.refresh": {
+    "zh-CN": "刷新数据",
+    "en-US": "Refresh data",
+  },
   "session.workspace.sidebar": {
     "zh-CN": "会话侧栏",
     "en-US": "Conversation sidebar",
@@ -2819,6 +2823,14 @@ const messages = {
   "settings.models.filteredSummary": {
     "zh-CN": "显示 {visible} / {total} 个模型",
     "en-US": "Showing {visible} of {total} models",
+  },
+  "settings.models.showUnconfigured": {
+    "zh-CN": "显示 {count} 个未登录的 provider",
+    "en-US": "Show {count} unconfigured providers",
+  },
+  "settings.models.hideUnconfigured": {
+    "zh-CN": "隐藏 {count} 个未登录的 provider",
+    "en-US": "Hide {count} unconfigured providers",
   },
   "settings.models.noMatchesTitle": {
     "zh-CN": "没有匹配项",

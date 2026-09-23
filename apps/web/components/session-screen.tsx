@@ -6,6 +6,7 @@ import { ExtensionSlot } from "@/components/extension-slot"
 import { SessionDiagnostics } from "@/components/session-diagnostics"
 import { SessionExtensionProvider } from "@/components/session-extension-provider"
 import { SessionOperations } from "@/components/session-operations"
+import { SessionRefreshButton } from "@/components/session-refresh-button"
 import { SessionRuntime } from "@/components/session-runtime"
 import {
   SessionStreamingMessage,
@@ -52,25 +53,39 @@ export async function SessionScreen({
 
   const standalone = projectId === null
   const workspaceAvailable = await directoryAvailable(snapshot.session.cwd)
-  const [resources, git, initialWebUiViews] = await Promise.all([
-    workspaceAvailable
-      ? (supervisor.knownResourceCatalog(snapshot.session.cwd) ??
-        supervisor.resourceCatalog(snapshot.session.cwd))
-      : null,
-    !standalone && workspaceAvailable
-      ? readProjectGitStatus(snapshot.session.cwd)
-      : null,
-    runtime.snapshot ? supervisor.webUiViews(sessionId) : [],
-  ])
-  const webUiExtensions = await webUiExtensionCatalog(
+  const knownResources = workspaceAvailable
+    ? supervisor.knownResourceCatalog(snapshot.session.cwd)
+    : null
+  const extensionContext = (projectTrusted: boolean) =>
     standalone
-      ? { projectId: null, projectTrusted: false }
-      : {
+      ? ({ projectId: null, projectTrusted: false } as const)
+      : ({
           ...(workspaceAvailable ? { cwd: snapshot.session.cwd } : {}),
           projectId,
-          projectTrusted: resources?.projectTrusted ?? false,
-        }
-  )
+          projectTrusted,
+        } as const)
+  const [resources, git, initialWebUiViews, cachedExtensions] =
+    await Promise.all([
+      workspaceAvailable
+        ? (knownResources ?? supervisor.resourceCatalog(snapshot.session.cwd))
+        : null,
+      !standalone && workspaceAvailable
+        ? readProjectGitStatus(snapshot.session.cwd)
+        : null,
+      runtime.snapshot ? supervisor.webUiViews(sessionId) : [],
+      // When the catalog is already cached the trusted bit is known up front,
+      // so extension discovery can run alongside instead of after it.
+      knownResources
+        ? webUiExtensionCatalog(
+            extensionContext(knownResources.projectTrusted)
+          )
+        : null,
+    ])
+  const webUiExtensions =
+    cachedExtensions ??
+    (await webUiExtensionCatalog(
+      extensionContext(resources?.projectTrusted ?? false)
+    ))
   webUiExtensions.statuses = supervisor.webUiExtensionStatuses([sessionId])
   const locale = config.appearance.language
   const t = createTranslator(locale)
@@ -151,6 +166,11 @@ export async function SessionScreen({
               <div key="header-actions" className="contents">
                 {workspaceAvailable ? (
                   <div key="workspace-actions" className="contents">
+                    <SessionRefreshButton
+                      key={`session-refresh:${sessionId}`}
+                      sessionId={sessionId}
+                      mutationToken={mutationToken}
+                    />
                     <SessionDiagnostics
                       key={`session-diagnostics:${sessionId}`}
                       sessionId={sessionId}

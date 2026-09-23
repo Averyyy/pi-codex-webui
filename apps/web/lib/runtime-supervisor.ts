@@ -38,6 +38,7 @@ import {
   type RuntimeSnapshot,
   type RuntimeStatus,
   type SubagentsSnapshot,
+  type ModelSettings,
   type ModelSettingsProviderInput,
   type QueuedPromptItem,
   type WebUiExtensionStatus,
@@ -79,7 +80,10 @@ import {
   resolveNewTaskRuntime,
   runtimeWorkerCredentials,
 } from "@/lib/runtime-profiles"
-import { webUiAdaptersForRuntime } from "@/lib/webui-extensions/registry"
+import {
+  invalidateWebUiExtensionCaches,
+  webUiAdaptersForRuntime,
+} from "@/lib/webui-extensions/registry"
 
 export interface RuntimeState {
   status: RuntimeStatus
@@ -250,6 +254,17 @@ const COMPACTION_TIMEOUT_MS = 10 * 60_000
 const IDLE_TIMEOUT_MS = 15 * 60_000
 const RESOURCE_WORKER_STOP_TIMEOUT_MS = 2_000
 const RESOURCE_WORKER_KILL_TIMEOUT_MS = 2_000
+const RESOURCE_WORKER_POOL_MAX = 8
+
+interface PooledResourceWorker {
+  child: ChildProcess
+  pending: Map<
+    string,
+    { resolve: (data: unknown) => void; reject: (error: Error) => void; timeout: NodeJS.Timeout }
+  >
+  stderrTail: string
+  lastUsedAt: number
+}
 
 const DOMAIN_EVENT_TYPES: Record<string, string> = {
   agent_start: "runtime.busy",
@@ -363,9 +378,10 @@ export class RuntimeSupervisor {
   private readonly failures = new Map<string, RuntimeCrash>()
   private readonly eventHub: EventHub
   private readonly idleTimer: NodeJS.Timeout
-  private resourceQueue: Promise<void> = Promise.resolve()
   private resourceOperationCount = 0
-  private resourceChildren = new Set<ChildProcess>()
+  private resourceWorkers = new Map<string, PooledResourceWorker>()
+  private inflightResources = new Map<string, Promise<unknown>>()
+  private modelSettingsCache = new Map<string, ModelSettings>()
 
   constructor(eventHub = getEventHub()) {
     this.eventHub = eventHub
@@ -377,15 +393,19 @@ export class RuntimeSupervisor {
         runtime.child.kill("SIGTERM")
         if (runtime.lockPath) rmSync(runtime.lockPath, { force: true })
       }
+      for (const worker of this.resourceWorkers.values()) {
+        worker.child.kill("SIGTERM")
+      }
     })
   }
 
   static reuseAfterHotReload(supervisor: RuntimeSupervisor) {
     Object.setPrototypeOf(supervisor, RuntimeSupervisor.prototype)
     supervisor.sessionClosureMap()
-    supervisor.resourceQueue ??= Promise.resolve()
     supervisor.resourceOperationCount ??= 0
-    supervisor.resourceChildren ??= new Set()
+    supervisor.resourceWorkers ??= new Map()
+    supervisor.inflightResources ??= new Map()
+    supervisor.modelSettingsCache ??= new Map()
     for (const runtime of supervisor.runtimes.values()) {
       runtime.resourceReloadPromise ??= null
       runtime.modelReloadPromise ??= null
@@ -429,7 +449,7 @@ export class RuntimeSupervisor {
         "Wait for the session operation to finish before updating the WebUI."
       )
     }
-    if (this.resourceOperationCount > 0 || this.resourceChildren.size > 0) {
+    if (this.resourceOperationCount > 0) {
       throw new RuntimeRequestError(
         "RuntimeBusy",
         "Wait for the active resource operation to finish before updating the WebUI."
@@ -504,6 +524,7 @@ export class RuntimeSupervisor {
         await runtime.cleanupPromise
       })
     )
+    await this.stopResourceWorkers()
     const failure = results.find(
       (result): result is PromiseRejectedResult => result.status === "rejected"
     )
@@ -662,8 +683,9 @@ export class RuntimeSupervisor {
     }
     this.pruneDraftLeases(draft)
     if (draft.leaseExpiries.size > 0) return
-    this.runtimeDrafts.delete(draftId)
-    await this.disposeRuntimeDraft(draft)
+    draft.runtime.lastActivityAt = Date.now()
+    // Keep the draft runtime warm: recycleRuntimeDrafts disposes it once it
+    // stays unleased past IDLE_TIMEOUT_MS, so revisiting /new reuses it.
   }
 
   async claimRuntimeDraft(input: {
@@ -1460,7 +1482,11 @@ export class RuntimeSupervisor {
     })
   }
 
-  async resourceCatalog(cwd: string) {
+  async resourceCatalog(cwd: string, options?: { force?: boolean }) {
+    if (options?.force !== true) {
+      const known = this.knownResources.get(cwd)
+      if (known) return known
+    }
     const catalog = this.annotateResourceReload(
       cwd,
       resourceCatalogSchema.parse(
@@ -1475,11 +1501,40 @@ export class RuntimeSupervisor {
     return catalog
   }
 
+  private modelSettingsCacheKey(
+    target: ModelSettingsRuntimeTarget,
+    scope: "all" | "enabled"
+  ) {
+    return `${scope}:${target.runtimeKind}:${target.runtimeProfileId}:${path.resolve(target.cwd)}`
+  }
+
+  private storeModelSettings(
+    target: ModelSettingsRuntimeTarget,
+    settings: ModelSettings
+  ) {
+    this.modelSettingsCache.set(
+      this.modelSettingsCacheKey(target, "all"),
+      settings
+    )
+    this.modelSettingsCache.delete(this.modelSettingsCacheKey(target, "enabled"))
+  }
+
+  invalidateModelSettings(target: ModelSettingsRuntimeTarget) {
+    this.modelSettingsCache.delete(this.modelSettingsCacheKey(target, "all"))
+    this.modelSettingsCache.delete(this.modelSettingsCacheKey(target, "enabled"))
+  }
+
   async modelSettings(
     target: ModelSettingsRuntimeTarget,
-    scope: "all" | "enabled" = "all"
+    scope: "all" | "enabled" = "all",
+    options?: { force?: boolean }
   ) {
-    return modelSettingsSchema.parse(
+    const cacheKey = this.modelSettingsCacheKey(target, scope)
+    if (options?.force !== true) {
+      const cached = this.modelSettingsCache.get(cacheKey)
+      if (cached) return cached
+    }
+    const settings = modelSettingsSchema.parse(
       await this.resourceRequest(
         {
           type: "models.catalog",
@@ -1494,6 +1549,8 @@ export class RuntimeSupervisor {
         target
       )
     )
+    this.modelSettingsCache.set(cacheKey, settings)
+    return settings
   }
 
   async refreshModelSettings(target: ModelSettingsRuntimeTarget) {
@@ -1508,6 +1565,7 @@ export class RuntimeSupervisor {
         target
       )
     )
+    this.storeModelSettings(target, settings)
     await this.reloadModelSettings()
     return settings
   }
@@ -1533,6 +1591,7 @@ export class RuntimeSupervisor {
         target
       )
     )
+    this.storeModelSettings(target, settings)
     await this.reloadModelSettings()
     return settings
   }
@@ -1549,6 +1608,7 @@ export class RuntimeSupervisor {
         target
       )
     )
+    this.storeModelSettings(target, settings)
     await this.reloadModelSettings()
     return settings
   }
@@ -1568,6 +1628,7 @@ export class RuntimeSupervisor {
         target
       )
     )
+    this.storeModelSettings(target, settings)
     await this.reloadModelSettings()
     return settings
   }
@@ -2973,18 +3034,26 @@ export class RuntimeSupervisor {
     timeoutMs = REQUEST_TIMEOUT_MS,
     runtimeTarget?: ModelSettingsRuntimeTarget
   ) {
+    const dedupeKey = `${message.type}:${
+      runtimeTarget
+        ? `${runtimeTarget.runtimeKind}:${runtimeTarget.runtimeProfileId}`
+        : "shared"
+    }:${JSON.stringify(message.payload)}`
+    const inFlight = this.inflightResources.get(dedupeKey)
+    if (inFlight) return inFlight
+
     this.resourceOperationCount += 1
-    const operation = this.resourceQueue
-      .then(() =>
-        this.performResourceRequest(message, timeoutMs, runtimeTarget)
-      )
-      .finally(() => {
-        this.resourceOperationCount -= 1
-      })
-    this.resourceQueue = operation.then(
-      () => undefined,
-      () => undefined
-    )
+    const operation = this.performResourceRequest(
+      message,
+      timeoutMs,
+      runtimeTarget
+    ).finally(() => {
+      this.resourceOperationCount -= 1
+      if (this.inflightResources.get(dedupeKey) === operation) {
+        this.inflightResources.delete(dedupeKey)
+      }
+    })
+    this.inflightResources.set(dedupeKey, operation)
     return operation
   }
 
@@ -3002,6 +3071,46 @@ export class RuntimeSupervisor {
         `Runtime profile ${runtimeTarget.runtimeProfileId} changed while handling a model resource request.`
       )
     }
+    assertUpdateAllowed()
+    const poolKey = `${credentials.kind}:${
+      runtimeTarget?.runtimeProfileId ?? ""
+    }:${path.resolve(message.payload.cwd)}`
+    let lastError: unknown
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const worker = await this.acquireResourceWorker(
+        poolKey,
+        message.payload.cwd,
+        credentials
+      )
+      try {
+        return await this.sendResourceRequest(worker, message, timeoutMs)
+      } catch (error) {
+        lastError = error
+        const exited =
+          worker.child.exitCode !== null || worker.child.signalCode !== null
+        if (!exited) throw error
+      }
+    }
+    throw lastError
+  }
+
+  private async acquireResourceWorker(
+    poolKey: string,
+    cwd: string,
+    credentials: WorkerCredentials
+  ) {
+    const existing = this.resourceWorkers.get(poolKey)
+    if (existing) {
+      if (
+        existing.child.exitCode === null &&
+        existing.child.signalCode === null
+      ) {
+        existing.lastUsedAt = Date.now()
+        return existing
+      }
+      this.resourceWorkers.delete(poolKey)
+    }
+
     const workerPath = await realpath(
       credentials.kind === "pi-client"
         ? getPiClientWorkerPath()
@@ -3010,261 +3119,157 @@ export class RuntimeSupervisor {
     await access(workerPath)
     assertUpdateAllowed()
     const child = fork(workerPath, [], {
-      cwd: message.payload.cwd,
+      cwd,
       env: workerEnvironment(credentials),
       execArgv: [],
       stdio: ["ignore", "ignore", "pipe", "ipc"],
     })
-    this.resourceChildren.add(child)
+    const worker: PooledResourceWorker = {
+      child,
+      pending: new Map(),
+      stderrTail: "",
+      lastUsedAt: Date.now(),
+    }
+    child.stderr?.setEncoding("utf8")
+    child.stderr?.on("data", (chunk: string) => {
+      worker.stderrTail += chunk
+      if (worker.stderrTail.length > 4_000) {
+        worker.stderrTail = worker.stderrTail.slice(-4_000)
+      }
+    })
+    child.on("message", (raw) => this.onResourceWorkerMessage(worker, raw))
+    let dropped = false
+    const drop = () => {
+      if (dropped) return
+      dropped = true
+      if (this.resourceWorkers.get(poolKey) === worker) {
+        this.resourceWorkers.delete(poolKey)
+      }
+      for (const pending of worker.pending.values()) {
+        clearTimeout(pending.timeout)
+        pending.reject(
+          new RuntimeRequestError(
+            "ResourceWorkerExited",
+            `The Pi resource worker exited before returning a response.${
+              worker.stderrTail.trim() ? `\n${worker.stderrTail.trim()}` : ""
+            }`
+          )
+        )
+      }
+      worker.pending.clear()
+    }
+    child.once("error", drop)
+    child.once("exit", drop)
+    this.resourceWorkers.set(poolKey, worker)
+    this.evictResourceWorkers()
+    return worker
+  }
+
+  private evictResourceWorkers() {
+    if (this.resourceWorkers.size <= RESOURCE_WORKER_POOL_MAX) return
+    let oldest: { key: string; at: number } | null = null
+    for (const [key, worker] of this.resourceWorkers) {
+      if (worker.pending.size > 0) continue
+      if (oldest === null || worker.lastUsedAt < oldest.at) {
+        oldest = { key, at: worker.lastUsedAt }
+      }
+    }
+    if (oldest === null) return
+    const worker = this.resourceWorkers.get(oldest.key)
+    this.resourceWorkers.delete(oldest.key)
+    try {
+      worker?.child.kill("SIGTERM")
+    } catch {
+      // The drop listener handles cleanup.
+    }
+  }
+
+  private sendResourceRequest(
+    worker: PooledResourceWorker,
+    message: ResourceRequestMessage,
+    timeoutMs: number
+  ) {
     return new Promise<unknown>((resolve, reject) => {
-      type ResourceOutcome =
-        { kind: "success"; data: unknown } | { kind: "failure"; error: Error }
-
-      let settled = false
-      let exited = child.exitCode !== null || child.signalCode !== null
-      let closed = false
-      let terminationStarted = false
-      let outcome: ResourceOutcome | null = null
-      let stderr = ""
-      let timeout: NodeJS.Timeout | undefined
-      let stopTimeout: NodeJS.Timeout | undefined
-      let killTimeout: NodeJS.Timeout | undefined
-      child.stderr?.setEncoding("utf8")
-      const onStderr = (chunk: string) => {
-        stderr += chunk
-        if (stderr.length > 4_000) stderr = stderr.slice(-4_000)
-      }
-      child.stderr?.on("data", onStderr)
-
-      const clearTimers = () => {
-        if (timeout) clearTimeout(timeout)
-        if (stopTimeout) clearTimeout(stopTimeout)
-        if (killTimeout) clearTimeout(killTimeout)
-        timeout = undefined
-        stopTimeout = undefined
-        killTimeout = undefined
-      }
-
-      const removeRequestListeners = () => {
-        child.off("message", onMessage)
-        child.off("error", onError)
-        child.stderr?.off("data", onStderr)
-      }
-
-      const stopTracking = () => {
-        this.resourceChildren.delete(child)
-        child.off("exit", onExit)
-        child.off("close", onClose)
-      }
-
-      const finishAfterExit = () => {
-        if (!closed || settled) return
-        settled = true
-        clearTimers()
-        removeRequestListeners()
-        stopTracking()
-        if (outcome?.kind === "success") resolve(outcome.data)
-        else {
-          reject(
-            outcome?.error ??
-              new RuntimeRequestError(
-                "ResourceWorkerExited",
-                "The Pi resource worker exited before returning a response."
-              )
+      const timeout = setTimeout(() => {
+        worker.pending.delete(message.requestId)
+        reject(
+          new RuntimeRequestError(
+            "ResourceRequestTimeout",
+            `The Pi resource worker did not answer ${message.type} within ${timeoutMs}ms.`
           )
-        }
-      }
-
-      const hardStop = () => {
-        if (closed || settled) {
-          if (closed) finishAfterExit()
-          return
-        }
-        try {
-          child.kill("SIGKILL")
-        } catch {
-          // The exit event or the bounded timeout below supplies the result.
-        }
-        killTimeout = setTimeout(() => {
-          if (closed || settled) {
-            if (closed) finishAfterExit()
-            return
-          }
-          settled = true
-          clearTimers()
-          removeRequestListeners()
-          // Keep the exit listener and resourceChildren entry until the child
-          // is actually observed exiting. Update preparation must still see a
-          // child that ignores both termination signals as busy.
-          reject(
-            new RuntimeRequestError(
-              "ResourceWorkerStopTimeout",
-              "The Pi resource worker did not exit after termination was requested."
-            )
-          )
-        }, RESOURCE_WORKER_KILL_TIMEOUT_MS)
-        killTimeout.unref?.()
-      }
-
-      const terminate = () => {
-        if (terminationStarted || exited) {
-          if (closed) finishAfterExit()
-          return
-        }
-        terminationStarted = true
-        try {
-          child.kill("SIGTERM")
-        } catch {
-          // Continue to the bounded SIGKILL attempt.
-        }
-        stopTimeout = setTimeout(() => {
-          if (closed || settled) {
-            if (closed) finishAfterExit()
-            return
-          }
-          hardStop()
-        }, RESOURCE_WORKER_STOP_TIMEOUT_MS)
-        stopTimeout.unref?.()
-      }
-
-      const recordOutcome = (next: ResourceOutcome) => {
-        if (outcome || settled) return
-        outcome = next
-        if (timeout) clearTimeout(timeout)
-        timeout = undefined
-        if (closed) finishAfterExit()
-        else terminate()
-      }
-
-      const awaitClose = () => {
-        if (closed || settled || stopTimeout) {
-          if (closed) finishAfterExit()
-          return
-        }
-        stopTimeout = setTimeout(() => {
-          if (closed || settled) {
-            if (closed) finishAfterExit()
-            return
-          }
-          settled = true
-          clearTimers()
-          removeRequestListeners()
-          // Keep the close listener and resourceChildren entry until the
-          // operating system confirms that the child's stdio is released.
-          reject(
-            new RuntimeRequestError(
-              "ResourceWorkerStopTimeout",
-              "The Pi resource worker did not close after exiting."
-            )
-          )
-        }, RESOURCE_WORKER_STOP_TIMEOUT_MS)
-        stopTimeout.unref?.()
-      }
-
-      const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
-        exited = true
-        if (timeout) clearTimeout(timeout)
-        timeout = undefined
-        if (stopTimeout) clearTimeout(stopTimeout)
-        stopTimeout = undefined
-        if (killTimeout) clearTimeout(killTimeout)
-        killTimeout = undefined
-        if (!outcome) {
-          outcome = {
-            kind: "failure",
-            error: new RuntimeRequestError(
-              "ResourceWorkerExited",
-              `The Pi resource worker exited (${signal ?? code ?? "unknown"}).${
-                stderr.trim() ? `\n${stderr.trim()}` : ""
-              }`
-            ),
-          }
-        }
-        awaitClose()
-      }
-
-      const onClose = (code: number | null, signal: NodeJS.Signals | null) => {
-        closed = true
-        exited = true
-        this.resourceChildren.delete(child)
-        if (!outcome) {
-          outcome = {
-            kind: "failure",
-            error: new RuntimeRequestError(
-              "ResourceWorkerExited",
-              `The Pi resource worker closed (${signal ?? code ?? "unknown"}).${
-                stderr.trim() ? `\n${stderr.trim()}` : ""
-              }`
-            ),
-          }
-        }
-        finishAfterExit()
-      }
-
-      const onError = (error: Error) => {
-        recordOutcome({ kind: "failure", error })
-      }
-
-      const onMessage = (raw: unknown) => {
-        const parsed = workerToHostMessageSchema.safeParse(raw)
-        if (!parsed.success) {
-          recordOutcome({
-            kind: "failure",
-            error: new RuntimeRequestError(
-              "InvalidWorkerMessage",
-              parsed.error.message
-            ),
-          })
-          return
-        }
-        const response = parsed.data
-        if (
-          response.type !== "runtime.response" ||
-          response.requestId !== message.requestId
-        ) {
-          return
-        }
-        if (response.success) {
-          recordOutcome({ kind: "success", data: response.data })
-        } else {
-          recordOutcome({
-            kind: "failure",
-            error: new RuntimeRequestError(
-              response.error?.code ?? "ResourceRequestFailed",
-              response.error?.message ?? "The Pi resource request failed."
-            ),
-          })
-        }
-      }
-
-      child.once("exit", onExit)
-      child.once("close", onClose)
-      child.on("error", onError)
-      child.on("message", onMessage)
-      timeout = setTimeout(
-        () =>
-          recordOutcome({
-            kind: "failure",
-            error: new RuntimeRequestError(
-              "ResourceRequestTimeout",
-              `The Pi resource worker did not answer within ${timeoutMs}ms.`
-            ),
-          }),
-        timeoutMs
-      )
+        )
+      }, timeoutMs)
       timeout.unref?.()
+      worker.pending.set(message.requestId, { resolve, reject, timeout })
       try {
-        child.send(message, (error) => {
-          if (error) recordOutcome({ kind: "failure", error })
+        worker.child.send(message, (error) => {
+          if (!error) return
+          const pending = worker.pending.get(message.requestId)
+          if (!pending) return
+          worker.pending.delete(message.requestId)
+          clearTimeout(pending.timeout)
+          pending.reject(error)
         })
       } catch (error) {
-        recordOutcome({
-          kind: "failure",
-          error: error instanceof Error ? error : new Error(String(error)),
-        })
+        const pending = worker.pending.get(message.requestId)
+        if (!pending) return
+        worker.pending.delete(message.requestId)
+        clearTimeout(pending.timeout)
+        pending.reject(
+          error instanceof Error ? error : new Error(String(error))
+        )
       }
     })
   }
+
+  private onResourceWorkerMessage(worker: PooledResourceWorker, raw: unknown) {
+    const parsed = workerToHostMessageSchema.safeParse(raw)
+    if (!parsed.success) return
+    const response = parsed.data
+    if (response.type !== "runtime.response") return
+    const pending = worker.pending.get(response.requestId)
+    if (!pending) return
+    worker.pending.delete(response.requestId)
+    clearTimeout(pending.timeout)
+    if (response.success) {
+      pending.resolve(response.data)
+    } else {
+      pending.reject(
+        new RuntimeRequestError(
+          response.error?.code ?? "ResourceRequestFailed",
+          response.error?.message ?? "The Pi resource request failed."
+        )
+      )
+    }
+  }
+
+  private async stopResourceWorkers() {
+    const workers = [...this.resourceWorkers.values()]
+    this.resourceWorkers.clear()
+    await Promise.allSettled(
+      workers.map(async (worker) => {
+        try {
+          worker.child.kill("SIGTERM")
+        } catch {
+          // Already gone.
+        }
+        try {
+          await this.waitForExit(worker.child, RESOURCE_WORKER_STOP_TIMEOUT_MS)
+        } catch {
+          try {
+            worker.child.kill("SIGKILL")
+          } catch {
+            // Already gone.
+          }
+          await this.waitForExit(
+            worker.child,
+            RESOURCE_WORKER_KILL_TIMEOUT_MS
+          ).catch(() => undefined)
+        }
+      })
+    )
+  }
+
 
   private async mcpContext(projectId: string | null, cwd: string) {
     if (projectId === null) {
@@ -3377,6 +3382,7 @@ export class RuntimeSupervisor {
   private async reloadResources(cwd: string, global: boolean) {
     if (global) this.knownResources.clear()
     else this.knownResources.delete(cwd)
+    invalidateWebUiExtensionCaches()
     const reloads: Promise<RuntimeSnapshot>[] = []
     for (const runtime of this.runtimes.values()) {
       if (!global && path.resolve(runtime.cwd) !== path.resolve(cwd)) continue
@@ -3762,6 +3768,16 @@ export class RuntimeSupervisor {
   private recycleIdleRuntimes() {
     const threshold = Date.now() - IDLE_TIMEOUT_MS
     this.recycleRuntimeDrafts(threshold)
+    for (const [key, worker] of this.resourceWorkers) {
+      if (worker.pending.size > 0) continue
+      if (worker.lastUsedAt >= threshold) continue
+      this.resourceWorkers.delete(key)
+      try {
+        worker.child.kill("SIGTERM")
+      } catch {
+        // The drop listener handles cleanup.
+      }
+    }
     for (const runtime of this.runtimes.values()) {
       this.pruneRuntimeLeases(runtime)
       if (this.isUnclaimedDraftRuntime(runtime)) continue

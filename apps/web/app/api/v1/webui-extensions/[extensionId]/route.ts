@@ -5,6 +5,7 @@ import { webUiExtensionIdSchema } from "@/lib/config-schema"
 import { validateLocalMutation } from "@/lib/request-security"
 import { runtimeErrorResponse } from "@/lib/runtime-api"
 import { getRuntimeSupervisor } from "@/lib/runtime-supervisor"
+import { invalidateWebUiExtensionCaches } from "@/lib/webui-extensions/registry"
 import { loadWebUiExtensionCatalog } from "@/lib/webui-extension-settings-data"
 
 export const runtime = "nodejs"
@@ -73,6 +74,7 @@ export async function PATCH(
       },
     })
     void getRuntimeSupervisor().refreshWebUiExtensions()
+    invalidateWebUiExtensionCaches()
     const next = await loadWebUiExtensionCatalog(selectedProjectId)
     return Response.json(next.catalog, {
       headers: { "Cache-Control": "no-store" },
