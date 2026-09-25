@@ -479,6 +479,12 @@ async function readModelSettings(
             authStatus.source === "models_json_key" ||
             authStatus.source === "models_json_command" ||
             authStatus.source === "environment",
+          configured:
+            credential !== undefined ||
+            authStatus.configured ||
+            authStatus.source === "models_json_key" ||
+            authStatus.source === "models_json_command" ||
+            authStatus.source === "environment",
           customModels: customModels(custom ? rawConfig : undefined, provider),
         }
       }),

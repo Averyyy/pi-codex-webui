@@ -45,7 +45,9 @@ interface RuntimeSupervisorInternals {
   reloadRuntimeModelSettings(runtime: FakeRuntime): Promise<RuntimeSnapshot>
   reloadRuntimeResources(runtime: FakeRuntime): Promise<RuntimeSnapshot>
   reloadModelSettings(): Promise<void>
-  resourceQueue: Promise<void>
+  resourceWorkers: Map<string, unknown>
+  inflightResources: Map<string, Promise<unknown>>
+  modelSettingsCache: Map<string, unknown>
   resourceRequest(
     message: {
       type: "models.catalog" | "models.refresh"
@@ -506,7 +508,7 @@ test("activation waits until an archive or delete closure finishes", async () =>
   assert.equal(state.sessionClosures.size, 0)
 })
 
-test("resource reloads drain changes and resource RPCs stay serialized", async () => {
+test("resource reloads drain changes and identical resource RPCs dedupe", async () => {
   const events = new EventHub()
   const supervisor = new RuntimeSupervisor(events)
   const state = internals(supervisor)
@@ -552,24 +554,28 @@ test("resource reloads drain changes and resource RPCs stay serialized", async (
     }
     return message.requestId
   }
-  const request = (requestId: string) =>
+  const request = (requestId: string, cwd = "/workspace") =>
     state.resourceRequest({
       type: "models.catalog",
       requestId,
-      payload: { cwd: "/workspace", agentDir: "/agent" },
+      payload: { cwd, agentDir: "/agent" },
     })
 
+  // Identical in-flight requests share one worker call and one result.
   const firstRpc = request("first")
-  const secondRpc = request("second")
+  const duplicateRpc = request("duplicate")
+  assert.equal(firstRpc, duplicateRpc)
+
+  // A distinct payload runs as its own request without head-of-line blocking.
+  const otherRpc = request("other", "/other-workspace")
   await new Promise((resolve) => setImmediate(resolve))
-  assert.deepEqual(started, ["first"])
+  assert.deepEqual(started.sort(), ["first", "other"])
 
   releaseFirst()
-  assert.deepEqual(await Promise.all([firstRpc, secondRpc]), [
+  assert.deepEqual(await Promise.all([firstRpc, otherRpc]), [
     "first",
-    "second",
+    "other",
   ])
-  assert.deepEqual(started, ["first", "second"])
 })
 
 test("a failed model reload terminates the uncertain runtime", async () => {
@@ -654,7 +660,9 @@ test("hot reload reuse initializes state added to an existing supervisor", () =>
 
   assert.equal(Object.getPrototypeOf(reused), RuntimeSupervisor.prototype)
   assert.ok(internals(reused).sessionClosures instanceof Map)
-  assert.ok(internals(reused).resourceQueue instanceof Promise)
+  assert.ok(internals(reused).resourceWorkers instanceof Map)
+  assert.ok(internals(reused).inflightResources instanceof Map)
+  assert.ok(internals(reused).modelSettingsCache instanceof Map)
   assert.equal(managed.resourceReloadPromise, null)
   assert.equal(managed.modelReloadPromise, null)
 })

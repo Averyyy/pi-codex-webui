@@ -1,6 +1,7 @@
 "use client"
 
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { MessageSquareTextIcon } from "lucide-react"
 
 import { Badge } from "@workspace/ui/components/badge"
@@ -31,6 +32,7 @@ export function ProjectSessionList({
   initialPage: SessionPage
 }) {
   const { locale, t } = useI18n()
+  const router = useRouter()
   const page = useSessionPage({ scope: "project", projectId, initialPage })
   const fallback = {
     task: t("workspace.nav.newTask"),
@@ -46,6 +48,9 @@ export function ProjectSessionList({
           key={session.id}
           href={`/projects/${projectId}/sessions/${session.id}`}
           prefetch={false}
+          onPointerEnter={() =>
+            router.prefetch(`/projects/${projectId}/sessions/${session.id}`)
+          }
           className="group rounded-xl focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
           style={{
             contentVisibility: "auto",

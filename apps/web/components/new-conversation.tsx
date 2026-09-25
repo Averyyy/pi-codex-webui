@@ -273,7 +273,20 @@ export function NewConversation({
     }
 
     const draftModel = initialModel(initialModelSettings)
-    const draftId = globalThis.crypto.randomUUID()
+    const draftStorageKey = `pi-webui:new-draft:${projectId ?? "task"}`
+    // Keep one draft ID per target in sessionStorage so revisiting /new
+    // re-attaches to the warm draft runtime instead of spawning another.
+    let draftId = (() => {
+      try {
+        const existing = sessionStorage.getItem(draftStorageKey)
+        if (existing) return existing
+        const fresh = globalThis.crypto.randomUUID()
+        sessionStorage.setItem(draftStorageKey, fresh)
+        return fresh
+      } catch {
+        return globalThis.crypto.randomUUID()
+      }
+    })()
     const leaseId = globalThis.crypto.randomUUID()
 
     const release = () => {
@@ -301,29 +314,53 @@ export function NewConversation({
 
     void (async () => {
       try {
-        const prepared = await responseJson<RuntimeDraftLease>(
-          await fetch("/api/v1/runtime-drafts", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "X-Pi-Web-Codex-Mutation-Token": mutationToken,
-            },
-            body: JSON.stringify({
-              draftId,
-              leaseId,
-              projectId,
-              ...(draftModel
-                ? {
-                    model: {
-                      provider: draftModel.provider,
-                      modelId: draftModel.id,
-                    },
-                    thinkingLevel: draftModel.defaultThinkingLevel,
-                  }
-                : {}),
-            }),
-          })
-        )
+        const requestDraft = async (id: string) =>
+          responseJson<RuntimeDraftLease>(
+            await fetch("/api/v1/runtime-drafts", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "X-Pi-Web-Codex-Mutation-Token": mutationToken,
+              },
+              body: JSON.stringify({
+                draftId: id,
+                leaseId,
+                projectId,
+                ...(draftModel
+                  ? {
+                      model: {
+                        provider: draftModel.provider,
+                        modelId: draftModel.id,
+                      },
+                      thinkingLevel: draftModel.defaultThinkingLevel,
+                    }
+                  : {}),
+              }),
+            })
+          )
+        let prepared: RuntimeDraftLease
+        try {
+          prepared = await requestDraft(draftId)
+        } catch (firstFailure) {
+          // The remembered draft ID may point at a claimed/disposed runtime;
+          // mint a fresh one and retry once before surfacing the error.
+          try {
+            sessionStorage.removeItem(draftStorageKey)
+          } catch {
+            // Persistence is best-effort.
+          }
+          draftId = globalThis.crypto.randomUUID()
+          try {
+            sessionStorage.setItem(draftStorageKey, draftId)
+          } catch {
+            // Persistence is best-effort.
+          }
+          try {
+            prepared = await requestDraft(draftId)
+          } catch {
+            throw firstFailure
+          }
+        }
         leaseToken = prepared.leaseToken
         if (cancelled || generation !== draftGeneration) {
           release()

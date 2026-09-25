@@ -732,6 +732,7 @@ export const modelSettingsProviderSchema = z.object({
   api: modelProviderApiSchema.optional(),
   baseUrl: z.string().min(1).optional(),
   apiKeyConfigured: z.boolean(),
+  configured: z.boolean(),
   customModels: z.array(modelSettingsCustomModelSchema),
 })
 

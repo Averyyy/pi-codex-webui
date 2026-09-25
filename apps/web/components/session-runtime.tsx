@@ -111,6 +111,10 @@ import {
   createRuntimeLeaseId,
   RuntimeLeaseController,
 } from "@/lib/runtime-lease"
+import {
+  readCachedRuntimeState,
+  writeCachedRuntimeState,
+} from "@/lib/runtime-state-cache"
 
 interface RuntimeStatePayload {
   status: RuntimeStatus
@@ -315,7 +319,13 @@ export function SessionRuntime({
   const composerDraftStore = useSessionComposerDraftStore()
   const [, startTranscriptTransition] = useTransition()
   const status = useStreamingRuntimeStatus() ?? initialStatus
-  const [snapshot, setSnapshot] = useState(initialSnapshot)
+  // While the runtime is (re)starting the server reports no snapshot; fall
+  // back to this tab's last-known snapshot so the composer renders instantly
+  // with the previously connected model/thinking state.
+  const [mountedSnapshot] = useState(
+    () => initialSnapshot ?? readCachedRuntimeState(sessionId)?.snapshot ?? null
+  )
+  const [snapshot, setSnapshot] = useState(mountedSnapshot)
   const [initialComposerDraft] = useState(() =>
     composerDraftStore.read(sessionId)
   )
@@ -358,11 +368,11 @@ export function SessionRuntime({
   const [queueUpdating, setQueueUpdating] = useState(false)
   const queueUpdatingRef = useRef(false)
   const [compacting, setCompacting] = useState(
-    initialSnapshot?.isCompacting ?? false
+    mountedSnapshot?.isCompacting ?? false
   )
   const [compactionNotice, setCompactionNotice] = useState<
     "running" | "complete" | null
-  >(initialSnapshot?.isCompacting ? "running" : null)
+  >(mountedSnapshot?.isCompacting ? "running" : null)
   const [commandNotice, setCommandNotice] = useState<string | null>(null)
   const compactRequestRef = useRef(false)
   const [compactQueuedOptimistic, setCompactQueuedOptimistic] = useState(false)
@@ -380,7 +390,7 @@ export function SessionRuntime({
   const runtimeSessionGeneration = useRef(0)
   const connectionStateRef = useRef<"open" | "error" | null>(null)
   const [queuedMessages, setQueuedMessages] = useState<QueuedPromptItem[]>(
-    initialSnapshot?.queuedPrompts ?? []
+    mountedSnapshot?.queuedPrompts ?? []
   )
   const queuedMessagesRevision = useRef(0)
   const [retrying, setRetrying] = useState<string | null>(null)
@@ -398,7 +408,7 @@ export function SessionRuntime({
   const respondingExtensionRequestIds = useRef(new Set<string>())
   const [extensionStatuses, setExtensionStatuses] = useState<
     Record<string, string>
-  >(initialSnapshot?.extensionStatuses ?? {})
+  >(mountedSnapshot?.extensionStatuses ?? {})
   const [extensionWidgets, setExtensionWidgets] = useState<
     Record<
       string,
@@ -467,6 +477,7 @@ export function SessionRuntime({
     (nextState: RuntimeStatePayload) => {
       updateRuntimeStatus(nextState.status)
       setSnapshot(nextState.snapshot)
+      writeCachedRuntimeState(sessionId, nextState)
       updateQueuedMessages(nextState.snapshot?.queuedPrompts ?? [])
       setExtensionStatuses(nextState.snapshot?.extensionStatuses ?? {})
       setCompacting(nextState.snapshot?.isCompacting ?? false)
@@ -474,7 +485,7 @@ export function SessionRuntime({
       agentRunActive.current = nextState.status === "busy"
       wasBusy.current = nextState.status === "busy"
     },
-    [updateQueuedMessages, updateRuntimeStatus]
+    [sessionId, updateQueuedMessages, updateRuntimeStatus]
   )
 
   async function mutate<T>(

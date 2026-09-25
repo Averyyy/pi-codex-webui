@@ -451,6 +451,7 @@ export function WorkspaceNavSession({
           <Link
             href={href}
             prefetch={false}
+            onPointerEnter={() => router.prefetch(href)}
             title={title}
             data-conversation-shortcut={href}
             aria-keyshortcuts={shortcut?.aria || undefined}
@@ -500,6 +501,7 @@ export function WorkspaceNavSession({
         <Link
           href={href}
           prefetch={false}
+          onPointerEnter={() => router.prefetch(href)}
           data-conversation-shortcut={href}
           aria-keyshortcuts={shortcut?.aria || undefined}
           aria-describedby={running || unread ? statusDescriptionId : undefined}

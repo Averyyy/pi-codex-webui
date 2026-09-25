@@ -60,6 +60,8 @@ import { ApiError, responseJson } from "@/lib/api-response"
 import type { Translator } from "@/lib/i18n"
 import { nextModelProviderFocusTarget } from "@/lib/model-settings-focus"
 
+const SHOW_UNCONFIGURED_KEY = "pi-webui:models.show-unconfigured"
+
 function modelKey(model: Pick<ModelSettingsModel, "provider" | "id">) {
   return `${model.provider}/${model.id}`
 }
@@ -118,6 +120,7 @@ export function ModelSettings({
     () => new Set()
   )
   const [providerDialogOpen, setProviderDialogOpen] = useState(false)
+  const [showUnconfigured, setShowUnconfigured] = useState(false)
   const providerDialogTriggerRef = useRef<HTMLButtonElement | null>(null)
   const addProviderButtonRef = useRef<HTMLButtonElement | null>(null)
   const providerSummaryRefs = useRef(new Map<string, HTMLElement>())
@@ -139,6 +142,19 @@ export function ModelSettings({
     const frame = requestAnimationFrame(() => errorRef.current?.focus())
     return () => cancelAnimationFrame(frame)
   }, [error, providerDialogOpen, working])
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      try {
+        if (localStorage.getItem(SHOW_UNCONFIGURED_KEY) === "1") {
+          setShowUnconfigured(true)
+        }
+      } catch {
+        // Persistence is best-effort.
+      }
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [])
 
   useLayoutEffect(() => {
     const provider = focusAfterProviderRemovalRef.current
@@ -377,11 +393,17 @@ export function ModelSettings({
   const enabledCount = settings.models.filter((model) => model.enabled).length
   const hasScope = Boolean(settings.enabledModels?.length)
   const normalizedSearch = modelSearch.trim().toLocaleLowerCase()
+  const unconfiguredCount = settings.providers.filter(
+    (provider) => !provider.configured
+  ).length
   const visibleProviders = settings.providers.flatMap((provider) => {
     const models = settings.models.filter(
       (model) => model.provider === provider.provider
     )
-    if (!normalizedSearch) return [{ provider, models }]
+    if (!normalizedSearch) {
+      if (!showUnconfigured && !provider.configured) return []
+      return [{ provider, models }]
+    }
 
     const providerMatches = [provider.provider, provider.name].some((value) =>
       value?.toLocaleLowerCase().includes(normalizedSearch)
@@ -755,6 +777,36 @@ export function ModelSettings({
           {t("settings.models.noConfigured")}
         </p>
       )}
+
+      {!normalizedSearch && unconfiguredCount > 0 ? (
+        <button
+          type="button"
+          className="flex items-center gap-2 rounded-xl border border-dashed px-4 py-3 text-left text-sm text-muted-foreground transition-colors hover:text-foreground"
+          onClick={() => {
+            setShowUnconfigured((current) => {
+              const next = !current
+              try {
+                localStorage.setItem(SHOW_UNCONFIGURED_KEY, next ? "1" : "0")
+              } catch {
+                // Persistence is best-effort.
+              }
+              return next
+            })
+          }}
+        >
+          <ChevronDownIcon
+            className={showUnconfigured ? "rotate-180 transition-transform" : "transition-transform"}
+            aria-hidden="true"
+          />
+          {showUnconfigured
+            ? t("settings.models.hideUnconfigured", {
+                count: unconfiguredCount,
+              })
+            : t("settings.models.showUnconfigured", {
+                count: unconfiguredCount,
+              })}
+        </button>
+      ) : null}
 
       {providerDialogOpen ? (
         <CustomProviderForm
