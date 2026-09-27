@@ -1,7 +1,8 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 
-import { EventHub } from "./event-hub"
+import { EventHub, getEventHub } from "./event-hub"
+import type { WebEvent } from "./event-hub"
 
 const decoder = new TextDecoder()
 
@@ -11,6 +12,10 @@ test("streams only events for the subscribed session", async () => {
   const reader = hub.stream(["session-a"], null, controller.signal).getReader()
 
   assert.equal(decoder.decode((await reader.read()).value), ": connected\n\n")
+  assert.match(
+    decoder.decode((await reader.read()).value),
+    /event: stream\.checkpoint/
+  )
 
   hub.publish({ type: "session.updated", sessionId: "session-b", payload: {} })
   hub.publish({
@@ -63,6 +68,10 @@ test("replays retained events after Last-Event-ID", async () => {
   const replay = decoder.decode((await reader.read()).value)
   assert.match(replay, new RegExp(`id: ${second.id}`))
   assert.match(replay, /event: second/)
+  assert.match(
+    decoder.decode((await reader.read()).value),
+    /event: stream\.checkpoint/
+  )
 
   controller.abort()
   assert.equal((await reader.read()).done, true)
@@ -188,6 +197,7 @@ test("exposes recent events and mirrors every event to the protocol inspector", 
     .stream(["session-a"], null, new AbortController().signal, "protocol.event")
     .getReader()
   await reader.read()
+  await reader.read()
   hub.publish({
     type: "tool.execution.start",
     sessionId: "session-a",
@@ -197,4 +207,68 @@ test("exposes recent events and mirrors every event to the protocol inspector", 
   assert.match(event, /event: protocol\.event/)
   assert.match(event, /"type":"tool\.execution\.start"/)
   await reader.cancel()
+})
+
+test("hot reload upgrades an existing hub without losing history or subscribers", async () => {
+  const previousGlobal = globalThis.piWebCodexEventHub
+  const hub = new EventHub()
+  globalThis.piWebCodexEventHub = hub
+  const first = hub.publish({
+    type: "session.updated",
+    sessionId: "session-a",
+    payload: { retained: true },
+  })
+  const liveController = new AbortController()
+  const liveReader = hub
+    .stream(["session-a"], first.id, liveController.signal)
+    .getReader()
+  await liveReader.read()
+  assert.match(
+    decoder.decode((await liveReader.read()).value),
+    /stream\.checkpoint/
+  )
+
+  const internals = hub as unknown as {
+    events: WebEvent[]
+    subscribers: Set<unknown>
+  }
+  const retainedEvents = internals.events
+  const retainedSubscribers = internals.subscribers
+  const previousPrototype = Object.getPrototypeOf(hub)
+  const oldPrototype = Object.create(previousPrototype) as object
+  Object.defineProperty(oldPrototype, "stream", {
+    configurable: true,
+    value: () => new ReadableStream<Uint8Array>(),
+  })
+  Object.setPrototypeOf(hub, oldPrototype)
+
+  try {
+    const upgraded = getEventHub()
+    assert.equal(upgraded, hub)
+    assert.equal(Object.getPrototypeOf(upgraded), EventHub.prototype)
+    assert.equal(internals.events, retainedEvents)
+    assert.equal(internals.subscribers, retainedSubscribers)
+    assert.equal(upgraded.recent("session-a")[0]?.id, first.id)
+
+    const afterReload = upgraded
+      .stream(["session-a"], first.id, new AbortController().signal)
+      .getReader()
+    await afterReload.read()
+    const checkpoint = decoder.decode((await afterReload.read()).value)
+    assert.match(checkpoint, /event: stream\.checkpoint/)
+    await afterReload.cancel()
+
+    upgraded.publish({
+      type: "session.updated",
+      sessionId: "session-a",
+      payload: { retainedSubscriber: true },
+    })
+    const delivered = decoder.decode((await liveReader.read()).value)
+    assert.match(delivered, /retainedSubscriber/)
+    await liveReader.cancel()
+  } finally {
+    liveController.abort()
+    if (previousGlobal === undefined) delete globalThis.piWebCodexEventHub
+    else globalThis.piWebCodexEventHub = previousGlobal
+  }
 })

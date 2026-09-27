@@ -18,7 +18,7 @@ export async function loadResourceSettings(projectId: SettingsProjectParam) {
     selectedProjectId: selected?.id ?? null,
     sessionIds: selected?.sessions.map((session) => session.id) ?? [],
     catalog: selected
-      ? await getRuntimeSupervisor().resourceCatalog(selected.path)
+      ? await getRuntimeSupervisor().currentResourceCatalog(selected.path)
       : null,
     mutationToken: getMutationToken(),
   }

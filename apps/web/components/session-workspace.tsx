@@ -1,7 +1,6 @@
 "use client"
 
 import {
-  useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -69,15 +68,14 @@ import {
 } from "@/components/session-inspector"
 import { SubagentsPanel } from "@/components/subagents"
 import { useI18n } from "@/components/i18n-provider"
-import { responseJson } from "@/lib/api-response"
 import type { ProjectGitStatus } from "@/lib/project-git"
+import { useProjectGitStatus } from "@/lib/project-git-store"
 import {
   captureSessionScroll,
   restoreSessionScroll,
   shouldScrollToSessionTail,
 } from "@/lib/session-scroll"
 import {
-  useSessionTranscript,
   useSessionViewController,
   useStreamingFollowRequest,
 } from "@/components/session-streaming-context"
@@ -147,36 +145,31 @@ function GitHeaderStatus({
   onOpenReview,
 }: {
   projectId: string
-  initialGit: ProjectGitStatus
+  initialGit: ProjectGitStatus | null
   onOpenReview: () => void
 }) {
   const { t } = useI18n()
-  const [git, setGit] = useState(initialGit)
+  const { snapshot, refresh } = useProjectGitStatus(projectId, initialGit)
+  const git = snapshot.status
 
-  useEffect(() => {
-    let disposed = false
-    const showFailure = (failure: unknown) => {
-      if (disposed) return
-      setGit({
-        available: false,
-        error: failure instanceof Error ? failure.message : String(failure),
-      })
-    }
-    const refresh = async () => {
-      const next = await responseJson<ProjectGitStatus>(
-        await fetch(`/api/v1/projects/${projectId}/git`)
-      )
-      if (!disposed) setGit(next)
-    }
-    const changes = new EventSource(`/api/v1/projects/${projectId}/changes`)
-    const update = () => void refresh().catch(showFailure)
-    changes.addEventListener("project.change", update)
-    void refresh().catch(showFailure)
-    return () => {
-      disposed = true
-      changes.close()
-    }
-  }, [projectId])
+  if (!git) {
+    return (
+      <button
+        type="button"
+        aria-label={t("project.git.unavailable")}
+        aria-busy={snapshot.loading}
+        title={snapshot.error ?? t("session.project.checking")}
+        className="flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+        onClick={() => {
+          onOpenReview()
+          void refresh()
+        }}
+      >
+        <GitBranchIcon className="size-3.5" />
+        <span className="hidden sm:inline">Git</span>
+      </button>
+    )
+  }
 
   if (!git.available) {
     return (
@@ -358,6 +351,7 @@ export function SessionWorkspace({
   updatedAt,
   runtimeLabel,
   workspaceAvailable,
+  canMutate,
   subagentsInstalled,
   initialGit,
   fileManagerLabel,
@@ -378,10 +372,11 @@ export function SessionWorkspace({
   updatedAt: string
   runtimeLabel: string
   workspaceAvailable: boolean
+  canMutate: boolean
   subagentsInstalled: boolean
   initialGit: ProjectGitStatus | null
   fileManagerLabel: string | null
-  environment: SessionInspectorProps | null
+  environment: Omit<SessionInspectorProps, "git"> | null
   headerActions: ReactNode
   toolbar: ReactNode
   conversation: ReactNode
@@ -394,7 +389,11 @@ export function SessionWorkspace({
   const conversationScrollRef = useRef<HTMLDivElement>(null)
   const conversationContentRef = useRef<HTMLDivElement>(null)
   const viewController = useSessionViewController()
-  const transcript = useSessionTranscript(viewController.initialView.snapshot)
+  const { snapshot: projectGitSnapshot } = useProjectGitStatus(
+    projectId,
+    initialGit
+  )
+  const projectGit = projectGitSnapshot.status
   const followRequest = useStreamingFollowRequest()
   const followingRef = useRef(true)
   const bottomTerminalToggleRef = useRef<HTMLButtonElement>(null)
@@ -408,15 +407,16 @@ export function SessionWorkspace({
   const [horizontalDragging, setHorizontalDragging] = useState(false)
   const [verticalDragging, setVerticalDragging] = useState(false)
   const [revealing, setRevealing] = useState(false)
-  const projectAvailable = projectId !== null && initialGit !== null
+  const projectAvailable = projectId !== null && workspaceAvailable
   const availableTabs = useMemo<WorkspaceTab[]>(() => {
     const workspaceTabs: WorkspaceTab[] = projectAvailable
-      ? ["review", "files", "terminal"]
-      : workspaceAvailable
-        ? ["terminal"]
-        : []
-    return subagentsInstalled ? [...workspaceTabs, "subagents"] : workspaceTabs
-  }, [projectAvailable, subagentsInstalled, workspaceAvailable])
+      ? ["review", "files"]
+      : []
+    if (workspaceAvailable && canMutate) workspaceTabs.push("terminal")
+    return subagentsInstalled && canMutate
+      ? [...workspaceTabs, "subagents"]
+      : workspaceTabs
+  }, [canMutate, projectAvailable, subagentsInstalled, workspaceAvailable])
   const [tabs, setTabs] = useState<WorkspaceTab[]>(() =>
     projectAvailable ? ["review"] : workspaceAvailable ? ["terminal"] : []
   )
@@ -526,7 +526,7 @@ export function SessionWorkspace({
       container.scrollTop = container.scrollHeight
       viewController.scroll = captureSessionScroll(container, true)
     }
-  }, [transcript, followRequest, viewController])
+  }, [followRequest, viewController])
 
   useLayoutEffect(() => {
     const element = workspaceElementRef.current
@@ -728,12 +728,12 @@ export function SessionWorkspace({
   useShortcutAction(
     "workspace.toggleBottomPanel",
     toggleBottomTerminal,
-    workspaceAvailable
+    workspaceAvailable && canMutate
   )
   useShortcutAction(
     "workspace.openTerminal",
     showTerminalBelow,
-    workspaceAvailable
+    workspaceAvailable && canMutate
   )
   useShortcutAction(
     "workspace.openFileTree",
@@ -761,8 +761,8 @@ export function SessionWorkspace({
         }
         className="min-h-0 flex-1 animate-in duration-150 fade-in-0 motion-reduce:animate-none"
       >
-        {activeTab === "review" && projectId && initialGit ? (
-          <ProjectReviewPanel projectId={projectId} initialGit={initialGit} />
+        {activeTab === "review" && projectId ? (
+          <ProjectReviewPanel projectId={projectId} initialGit={projectGit} />
         ) : activeTab === "files" && projectId ? (
           <ProjectFilesPanel key={projectId} projectId={projectId} />
         ) : activeTab === "terminal" && terminalPlacement === "sidebar" ? (
@@ -827,7 +827,7 @@ export function SessionWorkspace({
                         >
                           {runtimeLabel}
                         </Badge>
-                        {projectId && initialGit ? (
+                        {projectId ? (
                           <GitHeaderStatus
                             projectId={projectId}
                             initialGit={initialGit}
@@ -843,7 +843,9 @@ export function SessionWorkspace({
                           <Button
                             variant="ghost"
                             size="icon-sm"
-                            disabled={!workspaceAvailable || revealing}
+                            disabled={
+                              !workspaceAvailable || !canMutate || revealing
+                            }
                             aria-label={fileManagerLabel}
                             onClick={() => void revealProject()}
                           >
@@ -851,8 +853,8 @@ export function SessionWorkspace({
                           </Button>
                         </IconTooltip>
                       ) : null}
-                      {environment ? (
-                        <SessionInspector {...environment} />
+                      {environment && projectGit ? (
+                        <SessionInspector {...environment} git={projectGit} />
                       ) : null}
                       <IconTooltip
                         label={t("session.workspace.bottomTerminal")}
@@ -861,7 +863,7 @@ export function SessionWorkspace({
                           ref={bottomTerminalToggleRef}
                           variant="ghost"
                           size="icon-sm"
-                          disabled={!workspaceAvailable}
+                          disabled={!workspaceAvailable || !canMutate}
                           aria-label={t(
                             "session.workspace.toggleBottomTerminal"
                           )}

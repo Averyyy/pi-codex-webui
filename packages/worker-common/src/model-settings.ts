@@ -21,13 +21,14 @@ import stripJsonComments from "strip-json-comments"
 import type {
   HostToWorkerMessage,
   ModelProviderApi,
-  ModelSettings,
+  ModelSettingsSnapshot,
   ModelSettingsCustomModel,
   ModelSettingsProviderInput,
   RuntimeModel,
 } from "@workspace/runtime-protocol"
 
 import { createSettingsManager } from "./settings.js"
+import { projectTrustedForWeb } from "./project-trust.js"
 import type { CodingAgentModule, ModelThinkingModule } from "./coding-agent.js"
 
 type ModelSettingsMessage = Extract<
@@ -70,6 +71,89 @@ function isJsonObject(value: unknown): value is JsonObject {
 
 function modelKey(model: { provider: string; id: string }) {
   return `${model.provider}/${model.id}`
+}
+
+type ProviderAuthKind =
+  "oauth" | "api-key" | "environment" | "delegated" | "none" | "unknown"
+type ProviderAuthStatus =
+  "configured" | "missing" | "expired" | "unknown" | "not-required"
+
+export function providerAuthPresentation(input: {
+  authStatus: {
+    configured: boolean
+    source?: string
+  }
+  credentialType?: "oauth" | "api_key"
+  providerKnown: boolean
+  hasOAuthAuth: boolean
+  hasApiKeyAuth: boolean
+  apiKeyHasLogin: boolean
+  delegatedRuntime: boolean
+}): {
+  authKind: ProviderAuthKind
+  authStatus: ProviderAuthStatus
+  auth: "api-key" | "oauth" | "environment"
+  apiKeyConfigured: boolean
+} {
+  const authKind: ProviderAuthKind = input.delegatedRuntime
+    ? "delegated"
+    : input.credentialType === "oauth"
+      ? "oauth"
+      : input.credentialType === "api_key"
+        ? "api-key"
+        : input.authStatus.source === "environment"
+          ? "environment"
+          : input.authStatus.source === "runtime" ||
+              input.authStatus.source === "stored" ||
+              input.authStatus.source === "fallback" ||
+              input.authStatus.source === "models_json_key" ||
+              input.authStatus.source === "models_json_command"
+            ? "api-key"
+            : input.hasOAuthAuth && !input.hasApiKeyAuth
+              ? "oauth"
+              : input.hasApiKeyAuth && input.apiKeyHasLogin
+                ? "api-key"
+                : input.hasApiKeyAuth
+                  ? "environment"
+                  : input.providerKnown &&
+                      !input.hasOAuthAuth &&
+                      !input.hasApiKeyAuth
+                    ? "none"
+                    : "unknown"
+  const authStatus: ProviderAuthStatus =
+    input.providerKnown && !input.hasApiKeyAuth && !input.hasOAuthAuth
+      ? "not-required"
+      : input.delegatedRuntime
+        ? input.authStatus.configured
+          ? "configured"
+          : "unknown"
+        : input.authStatus.configured
+          ? "configured"
+          : input.credentialType !== undefined
+            ? "unknown"
+            : input.hasApiKeyAuth || input.hasOAuthAuth
+              ? "missing"
+              : "unknown"
+  const apiKeyConfigured =
+    !input.delegatedRuntime &&
+    (input.credentialType === "api_key" ||
+      input.authStatus.source === "models_json_key" ||
+      input.authStatus.source === "models_json_command" ||
+      input.authStatus.source === "environment" ||
+      input.authStatus.source === "fallback" ||
+      input.authStatus.source === "runtime" ||
+      input.authStatus.source === "stored")
+  return {
+    authKind,
+    authStatus,
+    auth:
+      authKind === "oauth"
+        ? ("oauth" as const)
+        : authKind === "api-key"
+          ? ("api-key" as const)
+          : ("environment" as const),
+    apiKeyConfigured,
+  }
 }
 
 function readModelsConfig(modelsPath: string): ModelsConfig {
@@ -217,7 +301,8 @@ async function createModelSettingsState(
   codingAgent: CodingAgentModule,
   modelThinking: ModelThinkingModule,
   cwd: string,
-  agentDir: string
+  agentDir: string,
+  metrics?: Record<string, number>
 ): Promise<ModelSettingsState> {
   const resolvedAgentDir = path.resolve(agentDir)
   const modelsPath = path.join(resolvedAgentDir, "models.json")
@@ -226,18 +311,22 @@ async function createModelSettingsState(
     codingAgent,
     cwd,
     agentDir,
-    false
+    projectTrustedForWeb(codingAgent, cwd, agentDir)
   )
+  const servicesStartedAt = Date.now()
   const services = await codingAgent.createAgentSessionServices({
     cwd,
     agentDir,
     settingsManager,
   })
+  if (metrics) metrics.servicesInitializationMs = Date.now() - servicesStartedAt
+  const runtimeStartedAt = Date.now()
   const staticRuntime = await codingAgent.ModelRuntime.create({
     authPath,
     modelsPath: null,
     refreshOnCreate: false,
   })
+  if (metrics) metrics.staticModelRuntimeMs = Date.now() - runtimeStartedAt
   const builtInProviders = new Set(
     staticRuntime.getProviders().map((provider) => provider.id)
   )
@@ -364,7 +453,11 @@ export async function resolveConfiguredScopedModels(
   modelRuntime: ModelRuntime
 ) {
   return (
-    await resolveConfiguredModelScope(codingAgent, settingsManager, modelRuntime)
+    await resolveConfiguredModelScope(
+      codingAgent,
+      settingsManager,
+      modelRuntime
+    )
   ).scopedModels
 }
 
@@ -390,16 +483,20 @@ function toRuntimeModel(model: {
 
 // Reads local state only; network refresh happens solely via models.refresh.
 async function readModelSettings(
-  state: ModelSettingsState
-): Promise<ModelSettings> {
+  state: ModelSettingsState,
+  metrics?: Record<string, number>
+): Promise<ModelSettingsSnapshot> {
+  const projectionStartedAt = Date.now()
   const config = readModelsConfig(state.modelsPath)
   const availableModels = state.modelRuntime.getAvailableSnapshot()
   const patterns = state.settingsManager.getEnabledModels()
+  const scopeStartedAt = Date.now()
   const { scopedModels, scopeWarnings } = await resolveConfiguredModelScope(
     state.codingAgent,
     state.settingsManager,
     state.modelRuntime
   )
+  if (metrics) metrics.modelScopeResolutionMs = Date.now() - scopeStartedAt
   const defaultProvider = state.settingsManager.getDefaultProvider()
   const defaultModelId = state.settingsManager.getDefaultModel()
   const defaultModel =
@@ -410,11 +507,24 @@ async function readModelSettings(
         )
       : undefined
   const enabledIds = new Set(
-    patterns && patterns.length > 0
+    patterns && patterns.length > 0 && scopedModels.length > 0
       ? scopedModels.map(({ model }) => modelKey(model))
       : availableModels.map(modelKey)
   )
+  const credentialsStartedAt = Date.now()
   const credentials = await credentialsByProvider(state)
+  if (metrics) metrics.credentialListingMs = Date.now() - credentialsStartedAt
+  const providerSpecs = new Map(
+    state.modelRuntime.getProviders().map((provider) => [provider.id, provider])
+  )
+  const availableModelCounts = new Map<string, number>()
+  for (const model of availableModels) {
+    availableModelCounts.set(
+      model.provider,
+      (availableModelCounts.get(model.provider) ?? 0) + 1
+    )
+  }
+  const delegatedRuntime = process.env.PI_SERVER_MODE === "true"
   const providers = new Set([
     ...state.modelRuntime.getProviders().map((provider) => provider.id),
     ...credentials.keys(),
@@ -430,7 +540,7 @@ async function readModelSettings(
     ])
   )
 
-  return {
+  const result: ModelSettingsSnapshot = {
     models: availableModels.map((model) => ({
       ...toRuntimeModel(model),
       enabled: enabledIds.has(modelKey(model)),
@@ -446,24 +556,26 @@ async function readModelSettings(
       .map((provider) => {
         const credential = credentials.get(provider)
         const authStatus = state.modelRuntime.getProviderAuthStatus(provider)
+        const providerSpec = providerSpecs.get(provider)
         const rawConfig = config.providers[provider]
         const custom = Boolean(rawConfig) && !builtIns.has(provider)
+        const modelCount = availableModelCounts.get(provider) ?? 0
+        const authPresentation = providerAuthPresentation({
+          authStatus,
+          ...(credential ? { credentialType: credential.type } : {}),
+          providerKnown: providerSpec !== undefined,
+          hasOAuthAuth: providerSpec?.auth.oauth !== undefined,
+          hasApiKeyAuth: providerSpec?.auth.apiKey !== undefined,
+          apiKeyHasLogin: providerSpec?.auth.apiKey?.login !== undefined,
+          delegatedRuntime,
+        })
         return {
           provider,
-          auth:
-            credential?.type === "oauth"
-              ? ("oauth" as const)
-              : credential
-                ? ("api-key" as const)
-                : authStatus.source === "environment"
-                  ? ("environment" as const)
-                  : authStatus.configured
-                    ? ("api-key" as const)
-                    : ("environment" as const),
+          auth: authPresentation.auth,
+          authKind: authPresentation.authKind,
+          authStatus: authPresentation.authStatus,
           removable: custom || credential !== undefined,
-          modelCount: availableModels.filter(
-            (model) => model.provider === provider
-          ).length,
+          modelCount,
           custom,
           name:
             typeof rawConfig?.name === "string" && rawConfig.name
@@ -474,11 +586,7 @@ async function readModelSettings(
             typeof rawConfig?.baseUrl === "string"
               ? rawConfig.baseUrl
               : undefined,
-          apiKeyConfigured:
-            credential?.type === "api_key" ||
-            authStatus.source === "models_json_key" ||
-            authStatus.source === "models_json_command" ||
-            authStatus.source === "environment",
+          apiKeyConfigured: authPresentation.apiKeyConfigured,
           customModels: customModels(custom ? rawConfig : undefined, provider),
         }
       }),
@@ -492,12 +600,20 @@ async function readModelSettings(
       : null,
     ...(scopeWarnings.length ? { scopeWarnings } : {}),
   }
+  if (metrics)
+    metrics.modelSettingsProjectionMs = Date.now() - projectionStartedAt
+  return result
 }
 
-async function refreshModelSettings(state: ModelSettingsState) {
+async function refreshModelSettings(
+  state: ModelSettingsState,
+  metrics?: Record<string, number>
+) {
   await state.settingsManager.reload()
+  const refreshStartedAt = Date.now()
   const result = await refreshModelRuntime(state)
-  const settings = await readModelSettings(state)
+  if (metrics) metrics.providerRefreshMs = Date.now() - refreshStartedAt
+  const settings = await readModelSettings(state, metrics)
   const refreshErrors = [...result.errors.entries()].map(
     ([provider, error]) => ({ provider, message: error.message })
   )
@@ -659,33 +775,49 @@ async function readScopedModelSettings(
   codingAgent: CodingAgentModule,
   modelThinking: ModelThinkingModule,
   cwd: string,
-  agentDir: string
-): Promise<ModelSettings> {
+  agentDir: string,
+  metrics?: Record<string, number>
+): Promise<ModelSettingsSnapshot> {
   const settingsManager = createSettingsManager(
     codingAgent,
     cwd,
     agentDir,
-    false
+    projectTrustedForWeb(codingAgent, cwd, agentDir)
   )
+  const servicesStartedAt = Date.now()
   const { modelRuntime } = await codingAgent.createAgentSessionServices({
     cwd,
     agentDir,
     settingsManager,
   })
+  if (metrics) metrics.servicesInitializationMs = Date.now() - servicesStartedAt
   const patterns = settingsManager.getEnabledModels()
+  const scopeStartedAt = Date.now()
   const scope = await resolveConfiguredModelScope(
     codingAgent,
     settingsManager,
     modelRuntime
   )
+  if (metrics) metrics.modelScopeResolutionMs = Date.now() - scopeStartedAt
+  const availableModels = modelRuntime.getAvailableSnapshot()
+  const thinkingLevelsByModel = new Map(
+    scope.scopedModels.map(({ model, thinkingLevel }) => [
+      modelKey(model),
+      thinkingLevel,
+    ])
+  )
   // Fall back to every available model when the scope matches nothing.
   const scopedModels =
     patterns?.length && scope.scopedModels.length
-      ? scope.scopedModels
-      : modelRuntime
-          .getAvailableSnapshot()
-          .map((model) => ({ model, thinkingLevel: undefined }))
+      ? availableModels.flatMap((model) => {
+          const key = modelKey(model)
+          return thinkingLevelsByModel.has(key)
+            ? [{ model, thinkingLevel: thinkingLevelsByModel.get(key) }]
+            : []
+        })
+      : availableModels.map((model) => ({ model, thinkingLevel: undefined }))
   const defaultThinking = settingsManager.getDefaultThinkingLevel() ?? "medium"
+  const projectionStartedAt = Date.now()
   const models = scopedModels.map(({ model, thinkingLevel }) => ({
     ...toRuntimeModel(model),
     enabled: true,
@@ -700,7 +832,7 @@ async function readScopedModelSettings(
       model.provider === settingsManager.getDefaultProvider() &&
       model.id === settingsManager.getDefaultModel()
   )
-  return {
+  const result: ModelSettingsSnapshot = {
     models,
     providers: [],
     enabledModels: patterns ?? null,
@@ -711,28 +843,42 @@ async function readScopedModelSettings(
       ? { scopeWarnings: scope.scopeWarnings }
       : {}),
   }
+  if (metrics)
+    metrics.modelSettingsProjectionMs = Date.now() - projectionStartedAt
+  return result
 }
 
 export async function handleModelSettingsMessage(
   codingAgent: CodingAgentModule,
   modelThinking: ModelThinkingModule,
-  message: ModelSettingsMessage
+  message: ModelSettingsMessage,
+  metrics?: Record<string, number>
 ) {
   const { cwd, agentDir } = message.payload
   if (
     message.type === "models.catalog" &&
     message.payload.scope === "enabled"
   ) {
-    return readScopedModelSettings(codingAgent, modelThinking, cwd, agentDir)
+    return readScopedModelSettings(
+      codingAgent,
+      modelThinking,
+      cwd,
+      agentDir,
+      metrics
+    )
   }
   const state = await createModelSettingsState(
     codingAgent,
     modelThinking,
     cwd,
-    agentDir
+    agentDir,
+    metrics
   )
-  if (message.type === "models.catalog") return readModelSettings(state)
-  if (message.type === "models.refresh") return refreshModelSettings(state)
+  if (message.type === "models.catalog")
+    return readModelSettings(state, metrics)
+  if (message.type === "models.refresh") {
+    return refreshModelSettings(state, metrics)
+  }
   if (message.type === "models.set-scope") {
     return setModelScope(
       state,

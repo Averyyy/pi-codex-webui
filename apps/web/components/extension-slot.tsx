@@ -1,11 +1,12 @@
 "use client"
 
-import { useContext } from "react"
-
 import type { WebUiPlacement } from "@workspace/runtime-protocol"
 
-import { SessionExtensionContext } from "@/components/session-extension-provider"
 import { WebUiViewHost } from "@/components/webui-view-host"
+import {
+  useSessionExtensionState,
+  useSessionExtensionViewIds,
+} from "@/components/session-extension-provider"
 
 export function ExtensionSlot({
   name,
@@ -14,13 +15,18 @@ export function ExtensionSlot({
   name: WebUiPlacement
   excludeViewIds?: string[]
 }) {
-  const runtime = useContext(SessionExtensionContext)
-  if (!runtime)
-    throw new Error("ExtensionSlot requires SessionExtensionProvider.")
-  return runtime.views
-    .filter(
-      (view) =>
-        view.placement === name && !excludeViewIds.includes(view.viewId)
-    )
-    .map((view) => <WebUiViewHost key={view.instanceId} view={view} />)
+  const state = useSessionExtensionState()
+  const instanceIds = useSessionExtensionViewIds(name, excludeViewIds)
+  return (
+    <>
+      {instanceIds.map((instanceId) => (
+        <WebUiViewHost key={instanceId} instanceId={instanceId} />
+      ))}
+      {name === "session.header" && (state.viewsError || state.catalogError) ? (
+        <span className="px-2 text-xs text-destructive" role="status">
+          {state.viewsError ?? state.catalogError}
+        </span>
+      ) : null}
+    </>
+  )
 }

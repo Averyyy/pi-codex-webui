@@ -14,6 +14,16 @@ interface RuntimeFixture {
   status: RuntimeStatus
   cleaned: boolean
   lastActivityAt: number
+  pending: Map<string, unknown>
+  mcpCalls: Map<string, AbortController>
+  extensionUiRequests: Map<string, unknown>
+  pendingResourceReload: boolean
+  pendingModelReload: boolean
+  pendingMcpRestart: boolean
+  pendingWebUiRestart: boolean
+  resourceReloadPromise: Promise<unknown> | null
+  modelReloadPromise: Promise<unknown> | null
+  webUiRestartPromise: Promise<void> | null
   nativeSessionFile: string
   child: { kill(): void }
   runtimeLeases: Map<string, number>
@@ -68,6 +78,16 @@ function runtime(overrides: Partial<RuntimeFixture> = {}): RuntimeFixture {
     status: "ready",
     cleaned: false,
     lastActivityAt: Date.now() - 24 * 60 * 60_000,
+    pending: new Map(),
+    mcpCalls: new Map(),
+    extensionUiRequests: new Map(),
+    pendingResourceReload: false,
+    pendingModelReload: false,
+    pendingMcpRestart: false,
+    pendingWebUiRestart: false,
+    resourceReloadPromise: null,
+    modelReloadPromise: null,
+    webUiRestartPromise: null,
     nativeSessionFile: "C:/runtime-draft/session.jsonl",
     child: { kill() {} },
     runtimeLeases: new Map(),

@@ -9,6 +9,10 @@ interface EventSourceLike {
 }
 
 type EventSourceFactory = (url: string) => EventSourceLike
+type CheckpointWaiter = {
+  resolve(cursor: string): void
+  reject(error: Error): void
+}
 
 const browserEventSource: EventSourceFactory = (url) => new EventSource(url)
 const MAX_PENDING_EVENTS = 4096
@@ -22,12 +26,14 @@ export class SessionEventStream {
     (state: SessionConnectionState) => void
   >()
   private readonly pendingEvents: Event[] = []
-  private cursor: string
-  private minimumCursor: string
+  private readonly checkpointWaiters = new Set<CheckpointWaiter>()
+  private cursor: string | null
+  private minimumCursor: string | null
+  private checkpointCursor: string | null = null
 
   constructor(
     private readonly sessionId: string,
-    initialEventCursor: string,
+    initialEventCursor: string | null,
     private readonly createEventSource: EventSourceFactory = browserEventSource,
     private readonly bufferUnsubscribed = false
   ) {
@@ -37,14 +43,13 @@ export class SessionEventStream {
 
   open() {
     if (this.source) return
-    const search = new URLSearchParams({
-      sessionId: this.sessionId,
-      after: this.cursor,
-    })
+    const search = new URLSearchParams({ sessionId: this.sessionId })
+    if (this.cursor !== null) search.set("after", this.cursor)
     const source = this.createEventSource(`/api/v1/events?${search}`)
     this.source = source
     source.addEventListener("open", this.handleOpen)
     source.addEventListener("error", this.handleError)
+    source.addEventListener("stream.checkpoint", this.handleCheckpoint)
     for (const type of this.listeners.keys()) this.attach(type)
   }
 
@@ -94,9 +99,13 @@ export class SessionEventStream {
     this.forwarders.clear()
     this.pendingEvents.length = 0
     this.connectionListeners.clear()
+    for (const waiter of this.checkpointWaiters)
+      waiter.reject(new Error("Session event stream closed before checkpoint."))
+    this.checkpointWaiters.clear()
   }
 
   pause() {
+    this.checkpointCursor = null
     this.source?.close()
     this.source = null
     this.connectionState = null
@@ -104,14 +113,32 @@ export class SessionEventStream {
   }
 
   setCursor(cursor: string) {
-    const order = compareEventCursors(cursor, this.cursor)
-    if (order === null || order >= 0) this.cursor = cursor
-    const minimumOrder = compareEventCursors(cursor, this.minimumCursor)
-    if (minimumOrder === null || minimumOrder >= 0) this.minimumCursor = cursor
+    const order =
+      this.cursor === null ? null : compareEventCursors(cursor, this.cursor)
+    if (this.cursor === null || order === null || order >= 0)
+      this.cursor = cursor
+    const minimumOrder =
+      this.minimumCursor === null
+        ? null
+        : compareEventCursors(cursor, this.minimumCursor)
+    if (
+      this.minimumCursor === null ||
+      minimumOrder === null ||
+      minimumOrder >= 0
+    ) {
+      this.minimumCursor = cursor
+    }
   }
 
   clearPending() {
     this.pendingEvents.length = 0
+  }
+
+  waitForCheckpoint() {
+    if (this.checkpointCursor) return Promise.resolve(this.checkpointCursor)
+    return new Promise<string>((resolve, reject) => {
+      this.checkpointWaiters.add({ resolve, reject })
+    })
   }
 
   private attach(type: string) {
@@ -119,8 +146,10 @@ export class SessionEventStream {
     const forward: EventListener = (event) => {
       const eventId = (event as MessageEvent<string>).lastEventId
       if (eventId) {
-        const order = compareEventCursors(eventId, this.minimumCursor)
-        if (order !== null && order <= 0) return
+        if (this.minimumCursor !== null) {
+          const order = compareEventCursors(eventId, this.minimumCursor)
+          if (order !== null && order <= 0) return
+        }
         this.cursor = eventId
       }
       const listeners = this.listeners.get(type)
@@ -163,7 +192,40 @@ export class SessionEventStream {
   }
 
   private handleOpen = () => this.publishConnection("open")
-  private handleError = () => this.publishConnection("error")
+  private handleError = () => {
+    this.checkpointCursor = null
+    this.publishConnection("error")
+  }
+
+  private handleCheckpoint = (source: Event) => {
+    try {
+      const event = JSON.parse((source as MessageEvent<string>).data) as {
+        id?: unknown
+        type?: unknown
+        payload?: { cursor?: unknown }
+      }
+      const cursor = event.payload?.cursor ?? event.id
+      if (
+        event.type !== "stream.checkpoint" ||
+        typeof cursor !== "string" ||
+        cursor !== (source as MessageEvent<string>).lastEventId
+      ) {
+        throw new Error("Session event stream emitted an invalid checkpoint.")
+      }
+      this.setCursor(cursor)
+      this.checkpointCursor = cursor
+      for (const waiter of this.checkpointWaiters) waiter.resolve(cursor)
+      this.checkpointWaiters.clear()
+    } catch (error) {
+      const failure =
+        error instanceof Error
+          ? error
+          : new Error("Session event stream emitted an invalid checkpoint.")
+      for (const waiter of this.checkpointWaiters) waiter.reject(failure)
+      this.checkpointWaiters.clear()
+      this.publishConnection("error")
+    }
+  }
 
   private publishConnection(state: SessionConnectionState) {
     this.connectionState = state

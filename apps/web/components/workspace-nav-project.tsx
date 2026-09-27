@@ -671,6 +671,7 @@ export function WorkspaceNavProject({
                     session.id !== activeSessionId &&
                     unreadSessionIds.has(session.id)
                   }
+                  active={session.id === activeSessionId}
                   shortcut={conversationShortcuts.get(
                     `${projectPath}/sessions/${session.id}`
                   )}

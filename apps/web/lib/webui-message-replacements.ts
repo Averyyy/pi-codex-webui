@@ -23,3 +23,15 @@ export function replacesStreamingMessage(
     )
   })
 }
+
+export function replacesStreamingMessageByKey(
+  replacementKeys: ReadonlySet<string>,
+  message: { customType?: string; timestamp?: number }
+) {
+  if (message.customType === undefined || message.timestamp === undefined) {
+    return false
+  }
+  return replacementKeys.has(
+    JSON.stringify([message.customType, message.timestamp])
+  )
+}

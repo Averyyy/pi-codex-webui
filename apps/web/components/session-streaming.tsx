@@ -1,9 +1,9 @@
 "use client"
 
-import { memo, useContext, useDeferredValue } from "react"
+import { memo, useDeferredValue } from "react"
 import { LoaderCircleIcon } from "lucide-react"
 
-import { SessionExtensionContext } from "@/components/session-extension-provider"
+import { useSessionExtensionReplacementKeys } from "@/components/session-extension-provider"
 import { ConversationActivity } from "@/components/conversation-activity"
 import { ConversationProcess } from "@/components/conversation-process"
 import { ConversationMessageParts } from "@/components/conversation-message-parts"
@@ -25,7 +25,7 @@ import {
   conversationRounds,
   partitionConversationRound,
 } from "@/lib/conversation-rounds"
-import { replacesStreamingMessage } from "@/lib/webui-message-replacements"
+import { replacesStreamingMessageByKey } from "@/lib/webui-message-replacements"
 
 export {
   SessionStreamingProvider,
@@ -122,16 +122,14 @@ const StreamingMessage = memo(function StreamingMessage({
 
 export function SessionStreamingMessage() {
   const controller = useSessionViewController()
-  const history = useSessionTranscript(controller.initialView.snapshot)
+  const history = useSessionTranscript(controller.initialView?.snapshot ?? null)
   const { t } = useI18n()
   const streamedMessages = useStreamingMessages()
   const activeTools = useStreamingActiveTools()
-  const extensions = useContext(SessionExtensionContext)
-  const messages = extensions
-    ? streamedMessages.filter(
-        (message) => !replacesStreamingMessage(extensions.views, message)
-      )
-    : streamedMessages
+  const replacementKeys = useSessionExtensionReplacementKeys()
+  const messages = streamedMessages.filter(
+    (message) => !replacesStreamingMessageByKey(replacementKeys, message)
+  )
   const runtimeStatus = useStreamingRuntimeStatus()
   const sessionId = useStreamingSessionId()
   const rounds = conversationRounds(messages)
@@ -142,7 +140,7 @@ export function SessionStreamingMessage() {
 
   const activeToolIds = new Set(activeTools.map((tool) => tool.id))
 
-  if (history.history?.atLatest === false) return null
+  if (!history || history.history?.atLatest === false) return null
 
   return (
     <>

@@ -37,6 +37,7 @@ interface LeaseEntry {
   releaseRequested: boolean
   releaseInFlight: Promise<void> | null
   renewalEnabled: boolean
+  operationGeneration: number
   timer: RuntimeLeaseTimerHandle | null
 }
 
@@ -81,6 +82,7 @@ export class RuntimeLeaseController<T> {
       releaseRequested: false,
       releaseInFlight: null,
       renewalEnabled: true,
+      operationGeneration: 0,
       timer: null,
     }
     this.current = entry
@@ -105,6 +107,7 @@ export class RuntimeLeaseController<T> {
     if (!entry) return
     entry.renewalEnabled = false
     entry.retained = false
+    entry.operationGeneration++
     this.clearScheduled(entry)
   }
 
@@ -160,14 +163,20 @@ export class RuntimeLeaseController<T> {
 
   private async acquire(entry: LeaseEntry) {
     if (!entry.active || entry.acquireInFlight) return
+    const operationGeneration = entry.operationGeneration
     entry.acquireInFlight = true
     try {
       const value = await this.transport.acquire(entry.sessionId, entry.leaseId)
       entry.acquireInFlight = false
       entry.serverLeasePresent = true
-      entry.retained = true
       if (!entry.active) {
+        entry.retained = false
         await this.releaseEntry(entry)
+        return
+      }
+      entry.retained = operationGeneration === entry.operationGeneration
+      if (operationGeneration !== entry.operationGeneration) {
+        if (entry.renewalEnabled) queueMicrotask(() => this.reconnect())
         return
       }
       this.callbacks.onReady(value, "acquire")
@@ -175,6 +184,10 @@ export class RuntimeLeaseController<T> {
     } catch (error) {
       entry.acquireInFlight = false
       if (!entry.active) return
+      if (operationGeneration !== entry.operationGeneration) {
+        if (entry.renewalEnabled) queueMicrotask(() => this.reconnect())
+        return
+      }
       this.callbacks.onError(error, "acquire")
       // Keep the failure visible. A later visibility/online/SSE event or the
       // retry button invokes reconnect() and starts a new acquire explicitly.
@@ -203,16 +216,26 @@ export class RuntimeLeaseController<T> {
       entry.renewInFlight
     )
       return
+    const operationGeneration = entry.operationGeneration
     entry.renewInFlight = true
     try {
       const value = await this.transport.renew(entry.sessionId, entry.leaseId)
       entry.renewInFlight = false
       if (!entry.active) return
+      if (operationGeneration !== entry.operationGeneration) {
+        entry.retained = false
+        if (entry.renewalEnabled) queueMicrotask(() => this.reconnect())
+        return
+      }
       this.callbacks.onReady(value, "renew")
       if (entry.renewalEnabled) this.schedule(entry, this.renewAfterMs)
     } catch (error) {
       entry.renewInFlight = false
       if (!entry.active) return
+      if (operationGeneration !== entry.operationGeneration) {
+        if (entry.renewalEnabled) queueMicrotask(() => this.reconnect())
+        return
+      }
       entry.retained = false
       this.callbacks.onError(error, "renew")
       // Do not reacquire in a heartbeat loop. A later visibility/online/SSE

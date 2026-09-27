@@ -7,6 +7,7 @@ import {
 } from "@workspace/ui/components/sidebar"
 
 import { WorkspaceNav } from "@/components/workspace-nav"
+import { SessionViewportHost } from "@/components/session-viewport-host"
 import { PiBrand } from "@/components/pi-brand"
 import { SidebarShortcut } from "@/components/sidebar-shortcut"
 import { listWorkspaceProjects, listSessionPage } from "@/lib/catalog"
@@ -66,7 +67,7 @@ export default async function WorkspaceLayout({
           <SidebarTrigger />
           <PiBrand className="ml-2" />
         </header>
-        {children}
+        <SessionViewportHost>{children}</SessionViewportHost>
       </SidebarInset>
     </SidebarProvider>
   )

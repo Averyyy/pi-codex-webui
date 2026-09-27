@@ -23,7 +23,9 @@ export async function getResources(
     const project = await requireProject(
       new URL(request.url).searchParams.get("projectId")
     )
-    const catalog = await getRuntimeSupervisor().resourceCatalog(project.path)
+    const catalog = await getRuntimeSupervisor().currentResourceCatalog(
+      project.path
+    )
     return Response.json(
       kind
         ? {

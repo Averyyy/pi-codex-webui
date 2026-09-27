@@ -89,6 +89,7 @@ let nativeSessionFile: string | undefined
 let draftSession: DraftSessionPaths | undefined
 let unsubscribe: (() => void) | undefined
 let eventSequence = 0
+const workerProcessStartedAt = Date.now()
 let surfaceManager: TuiSurfaceManager | undefined
 let adapterHost: WebUiAdapterHost | undefined
 let subagents: SubagentBridge | undefined
@@ -162,7 +163,13 @@ function runtimeError(error: unknown): RuntimeError {
 
 function respond(
   requestId: string,
-  result: { success: true; data?: unknown } | { success: false; error: unknown }
+  result:
+    | {
+        success: true
+        data?: unknown
+        metrics?: Record<string, number>
+      }
+    | { success: false; error: unknown }
 ) {
   send(
     result.success
@@ -171,6 +178,7 @@ function respond(
           requestId,
           success: true,
           data: result.data,
+          ...(result.metrics ? { metrics: result.metrics } : {}),
         }
       : {
           type: "runtime.response",
@@ -1166,10 +1174,17 @@ async function dispatch(message: HostToWorkerMessage) {
     return
   }
   if (isResourceMessage(message)) {
-    respond(message.requestId, {
-      success: true,
-      data: await handleResourceMessage(codingAgent, modelThinking, message),
-    })
+    const startedAt = Date.now()
+    const metrics: Record<string, number> = {}
+    const data = await handleResourceMessage(
+      codingAgent,
+      modelThinking,
+      message,
+      metrics
+    )
+    metrics.workerProcessAgeMs = startedAt - workerProcessStartedAt
+    metrics.workerHandlerMs = Date.now() - startedAt
+    respond(message.requestId, { success: true, data, metrics })
     return
   }
   if (message.type === "runtime.initialize") {

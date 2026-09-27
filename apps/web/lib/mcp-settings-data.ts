@@ -22,7 +22,9 @@ export async function resolveMcpContext(projectId: string | null) {
   if (!project) {
     throw new RuntimeRequestError("ProjectNotFound", "Project not found.")
   }
-  const resources = await getRuntimeSupervisor().resourceCatalog(project.path)
+  const resources = await getRuntimeSupervisor().currentResourceCatalog(
+    project.path
+  )
   return {
     projectId: project.id,
     projectPath: project.path,

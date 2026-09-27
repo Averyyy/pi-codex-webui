@@ -53,13 +53,13 @@ test("model context honors session and project bindings before the default", asy
     })
     assert.equal(projectTarget?.runtimeProfileId, "pi")
     assert.equal(projectTarget?.runtimeKind, "pi")
-    const globalTarget = await resolveModelSettingsRequestTarget({})
-    assert.equal(globalTarget?.cwd, projectTarget?.cwd)
-    assert.equal(globalTarget?.runtimeProfileId, "pi-client-default")
-    assert.equal(globalTarget?.runtimeKind, "pi-client")
     const taskTarget = await resolveModelSettingsRequestTarget({
       newTask: true,
     })
+    const globalTarget = await resolveModelSettingsRequestTarget({})
+    assert.equal(globalTarget?.cwd, taskTarget?.cwd)
+    assert.equal(globalTarget?.runtimeProfileId, "pi-client-default")
+    assert.equal(globalTarget?.runtimeKind, "pi-client")
     assert.equal(taskTarget?.runtimeProfileId, "pi-client-default")
     assert.equal(taskTarget?.cwd, path.join(root, "tasks"))
 

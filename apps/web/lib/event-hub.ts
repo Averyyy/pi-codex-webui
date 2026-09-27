@@ -58,6 +58,11 @@ export class EventHub {
   private eventBytes = 0
   private readonly subscribers = new Set<Subscriber>()
 
+  static reuseAfterHotReload(eventHub: EventHub) {
+    Object.setPrototypeOf(eventHub, EventHub.prototype)
+    return eventHub
+  }
+
   cursor() {
     return this.eventId(this.sequence)
   }
@@ -140,6 +145,8 @@ export class EventHub {
           send: (event) => controller.enqueue(serialize(event, eventName)),
         }
 
+        const checkpoint = this.cursor()
+
         if (lastEventId !== null) {
           const parsed = parseCursor(lastEventId)
           if (!parsed) {
@@ -163,6 +170,15 @@ export class EventHub {
         }
 
         this.subscribers.add(subscriber)
+        if (subscriptions !== null) {
+          subscriber.send({
+            id: checkpoint,
+            seq: this.sequence,
+            type: "stream.checkpoint",
+            timestamp: new Date().toISOString(),
+            payload: { cursor: checkpoint },
+          })
+        }
         heartbeat = setInterval(
           () => controller.enqueue(encoder.encode(": heartbeat\n\n")),
           15_000
@@ -180,6 +196,9 @@ export class EventHub {
 }
 
 export function getEventHub() {
-  globalThis.piWebCodexEventHub ??= new EventHub()
-  return globalThis.piWebCodexEventHub
+  const existing = globalThis.piWebCodexEventHub
+  if (existing) return EventHub.reuseAfterHotReload(existing)
+  const eventHub = new EventHub()
+  globalThis.piWebCodexEventHub = eventHub
+  return eventHub
 }

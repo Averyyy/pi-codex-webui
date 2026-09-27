@@ -88,3 +88,59 @@ test("buffers named events while the session view is unmounted", () => {
 
   assert.deepEqual(received, ["runtime.busy", "runtime.busy"])
 })
+
+test("checkpoint readiness follows replay and advances the reconnect cursor", async () => {
+  const cursor = "event-11111111-1111-4111-8111-111111111111-9"
+  const sources: FakeEventSource[] = []
+  const stream = new SessionEventStream("session-a", null, () => {
+    const source = new FakeEventSource()
+    sources.push(source)
+    return source
+  })
+  let replayed = 0
+  stream.subscribe(["webui.view"], () => replayed++)
+  const ready = stream.waitForCheckpoint()
+  stream.open()
+  const source = sources[0]!
+  source.emit(
+    "webui.view",
+    new MessageEvent("webui.view", {
+      lastEventId: "event-11111111-1111-4111-8111-111111111111-8",
+      data: JSON.stringify({
+        id: "event-11111111-1111-4111-8111-111111111111-8",
+        type: "webui.view",
+        payload: {},
+      }),
+    })
+  )
+  source.emit(
+    "stream.checkpoint",
+    new MessageEvent("stream.checkpoint", {
+      lastEventId: cursor,
+      data: JSON.stringify({
+        id: cursor,
+        type: "stream.checkpoint",
+        payload: { cursor },
+      }),
+    })
+  )
+
+  assert.equal(await ready, cursor)
+  assert.equal(replayed, 1)
+  stream.pause()
+  const reconnectedReady = stream.waitForCheckpoint()
+  stream.open()
+  sources[1]!.emit(
+    "stream.checkpoint",
+    new MessageEvent("stream.checkpoint", {
+      lastEventId: cursor,
+      data: JSON.stringify({
+        id: cursor,
+        type: "stream.checkpoint",
+        payload: { cursor },
+      }),
+    })
+  )
+  assert.equal(await reconnectedReady, cursor)
+  stream.close()
+})

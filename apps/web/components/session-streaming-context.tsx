@@ -16,47 +16,62 @@ import type { SessionSnapshot } from "@/lib/session-types"
 const Context = createContext<SessionViewController | null>(null)
 const cachedSessions = new Map<string, SessionViewController>()
 const EMPTY_METADATA = { loadingEarlier: false, error: null as string | null }
+const EMPTY_MESSAGES: ReturnType<
+  SessionViewController["store"]["getMessages"]
+> = []
 
-function acquire(sessionId: string, view: SessionView) {
+function acquire(
+  cacheKey: string,
+  sessionId: string,
+  view: SessionView | null
+) {
   if (typeof window === "undefined")
     return new SessionViewController(sessionId, view)
-  const previous = cachedSessions.get(sessionId)
+  const previous = cachedSessions.get(cacheKey)
   if (previous) return previous
   const controller = new SessionViewController(sessionId, view)
-  cachedSessions.set(sessionId, controller)
+  cachedSessions.set(cacheKey, controller)
   const idle = [...cachedSessions.values()]
     .filter(
-      (entry) =>
-        entry.lastUsed > 0 &&
-        !entry.users &&
-        !entry.active() &&
-        entry !== controller
+      (entry) => entry.lastUsed > 0 && !entry.users && entry !== controller
     )
     .sort((a, b) => a.lastUsed - b.lastUsed)
   while (cachedSessions.size > 8 && idle.length) {
     const oldest = idle.shift()!
     oldest.dispose()
-    cachedSessions.delete(oldest.sessionId)
+    for (const [key, value] of cachedSessions) {
+      if (value === oldest) {
+        cachedSessions.delete(key)
+        break
+      }
+    }
   }
   return controller
 }
 
 export function SessionStreamingProvider({
   sessionId,
+  identityKey,
+  selectedNativeFileRevision,
   initialView,
   children,
 }: {
   sessionId: string
-  initialView: SessionView
+  identityKey?: string
+  selectedNativeFileRevision?: string
+  initialView?: SessionView | null
   children: ReactNode
 }) {
-  const [controller] = useState(() => acquire(sessionId, initialView))
+  const cacheKey = identityKey ?? sessionId
+  const [controller] = useState(() =>
+    acquire(cacheKey, sessionId, initialView ?? null)
+  )
   useEffect(() => {
-    controller.retain()
+    controller.retain(undefined, selectedNativeFileRevision)
     return () => controller.release()
-  }, [controller])
+  }, [controller, selectedNativeFileRevision])
   useEffect(() => {
-    controller.acceptInitial(initialView)
+    if (initialView) controller.acceptInitial(initialView)
   }, [controller, initialView])
   return <Context value={controller}>{children}</Context>
 }
@@ -65,6 +80,14 @@ export function useSessionViewController() {
   const value = useContext(Context)
   if (!value) throw new Error("Session view requires SessionStreamingProvider.")
   return value
+}
+export function useSessionView() {
+  const controller = useSessionViewController()
+  return useSyncExternalStore(
+    controller.subscribe,
+    controller.getView,
+    () => null
+  )
 }
 export function useSessionStreaming() {
   return useSessionViewController().store
@@ -76,7 +99,14 @@ export function useSessionEvents() {
   return useSessionViewController().events
 }
 
-export function useSessionTranscript(fallback: SessionSnapshot) {
+export function useSessionTranscript(fallback: SessionSnapshot): SessionSnapshot
+export function useSessionTranscript(fallback: null): SessionSnapshot | null
+export function useSessionTranscript(
+  fallback: SessionSnapshot | null
+): SessionSnapshot | null
+export function useSessionTranscript(
+  fallback: SessionSnapshot | null
+): SessionSnapshot | null {
   const controller = useSessionViewController()
   return (
     useSyncExternalStore(
@@ -99,7 +129,7 @@ export function useStreamingMessages() {
   return useSyncExternalStore(
     controller.store.subscribe,
     controller.store.getMessages,
-    () => controller.initialView.live.messages
+    () => controller.initialView?.live.messages ?? EMPTY_MESSAGES
   )
 }
 export function useStreamingActiveTools() {
@@ -119,7 +149,7 @@ export function useStreamingRuntimeStatus() {
   return useSyncExternalStore(
     controller.store.subscribe,
     controller.store.getRuntimeStatus,
-    () => controller.initialView.runtime.status
+    () => controller.initialView?.runtime.status ?? null
   )
 }
 export function useStreamingTool(toolCallId: string) {

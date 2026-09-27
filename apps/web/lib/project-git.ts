@@ -3,7 +3,7 @@ import "server-only"
 import { spawn } from "node:child_process"
 import type { EventEmitter } from "node:events"
 import type { Readable } from "node:stream"
-import { mkdtemp, realpath, rm } from "node:fs/promises"
+import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 
@@ -77,18 +77,29 @@ function commandValue(result: GitResult) {
   return result.code === 0 ? result.stdout.trim() || null : null
 }
 
+function quoteGitAlternatePath(value: string) {
+  return `"${value
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, '\\"')
+    .replace(/\n/g, "\\n")
+    .replace(/\r/g, "\\r")
+    .replace(/\t/g, "\\t")}"`
+}
+
 async function diffAgainstEmpty(
   projectPath: string,
   filePath: string,
   hasHead: boolean
 ) {
-  const directory = await mkdtemp(path.join(tmpdir(), "pi-web-codex-diff-"))
-  const environment = { GIT_INDEX_FILE: path.join(directory, "index") }
+  const environment = await createTemporaryIndexEnvironment(
+    projectPath,
+    "pi-web-codex-diff-"
+  )
   try {
     const initialize = await runGit(
       projectPath,
       hasHead ? ["read-tree", "HEAD"] : ["read-tree", "--empty"],
-      environment
+      environment.readEnvironment
     )
     if (initialize.code !== 0) {
       throw new ProjectGitError(
@@ -98,7 +109,7 @@ async function diffAgainstEmpty(
     const add = await runGit(
       projectPath,
       ["add", "--intent-to-add", "--", filePath],
-      environment
+      environment.writeEnvironment
     )
     if (add.code !== 0) {
       throw new ProjectGitError(add.stderr.trim() || "Git diff failed.")
@@ -106,14 +117,86 @@ async function diffAgainstEmpty(
     const result = await runGit(
       projectPath,
       ["diff", "--no-ext-diff", "--no-color", "--unified=3", "--", filePath],
-      environment
+      environment.readEnvironment
     )
     if (result.code !== 0) {
       throw new ProjectGitError(result.stderr.trim() || "Git diff failed.")
     }
     return result.stdout
   } finally {
+    await rm(environment.directory, { recursive: true, force: true })
+  }
+}
+
+async function createTemporaryIndexEnvironment(
+  projectPath: string,
+  prefix: string
+) {
+  const directory = await mkdtemp(path.join(tmpdir(), prefix))
+  try {
+    const objects = path.join(directory, "objects")
+    await mkdir(objects, { recursive: true })
+    const writeEnvironment = {
+      GIT_OBJECT_DIRECTORY: objects,
+      GIT_ALTERNATE_OBJECT_DIRECTORIES: "",
+      GIT_OPTIONAL_LOCKS: "0",
+    }
+    const emptyBlobPath = path.join(directory, "empty-blob")
+    await writeFile(emptyBlobPath, "")
+    const seedEmptyBlob = await runGit(
+      projectPath,
+      ["hash-object", "-w", "--", emptyBlobPath],
+      writeEnvironment
+    )
+    if (seedEmptyBlob.code !== 0) {
+      throw new ProjectGitError(
+        seedEmptyBlob.stderr.trim() ||
+          "Git temporary object initialization failed."
+      )
+    }
+    await rm(emptyBlobPath, { force: true })
+    const objectDirectory = await runGit(
+      projectPath,
+      ["rev-parse", "--git-path", "objects"],
+      { GIT_OPTIONAL_LOCKS: "0" }
+    )
+    if (objectDirectory.code !== 0) {
+      throw new ProjectGitError(
+        objectDirectory.stderr.trim() || "Git object directory lookup failed."
+      )
+    }
+    const repositoryObjects = path.isAbsolute(objectDirectory.stdout.trim())
+      ? objectDirectory.stdout.trim()
+      : path.resolve(projectPath, objectDirectory.stdout.trim())
+    const configuredObjectDirectory = process.env.GIT_OBJECT_DIRECTORY
+      ? path.isAbsolute(process.env.GIT_OBJECT_DIRECTORY)
+        ? process.env.GIT_OBJECT_DIRECTORY
+        : path.resolve(projectPath, process.env.GIT_OBJECT_DIRECTORY)
+      : null
+    const existingAlternates = process.env.GIT_ALTERNATE_OBJECT_DIRECTORIES
+    const alternates = [
+      ...[configuredObjectDirectory, repositoryObjects]
+        .filter((value): value is string => Boolean(value))
+        .map(quoteGitAlternatePath),
+      ...(existingAlternates ? [existingAlternates] : []),
+    ].join(path.delimiter)
+    const readEnvironment = {
+      GIT_INDEX_FILE: path.join(directory, "index"),
+      GIT_OBJECT_DIRECTORY: objects,
+      GIT_ALTERNATE_OBJECT_DIRECTORIES: alternates,
+      GIT_OPTIONAL_LOCKS: "0",
+    }
+    return {
+      directory,
+      readEnvironment,
+      writeEnvironment: {
+        ...readEnvironment,
+        GIT_ALTERNATE_OBJECT_DIRECTORIES: "",
+      },
+    }
+  } catch (error) {
     await rm(directory, { recursive: true, force: true })
+    throw error
   }
 }
 
@@ -201,13 +284,15 @@ async function readLineStats(
   files: GitFileStatus[],
   hasHead: boolean
 ) {
-  const directory = await mkdtemp(path.join(tmpdir(), "pi-web-codex-stats-"))
-  const environment = { GIT_INDEX_FILE: path.join(directory, "index") }
+  const environment = await createTemporaryIndexEnvironment(
+    projectPath,
+    "pi-web-codex-stats-"
+  )
   try {
     const initialize = await runGit(
       projectPath,
       hasHead ? ["read-tree", "HEAD"] : ["read-tree", "--empty"],
-      environment
+      environment.readEnvironment
     )
     if (initialize.code !== 0) {
       throw new ProjectGitError(
@@ -229,7 +314,7 @@ async function readLineStats(
       const add = await runGit(
         projectPath,
         ["add", "--intent-to-add", "--", ...newPaths],
-        environment
+        environment.writeEnvironment
       )
       if (add.code !== 0) {
         throw new ProjectGitError(
@@ -248,7 +333,7 @@ async function readLineStats(
         "--",
         ".",
       ],
-      environment
+      environment.readEnvironment
     )
     if (result.code !== 0) {
       throw new ProjectGitError(
@@ -257,7 +342,7 @@ async function readLineStats(
     }
     return parseLineStats(result.stdout)
   } finally {
-    await rm(directory, { recursive: true, force: true })
+    await rm(environment.directory, { recursive: true, force: true })
   }
 }
 

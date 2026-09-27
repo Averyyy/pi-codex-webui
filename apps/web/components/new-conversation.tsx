@@ -24,8 +24,8 @@ import {
 
 import { Button } from "@workspace/ui/components/button"
 import {
-  type ModelSettings,
   type ModelSettingsModel,
+  type ModelSettings,
   type RuntimeModel,
   type ThinkingLevel,
 } from "@workspace/runtime-protocol"
@@ -41,6 +41,7 @@ import {
   ConversationComposer,
   nextThinkingLevel,
 } from "@/components/conversation-composer"
+import { CatalogRefreshAction } from "@/components/catalog-refresh-action"
 import { useSessionComposerDraftStore } from "@/components/session-composer-draft-context"
 import { ApiError, responseJson } from "@/lib/api-response"
 import { useI18n } from "@/components/i18n-provider"
@@ -49,6 +50,12 @@ import {
   draftAfterAcceptedSend,
   NEW_CONVERSATION_DRAFT_ID,
 } from "@/lib/session-composer-draft-store"
+import { reconcileNewConversationModelSelection } from "@/lib/model-catalog-selection"
+import {
+  SESSION_CATALOG_CHANGED,
+  type SessionCatalogChangedDetail,
+} from "@/lib/session-catalog-events"
+import { dispatchSessionNavigationIntent } from "@/lib/session-navigation-events"
 import {
   createSingleFlight,
   isRecoverableRuntimeDraftLeaseError,
@@ -80,30 +87,13 @@ interface RuntimeDraftLease {
 
 interface ModelSelection {
   projectId: string | null
-  settings: ModelSettings | null
+  catalogIdentity: string | null
   model: ModelSettingsModel | null
   thinkingLevel: ThinkingLevel | null
 }
 
 function modelKey(model: Pick<RuntimeModel, "provider" | "id">) {
   return `${model.provider}/${model.id}`
-}
-
-function enabledModels(settings: ModelSettings | null) {
-  return (settings?.models ?? []).filter((model) => model.enabled)
-}
-
-function initialModel(settings: ModelSettings | null) {
-  const models = enabledModels(settings)
-  return (
-    models.find(
-      (model) =>
-        settings?.defaultModel != null &&
-        modelKey(model) === modelKey(settings.defaultModel)
-    ) ??
-    models[0] ??
-    null
-  )
 }
 
 const STARTERS = [
@@ -129,55 +119,55 @@ export function NewConversation({
   projects,
   initialProjectId,
   initialModelSettings,
+  initialModelCatalogIdentity,
   mutationToken,
 }: {
   projects: NewConversationProject[]
   initialProjectId: string | null
   initialModelSettings: ModelSettings | null
+  initialModelCatalogIdentity: string | null
   mutationToken: string
 }) {
   const router = useRouter()
   const { t } = useI18n()
   const composerDraftStore = useSessionComposerDraftStore()
   const projectId = initialProjectId
+  const models = useMemo(
+    () => (initialModelSettings?.models ?? []).filter((model) => model.enabled),
+    [initialModelSettings]
+  )
+  const catalogDefaultModel = useMemo(
+    () =>
+      models.find(
+        (model) =>
+          initialModelSettings?.defaultModel != null &&
+          modelKey(model) === modelKey(initialModelSettings.defaultModel)
+      ) ??
+      models[0] ??
+      null,
+    [initialModelSettings, models]
+  )
   const [modelSelection, setModelSelection] = useState<ModelSelection>(() => {
-    const model = initialModel(initialModelSettings)
+    const model = catalogDefaultModel
     return {
       projectId: initialProjectId,
-      settings: initialModelSettings,
+      catalogIdentity: initialModelSettings?.catalogIdentity ?? null,
       model,
       thinkingLevel: model?.defaultThinkingLevel ?? null,
     }
   })
-  if (
-    modelSelection.projectId !== initialProjectId ||
-    modelSelection.settings !== initialModelSettings
-  ) {
-    const available = enabledModels(initialModelSettings)
-    const selected = modelSelection.model
-    const previous = selected
-      ? available.find(
-          (candidate) => modelKey(candidate) === modelKey(selected)
-        )
-      : null
-    const sameProject = modelSelection.projectId === initialProjectId
-    const model =
-      sameProject && previous ? previous : initialModel(initialModelSettings)
-    const previousThinking = modelSelection.thinkingLevel
-    setModelSelection({
-      projectId: initialProjectId,
-      settings: initialModelSettings,
-      model,
-      thinkingLevel:
-        sameProject &&
-        model &&
-        previousThinking &&
-        model.availableThinkingLevels.includes(previousThinking)
-          ? previousThinking
-          : (model?.defaultThinkingLevel ?? null),
-    })
+  const reconciledModelSelection = reconcileNewConversationModelSelection(
+    modelSelection,
+    initialProjectId,
+    initialModelSettings
+  )
+  if (reconciledModelSelection !== modelSelection) {
+    setModelSelection(reconciledModelSelection)
   }
-  const { model, thinkingLevel } = modelSelection
+  const model = initialModelSettings ? reconciledModelSelection.model : null
+  const thinkingLevel = initialModelSettings
+    ? reconciledModelSelection.thinkingLevel
+    : null
   const [initialComposerDraft] = useState(() =>
     composerDraftStore.read(NEW_CONVERSATION_DRAFT_ID)
   )
@@ -202,14 +192,24 @@ export function NewConversation({
   const [draftPreparing, setDraftPreparing] = useState(false)
   const [draftClaimed, setDraftClaimed] = useState(false)
   const [draftRevision, setDraftRevision] = useState(0)
+  const draftInitialModel = useMemo(
+    () => catalogDefaultModel,
+    [catalogDefaultModel]
+  )
+  const draftInitialModelRef = useRef(draftInitialModel)
+  useEffect(() => {
+    draftInitialModelRef.current = draftInitialModel
+  }, [draftInitialModel])
+  const targetCatalogIdentity =
+    initialModelSettings?.catalogIdentity ?? initialModelCatalogIdentity
   const draftGeneration = useMemo(
     () => ({
       projectId,
-      settings: initialModelSettings,
       mutationToken,
       revision: draftRevision,
+      catalogIdentity: targetCatalogIdentity,
     }),
-    [draftRevision, initialModelSettings, mutationToken, projectId]
+    [draftRevision, targetCatalogIdentity, mutationToken, projectId]
   )
   const [draftBinding, setDraftBinding] = useState<{
     lease: RuntimeDraftLease
@@ -230,8 +230,10 @@ export function NewConversation({
     initialComposerDraft.images,
     updateStoredComposerImages
   )
-  const selectedProject = projects.find((project) => project.id === projectId)
-  const models = enabledModels(initialModelSettings)
+  const selectedProject = useMemo(
+    () => projects.find((project) => project.id === projectId),
+    [projectId, projects]
+  )
 
   useEffect(() => {
     mountedRef.current = true
@@ -253,11 +255,10 @@ export function NewConversation({
       setSubmitting(false)
       submittingRef.current = false
       setError(null)
-      setDraftPreparing(Boolean(initialModelSettings))
       setDraftError(null)
     })
 
-    if (!initialModelSettings) {
+    if (!generation.catalogIdentity) {
       queueMicrotask(() => {
         if (!cancelled) setDraftPreparing(false)
       })
@@ -272,7 +273,7 @@ export function NewConversation({
       return
     }
 
-    const draftModel = initialModel(initialModelSettings)
+    const draftModel = draftInitialModelRef.current
     const draftId = globalThis.crypto.randomUUID()
     const leaseId = globalThis.crypto.randomUUID()
 
@@ -284,7 +285,7 @@ export function NewConversation({
         method: "DELETE",
         headers: {
           "Content-Type": "application/json",
-          "X-Pi-Web-Codex-Mutation-Token": mutationToken,
+          "X-Pi-Web-Codex-Mutation-Token": generation.mutationToken,
         },
         body: JSON.stringify({ leaseToken: token, leaseId }),
         keepalive: true,
@@ -306,12 +307,12 @@ export function NewConversation({
             method: "POST",
             headers: {
               "Content-Type": "application/json",
-              "X-Pi-Web-Codex-Mutation-Token": mutationToken,
+              "X-Pi-Web-Codex-Mutation-Token": generation.mutationToken,
             },
             body: JSON.stringify({
               draftId,
               leaseId,
-              projectId,
+              projectId: generation.projectId,
               ...(draftModel
                 ? {
                     model: {
@@ -329,7 +330,7 @@ export function NewConversation({
           release()
           return
         }
-        if (prepared.projectId !== projectId) {
+        if (prepared.projectId !== generation.projectId) {
           release()
           setDraftPreparing(false)
           setDraftError(
@@ -359,7 +360,7 @@ export function NewConversation({
         draftLeaseGenerationRef.current = null
       }
     }
-  }, [draftGeneration, initialModelSettings, mutationToken, projectId])
+  }, [draftGeneration])
 
   useEffect(() => {
     if (!draftLease || draftClaimed) return
@@ -479,18 +480,78 @@ export function NewConversation({
     messageInputRef.current?.focus()
   }
 
-  function changeThinkingLevel(direction: -1 | 1) {
+  const changeThinkingLevel = useCallback(
+    (direction: -1 | 1) => {
+      if (!model || !thinkingLevel) return
+      setModelSelection((current) => ({
+        ...current,
+        thinkingLevel: adjacentThinkingLevel(
+          thinkingLevel,
+          model.availableThinkingLevels,
+          direction,
+          t
+        ),
+      }))
+    },
+    [model, thinkingLevel, t]
+  )
+  const cycleThinkingLevel = useCallback(() => {
     if (!model || !thinkingLevel) return
     setModelSelection((current) => ({
       ...current,
-      thinkingLevel: adjacentThinkingLevel(
+      thinkingLevel: nextThinkingLevel(
         thinkingLevel,
         model.availableThinkingLevels,
-        direction,
         t
       ),
     }))
-  }
+  }, [model, thinkingLevel, t])
+  const handleThinkingLevelChange = useCallback((level: ThinkingLevel) => {
+    setModelSelection((current) => ({ ...current, thinkingLevel: level }))
+  }, [])
+  const handleModelChange = useCallback((nextModel: ModelSettingsModel) => {
+    setError(null)
+    setModelSelection((current) => ({
+      ...current,
+      model: nextModel,
+      thinkingLevel: nextModel.defaultThinkingLevel,
+    }))
+  }, [])
+  const canCycleThinkingLevel = Boolean(
+    model &&
+    thinkingLevel &&
+    model.availableThinkingLevels.length > 1 &&
+    !submitting
+  )
+  const composerCommands = useMemo(
+    () => [
+      {
+        id: "goal",
+        label: t("home.command.goal"),
+        description: t("home.command.insideTask"),
+        icon: TargetIcon,
+        disabled: true,
+        onSelect: noop,
+      },
+      {
+        id: "compact",
+        label: t("home.command.compact"),
+        description: t("home.command.insideTask"),
+        icon: Minimize2Icon,
+        disabled: true,
+        onSelect: noop,
+      },
+      {
+        id: "reload",
+        label: t("home.command.reload"),
+        description: t("home.command.insideTask"),
+        icon: RefreshCwIcon,
+        disabled: true,
+        onSelect: noop,
+      },
+    ],
+    [t]
+  )
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -574,12 +635,19 @@ export function NewConversation({
       setDraftClaimed(true)
       setMessage(draftAfterAcceptedSend(messageRef.current, submittedMessage))
       composerImages.clearAcceptedImages(submittedImages)
-      router.push(
+      const catalogChange: SessionCatalogChangedDetail =
+        created.projectId === null
+          ? { scope: "tasks" }
+          : { scope: "project", projectId: created.projectId }
+      window.dispatchEvent(
+        new CustomEvent(SESSION_CATALOG_CHANGED, { detail: catalogChange })
+      )
+      const destination =
         created.projectId === null
           ? `/tasks/${created.sessionId}`
           : `/projects/${created.projectId}/sessions/${created.sessionId}`
-      )
-      router.refresh()
+      dispatchSessionNavigationIntent(destination)
+      router.push(destination)
     } catch (failure) {
       if (!isCurrentClaim()) return
       setError(
@@ -643,6 +711,16 @@ export function NewConversation({
       </section>
 
       <div className="mx-auto flex w-full max-w-[52rem] min-w-0 flex-col gap-3">
+        {initialModelSettings?.scopeWarnings?.length ? (
+          <ul
+            role="status"
+            className="rounded-lg bg-muted p-3 text-left text-sm text-muted-foreground"
+          >
+            {initialModelSettings.scopeWarnings.map((warning) => (
+              <li key={warning}>{warning}</li>
+            ))}
+          </ul>
+        ) : null}
         {error || draftError ? (
           <div
             role="alert"
@@ -704,64 +782,16 @@ export function NewConversation({
           onImagesAdd={composerImages.addImages}
           onImageRemove={composerImages.removeImage}
           onCycleThinkingLevel={
-            model &&
-            thinkingLevel &&
-            model.availableThinkingLevels.length > 1 &&
-            !submitting
-              ? () =>
-                  setModelSelection((current) => ({
-                    ...current,
-                    thinkingLevel: nextThinkingLevel(
-                      thinkingLevel,
-                      model.availableThinkingLevels,
-                      t
-                    ),
-                  }))
-              : undefined
+            canCycleThinkingLevel ? cycleThinkingLevel : undefined
           }
           onDecreaseThinkingLevel={
-            model &&
-            thinkingLevel &&
-            model.availableThinkingLevels.length > 1 &&
-            !submitting
-              ? () => changeThinkingLevel(-1)
-              : undefined
+            canCycleThinkingLevel ? () => changeThinkingLevel(-1) : undefined
           }
           onIncreaseThinkingLevel={
-            model &&
-            thinkingLevel &&
-            model.availableThinkingLevels.length > 1 &&
-            !submitting
-              ? () => changeThinkingLevel(1)
-              : undefined
+            canCycleThinkingLevel ? () => changeThinkingLevel(1) : undefined
           }
           textareaRef={messageInputRef}
-          commands={[
-            {
-              id: "goal",
-              label: t("home.command.goal"),
-              description: t("home.command.insideTask"),
-              icon: TargetIcon,
-              disabled: true,
-              onSelect: noop,
-            },
-            {
-              id: "compact",
-              label: t("home.command.compact"),
-              description: t("home.command.insideTask"),
-              icon: Minimize2Icon,
-              disabled: true,
-              onSelect: noop,
-            },
-            {
-              id: "reload",
-              label: t("home.command.reload"),
-              description: t("home.command.insideTask"),
-              icon: RefreshCwIcon,
-              disabled: true,
-              onSelect: noop,
-            },
-          ]}
+          commands={composerCommands}
           sessionControls={{
             goal: { disabled: true },
             runtime: {
@@ -808,17 +838,17 @@ export function NewConversation({
           }
           settings={
             <>
+              <CatalogRefreshAction
+                modelTarget={
+                  projectId === null ? { newTask: true } : { projectId }
+                }
+                projectId={projectId}
+                mutationToken={mutationToken}
+              />
               <ComposerModelSelect
                 model={model}
                 models={models}
-                onModelChange={(nextModel) => {
-                  setError(null)
-                  setModelSelection((current) => ({
-                    ...current,
-                    model: nextModel,
-                    thinkingLevel: nextModel.defaultThinkingLevel,
-                  }))
-                }}
+                onModelChange={handleModelChange}
                 disabled={submitting}
                 settingsHref="/settings/models"
               />
@@ -826,12 +856,7 @@ export function NewConversation({
                 <ComposerThinkingSelect
                   level={thinkingLevel}
                   levels={model.availableThinkingLevels}
-                  onLevelChange={(level) =>
-                    setModelSelection((current) => ({
-                      ...current,
-                      thinkingLevel: level,
-                    }))
-                  }
+                  onLevelChange={handleThinkingLevelChange}
                   disabled={submitting}
                 />
               ) : null}

@@ -64,6 +64,13 @@ import { useShortcutAction } from "@/components/keyboard-shortcuts-provider"
 import { useStreamingRuntimeStatus } from "@/components/session-streaming-context"
 import { responseJson, validatedResponseJson } from "@/lib/api-response"
 import { sessionTreeActiveUserEntryId } from "@/lib/session-tree"
+import {
+  dispatchSessionEntityUpdated,
+  SESSION_CATALOG_CHANGED,
+  type SessionCatalogChangedDetail,
+} from "@/lib/session-catalog-events"
+import { dispatchModelCatalogInvalidated } from "@/lib/model-catalog-events"
+import { dispatchSessionNavigationIntent } from "@/lib/session-navigation-events"
 
 type DialogKind = "rename" | "fork" | "stats" | "import" | "runtime"
 
@@ -172,11 +179,18 @@ export function SessionOperations({
   function navigateTo(result: ReplacementResult) {
     setDialog(null)
     setFile(null)
-    router.push(
+    const detail: SessionCatalogChangedDetail =
+      result.projectId === null
+        ? { scope: "tasks" }
+        : { scope: "project", projectId: result.projectId }
+    window.dispatchEvent(new CustomEvent(SESSION_CATALOG_CHANGED, { detail }))
+    dispatchModelCatalogInvalidated({ target: { sessionId: result.sessionId } })
+    const destination =
       result.projectId === null
         ? `/tasks/${result.sessionId}`
         : `/projects/${result.projectId}/sessions/${result.sessionId}`
-    )
+    dispatchSessionNavigationIntent(destination)
+    router.push(destination)
     router.refresh()
   }
 
@@ -283,7 +297,10 @@ export function SessionOperations({
           t("session.runtime.operationFailed", { status: response.status })
         )
         setDialog(null)
-        router.refresh()
+        dispatchSessionEntityUpdated({
+          sessionId,
+          title: name.trim(),
+        })
       },
       { dialogError: true }
     )
@@ -292,6 +309,7 @@ export function SessionOperations({
   async function archive() {
     await run(async () => {
       await mutate(`/api/v1/sessions/${sessionId}/archive`)
+      window.dispatchEvent(new Event(SESSION_CATALOG_CHANGED))
       router.push("/")
       router.refresh()
     })
@@ -302,6 +320,7 @@ export function SessionOperations({
       await mutate(`/api/v1/sessions/${sessionId}/pin`, {
         pinned: !isPinned,
       })
+      window.dispatchEvent(new Event(SESSION_CATALOG_CHANGED))
       router.refresh()
     })
   }

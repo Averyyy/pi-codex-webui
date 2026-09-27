@@ -4,6 +4,8 @@ import test from "node:test"
 import { parseWebUiExtensionCatalog } from "./webui-extensions/catalog-schema"
 
 const catalog = {
+  catalogIdentity: "opaque-identity",
+  catalogVersion: "opaque-version",
   revision: 3,
   projectId: null,
   projectTrusted: false,

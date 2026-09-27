@@ -29,6 +29,8 @@ const targetSchema = z
   )
 
 export const webUiExtensionCatalogSchema = z.object({
+  catalogIdentity: z.string().min(1),
+  catalogVersion: z.string().min(1),
   revision: z.number().int().nonnegative(),
   projectId: z.string().nullable(),
   projectTrusted: z.boolean(),
@@ -56,6 +58,10 @@ export const webUiExtensionCatalogSchema = z.object({
     })
   ),
   diagnostics: z.array(z.object({ path: z.string(), message: z.string() })),
+  refreshError: z.string().min(1).optional(),
+  refreshDiagnostics: z
+    .array(z.object({ path: z.string(), message: z.string() }))
+    .optional(),
   statuses: z.array(
     webUiExtensionStatusSchema.extend({ sessionId: z.string().min(1) })
   ),

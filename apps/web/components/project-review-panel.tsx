@@ -1,12 +1,6 @@
 "use client"
 
-import {
-  useEffect,
-  useEffectEvent,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from "react"
+import { useEffect, useLayoutEffect, useRef, useState } from "react"
 import { CheckCircle2Icon, FileDiffIcon, GitBranchIcon } from "lucide-react"
 
 import { Badge } from "@workspace/ui/components/badge"
@@ -25,125 +19,135 @@ import { useI18n } from "@/components/i18n-provider"
 import { responseJson } from "@/lib/api-response"
 import { projectGitErrorCopy } from "@/lib/project-git-display"
 import type { ProjectGitDiff, ProjectGitStatus } from "@/lib/project-git"
-
-function firstChangedPath(status: ProjectGitStatus) {
-  return status.available ? (status.files[0]?.path ?? null) : null
-}
+import { useProjectGitStatus } from "@/lib/project-git-store"
 
 export function ProjectReviewPanel({
   projectId,
   initialGit,
 }: {
   projectId: string
-  initialGit: ProjectGitStatus
+  initialGit: ProjectGitStatus | null
 }) {
   const { locale, t } = useI18n()
-  const [git, setGit] = useState(initialGit)
-  const [selectedPath, setSelectedPath] = useState(() =>
-    firstChangedPath(initialGit)
-  )
+  const { snapshot: gitSnapshot } = useProjectGitStatus(projectId, initialGit)
+  const git = gitSnapshot.status
+  const [preferredSelectedPath, setPreferredSelectedPath] = useState<
+    string | null
+  >(null)
+  const selectedPath =
+    git?.available &&
+    git.files.some((file) => file.path === preferredSelectedPath)
+      ? preferredSelectedPath
+      : git?.available
+        ? (git.files[0]?.path ?? null)
+        : null
   const [diff, setDiff] = useState<ProjectGitDiff | null>(null)
-  const [diffLoading, setDiffLoading] = useState(selectedPath !== null)
-  const [diffRevision, setDiffRevision] = useState(0)
-  const [error, setError] = useState<string | null>(null)
-  const statusRequest = useRef<AbortController | null>(null)
+  const [completedDiff, setCompletedDiff] = useState<{
+    key: string
+    changeSequence: number
+  } | null>(null)
+  const [diffError, setDiffError] = useState<string | null>(null)
   const fileButtons = useRef(new Map<string, HTMLButtonElement>())
-  const pendingSelectionFocus = useRef<string | null>(null)
+  const focusedPath = useRef<string | null>(null)
+  const diffKey = selectedPath
+    ? JSON.stringify([projectId, selectedPath])
+    : null
+  const diffChangeRelevant =
+    gitSnapshot.changeSequence <= 1 ||
+    gitSnapshot.changedPath === null ||
+    gitSnapshot.changedPath === selectedPath ||
+    gitSnapshot.changedPath.startsWith(".git/")
+  const hasCurrentDiff = Boolean(
+    diffKey &&
+    completedDiff?.key === diffKey &&
+    (!diffChangeRelevant ||
+      completedDiff.changeSequence === gitSnapshot.changeSequence)
+  )
+  const diffLoading = diffKey !== null && !hasCurrentDiff
+  const error = diffError ?? gitSnapshot.error
 
-  const refresh = useEffectEvent(async (changedPath: string | null) => {
-    statusRequest.current?.abort()
-    const controller = new AbortController()
-    statusRequest.current = controller
-    const body = await responseJson<ProjectGitStatus>(
-      await fetch(`/api/v1/projects/${projectId}/git`, {
-        signal: controller.signal,
-      })
-    )
-    setError(null)
-    const nextPath = body.available
-      ? body.files.some((file) => file.path === selectedPath)
-        ? selectedPath
-        : (body.files[0]?.path ?? null)
-      : null
-    if (
-      selectedPath &&
-      nextPath &&
-      nextPath !== selectedPath &&
-      document.activeElement === fileButtons.current.get(selectedPath)
-    ) {
-      pendingSelectionFocus.current = nextPath
+  useEffect(() => {
+    const clearFocusedPath = () => {
+      focusedPath.current = null
     }
-    const statusChanged = JSON.stringify(body) !== JSON.stringify(git)
-    const diffChanged =
-      statusChanged ||
-      changedPath === null ||
-      changedPath === selectedPath ||
-      changedPath.startsWith(".git/")
-    if (statusChanged) setGit(body)
-    setSelectedPath(nextPath)
-    if (diffChanged) {
-      setDiffLoading(nextPath !== null)
-      setDiffRevision((value) => value + 1)
-    }
-  })
+    window.addEventListener("blur", clearFocusedPath)
+    return () => window.removeEventListener("blur", clearFocusedPath)
+  }, [])
 
   useLayoutEffect(() => {
-    const path = pendingSelectionFocus.current
-    if (!path) return
-    const button = fileButtons.current.get(path)
+    const previousPath = focusedPath.current
+    if (
+      !previousPath ||
+      (git?.available && git.files.some((file) => file.path === previousPath))
+    )
+      return
+    const button = selectedPath
+      ? fileButtons.current.get(selectedPath)
+      : undefined
     if (!button) return
-    pendingSelectionFocus.current = null
     button.focus()
-  }, [git, selectedPath])
+    focusedPath.current = selectedPath
+  }, [git, gitSnapshot.changeSequence, selectedPath])
 
   useEffect(() => {
-    const changes = new EventSource(`/api/v1/projects/${projectId}/changes`)
-    const update = (source: Event) => {
-      const change = JSON.parse((source as MessageEvent<string>).data) as {
-        path: string | null
-      }
-      void refresh(change.path).catch((failure: unknown) => {
-        if (!(
-          failure instanceof DOMException && failure.name === "AbortError"
-        )) {
-          setError(failure instanceof Error ? failure.message : String(failure))
-        }
-      })
+    if (!selectedPath || !diffKey) return
+    if (
+      completedDiff?.key === diffKey &&
+      (!diffChangeRelevant ||
+        completedDiff.changeSequence === gitSnapshot.changeSequence)
+    ) {
+      return
     }
-    changes.addEventListener("project.change", update)
-    return () => {
-      changes.close()
-      statusRequest.current?.abort()
-    }
-  }, [projectId])
-
-  useEffect(() => {
-    if (!selectedPath) return
     const controller = new AbortController()
+    const changeSequence = gitSnapshot.changeSequence
     const query = new URLSearchParams({ path: selectedPath })
     void fetch(`/api/v1/projects/${projectId}/git?${query}`, {
       signal: controller.signal,
     })
       .then((response) => responseJson<ProjectGitDiff>(response))
-      .then(setDiff)
-      .catch((failure: unknown) => {
-        if (!(
-          failure instanceof DOMException && failure.name === "AbortError"
-        )) {
-          setError(failure instanceof Error ? failure.message : String(failure))
-        }
+      .then((nextDiff) => {
+        if (controller.signal.aborted) return
+        setDiff(nextDiff)
+        setDiffError(null)
+        setCompletedDiff({ key: diffKey, changeSequence })
       })
-      .finally(() => {
-        if (!controller.signal.aborted) setDiffLoading(false)
+      .catch((failure: unknown) => {
+        if (controller.signal.aborted) return
+        setDiffError(
+          failure instanceof Error ? failure.message : String(failure)
+        )
+        setCompletedDiff({ key: diffKey, changeSequence })
       })
     return () => controller.abort()
-  }, [diffRevision, projectId, selectedPath])
+  }, [
+    completedDiff,
+    diffChangeRelevant,
+    diffKey,
+    gitSnapshot.changeSequence,
+    projectId,
+    selectedPath,
+  ])
 
   function selectPath(path: string) {
     setDiff(null)
-    setDiffLoading(true)
-    setError(null)
-    setSelectedPath(path)
+    setDiffError(null)
+    setPreferredSelectedPath(path)
+  }
+
+  if (!git) {
+    return gitSnapshot.error ? (
+      <Empty>
+        <EmptyHeader>
+          <EmptyMedia variant="icon">
+            <GitBranchIcon />
+          </EmptyMedia>
+          <EmptyTitle>{t("project.git.unavailable")}</EmptyTitle>
+          <EmptyDescription>{gitSnapshot.error}</EmptyDescription>
+        </EmptyHeader>
+      </Empty>
+    ) : (
+      <Skeleton className="m-3 h-72" aria-busy="true" />
+    )
   }
 
   if (!git.available) {
@@ -155,14 +159,16 @@ export function ProjectReviewPanel({
           </EmptyMedia>
           <EmptyTitle>{t("project.git.unavailable")}</EmptyTitle>
           <EmptyDescription>
-            {projectGitErrorCopy(git.error, locale)}
+            {gitSnapshot.error
+              ? projectGitErrorCopy(gitSnapshot.error, locale)
+              : projectGitErrorCopy(git.error, locale)}
           </EmptyDescription>
         </EmptyHeader>
       </Empty>
     )
   }
 
-  if (!git.files.length) {
+  if (!git.files.length && !gitSnapshot.error) {
     return (
       <Empty>
         <EmptyHeader>
@@ -213,6 +219,17 @@ export function ProjectReviewPanel({
                 data-review-path={file.path}
                 aria-pressed={file.path === selectedPath}
                 onClick={() => selectPath(file.path)}
+                onFocus={() => {
+                  focusedPath.current = file.path
+                }}
+                onBlur={(event) => {
+                  if (
+                    focusedPath.current === file.path &&
+                    event.relatedTarget !== null
+                  ) {
+                    focusedPath.current = null
+                  }
+                }}
               >
                 <FileDiffIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
                 <span
@@ -247,7 +264,7 @@ export function ProjectReviewPanel({
             </EmptyHeader>
           </Empty>
         ) : diff?.hunks.length ? (
-          <GitDiffSurface key={`${diff.path}:${diffRevision}`} diff={diff} />
+          <GitDiffSurface key={`${diff.path}:${diffKey}`} diff={diff} />
         ) : (
           <Empty className="min-h-72">
             <EmptyHeader>

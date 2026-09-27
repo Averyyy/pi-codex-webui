@@ -725,6 +725,21 @@ export const modelSettingsProviderInputSchema = z.object({
 export const modelSettingsProviderSchema = z.object({
   provider: z.string().min(1),
   auth: z.enum(["api-key", "oauth", "environment"]),
+  authKind: z.enum([
+    "oauth",
+    "api-key",
+    "environment",
+    "delegated",
+    "none",
+    "unknown",
+  ]),
+  authStatus: z.enum([
+    "configured",
+    "missing",
+    "expired",
+    "unknown",
+    "not-required",
+  ]),
   removable: z.boolean(),
   modelCount: z.number().int().nonnegative(),
   custom: z.boolean(),
@@ -735,7 +750,7 @@ export const modelSettingsProviderSchema = z.object({
   customModels: z.array(modelSettingsCustomModelSchema),
 })
 
-export const modelSettingsSchema = z.object({
+export const modelSettingsSnapshotSchema = z.object({
   models: z.array(modelSettingsModelSchema),
   providers: z.array(modelSettingsProviderSchema),
   enabledModels: z.array(z.string().min(1)).nullable(),
@@ -751,6 +766,11 @@ export const modelSettingsSchema = z.object({
     )
     .optional(),
   scopeWarnings: z.array(z.string().min(1)).optional(),
+})
+
+export const modelSettingsSchema = modelSettingsSnapshotSchema.extend({
+  catalogIdentity: z.string().min(1),
+  catalogVersion: z.string().min(1),
 })
 
 const initializeMessageSchema = z.object({
@@ -1171,6 +1191,7 @@ const runtimeResponseMessageSchema = z.object({
   success: z.boolean(),
   data: z.unknown().optional(),
   error: runtimeErrorSchema.optional(),
+  metrics: z.record(z.string(), z.number().nonnegative()).optional(),
 })
 
 const sessionEventMessageSchema = z.object({
@@ -1310,6 +1331,7 @@ export type ModelSettingsProviderInput = z.infer<
 >
 export type ModelProviderApi = z.infer<typeof modelProviderApiSchema>
 export type ModelSettingsProvider = z.infer<typeof modelSettingsProviderSchema>
+export type ModelSettingsSnapshot = z.infer<typeof modelSettingsSnapshotSchema>
 export type ModelSettings = z.infer<typeof modelSettingsSchema>
 export type HostToWorkerMessage = z.infer<typeof hostToWorkerMessageSchema>
 export type WorkerToHostMessage = z.infer<typeof workerToHostMessageSchema>

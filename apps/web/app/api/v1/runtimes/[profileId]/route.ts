@@ -1,6 +1,7 @@
 import { ZodError, z } from "zod"
 
 import { ConfigConflictError, loadConfig, patchConfig } from "@/lib/config"
+import { getEventHub } from "@/lib/event-hub"
 import { validateLocalMutation } from "@/lib/request-security"
 import { normalizeServerUrl, runtimeProfileViews } from "@/lib/runtime-profiles"
 import { removeSecret, writeSecret } from "@/lib/secret-store"
@@ -114,6 +115,10 @@ export async function PATCH(
       },
     })
     committed = true
+    getEventHub().publish({
+      type: "model.catalog.invalidated",
+      payload: { all: true, reason: "runtime-profile-updated" },
+    })
     if (oldSecret && oldSecret !== authTokenRef) await removeSecret(oldSecret)
     return Response.json(
       {

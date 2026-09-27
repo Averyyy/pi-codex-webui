@@ -38,6 +38,7 @@ import { Switch } from "@workspace/ui/components/switch"
 
 import { useI18n } from "@/components/i18n-provider"
 import { ApiError, validatedResponseJson } from "@/lib/api-response"
+import { dispatchModelCatalogInvalidated } from "@/lib/model-catalog-events"
 import {
   runtimeSettingsViewSchema,
   type RuntimeSettingsView,
@@ -168,11 +169,13 @@ export function RuntimeSettingsForm({
         setAuthToken("")
         setClearAuthToken(false)
         setDiagnostic(null)
+        dispatchModelCatalogInvalidated({ all: true })
         router.refresh()
         toast.success(t("settings.runtime.saved"))
       } catch (error) {
         const current = conflictRuntimeSettings(error)
         if (current) {
+          dispatchModelCatalogInvalidated({ all: true })
           const latestClient = piClientProfile(current.profiles)
           const enabledChanged = enabled !== savedClient.enabled
           const serverUrlChanged = serverUrl !== (savedClient.serverUrl ?? "")

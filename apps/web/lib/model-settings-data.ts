@@ -1,9 +1,6 @@
 import "server-only"
 
-import {
-  getSessionRuntimeTarget,
-  listWorkspaceProjectChoices,
-} from "@/lib/catalog"
+import { getSessionRuntimeTarget } from "@/lib/catalog"
 import { getMutationToken } from "@/lib/request-security"
 import {
   getRuntimeSupervisor,
@@ -19,9 +16,7 @@ export async function resolveModelSettingsCwd(sessionId?: string) {
     const session = await getSessionRuntimeTarget(sessionId)
     return session?.cwd ?? null
   }
-
-  const projects = await listWorkspaceProjectChoices()
-  return projects[0]?.path ?? process.cwd()
+  return (await resolveNewTaskRuntime()).cwd
 }
 
 export async function resolveModelSettingsTarget(
@@ -37,13 +32,9 @@ export async function resolveModelSettingsTarget(
     }
   }
 
-  const [cwd, runtime] = await Promise.all([
-    resolveModelSettingsCwd(),
-    resolveNewTaskRuntime(),
-  ])
-  if (!cwd) return null
+  const runtime = await resolveNewTaskRuntime()
   return {
-    cwd,
+    cwd: runtime.cwd,
     runtimeProfileId: runtime.profileId,
     runtimeKind: runtime.runtimeKind,
   }

@@ -68,10 +68,14 @@ export interface WebUiExtensionGroupView {
 }
 
 export interface WebUiExtensionCatalogView {
+  catalogIdentity: string
+  catalogVersion: string
   revision: number
   projectId: string | null
   projectTrusted: boolean
   groups: WebUiExtensionGroupView[]
   diagnostics: WebUiExtensionDiagnostic[]
   statuses: Array<WebUiExtensionStatus & { sessionId: string }>
+  refreshError?: string
+  refreshDiagnostics?: WebUiExtensionDiagnostic[]
 }

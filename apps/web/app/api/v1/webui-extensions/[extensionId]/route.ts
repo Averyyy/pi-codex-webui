@@ -4,6 +4,7 @@ import { ConfigConflictError, loadConfig, patchConfig } from "@/lib/config"
 import { webUiExtensionIdSchema } from "@/lib/config-schema"
 import { validateLocalMutation } from "@/lib/request-security"
 import { runtimeErrorResponse } from "@/lib/runtime-api"
+import { getEventHub } from "@/lib/event-hub"
 import { getRuntimeSupervisor } from "@/lib/runtime-supervisor"
 import { loadWebUiExtensionCatalog } from "@/lib/webui-extension-settings-data"
 
@@ -74,6 +75,16 @@ export async function PATCH(
     })
     void getRuntimeSupervisor().refreshWebUiExtensions()
     const next = await loadWebUiExtensionCatalog(selectedProjectId)
+    getEventHub().publish({
+      type: "webui.extension.catalog.invalidated",
+      payload: {
+        kind: "invalidate",
+        all: true,
+        projectId: next.catalog.projectId,
+        catalogIdentity: next.catalog.catalogIdentity,
+        catalogVersion: next.catalog.catalogVersion,
+      },
+    })
     return Response.json(next.catalog, {
       headers: { "Cache-Control": "no-store" },
     })

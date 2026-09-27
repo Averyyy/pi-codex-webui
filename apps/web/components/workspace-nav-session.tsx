@@ -47,6 +47,7 @@ import {
 } from "@/lib/workspace-nav-order"
 import { useI18n } from "@/components/i18n-provider"
 import { SESSION_CATALOG_CHANGED } from "@/lib/session-catalog-events"
+import { dispatchSessionNavigationIntent } from "@/lib/session-navigation-events"
 
 export function WorkspaceNavSession({
   session,
@@ -54,6 +55,7 @@ export function WorkspaceNavSession({
   mutationToken,
   running,
   unread,
+  active,
   nested = false,
   shortcut,
   onMutationFocus,
@@ -67,6 +69,7 @@ export function WorkspaceNavSession({
   mutationToken: string
   running: boolean
   unread: boolean
+  active?: boolean
   nested?: boolean
   shortcut?: { label: string; aria: string }
   onMutationFocus: (request: WorkspaceSessionMutationFocusRequest) => void
@@ -88,6 +91,7 @@ export function WorkspaceNavSession({
   )
   const suppressClickRef = useRef(false)
   const working = workingAction !== null
+  const selected = active ?? pathname === href
   const title = displaySessionTitle(session, {
     task: t("workspace.nav.newTask"),
     conversation: t("workspace.nav.unnamedConversation"),
@@ -445,11 +449,14 @@ export function WorkspaceNavSession({
       >
         <SidebarMenuSubButton
           asChild
-          isActive={pathname === href}
+          isActive={selected}
           className={cn("pr-12", orderScope && "pr-24")}
         >
           <Link
             href={href}
+            onNavigate={() => {
+              if (pathname !== href) dispatchSessionNavigationIntent(href)
+            }}
             prefetch={false}
             title={title}
             data-conversation-shortcut={href}
@@ -457,7 +464,7 @@ export function WorkspaceNavSession({
             aria-describedby={
               running || unread ? statusDescriptionId : undefined
             }
-            aria-current={pathname === href ? "page" : undefined}
+            aria-current={selected ? "page" : undefined}
           >
             <span className="min-w-0 truncate">{title}</span>
           </Link>
@@ -493,17 +500,20 @@ export function WorkspaceNavSession({
     >
       <SidebarMenuButton
         asChild
-        isActive={pathname === href}
+        isActive={selected}
         tooltip={title}
         className={cn("pr-12", orderScope && "pr-24")}
       >
         <Link
           href={href}
+          onNavigate={() => {
+            if (pathname !== href) dispatchSessionNavigationIntent(href)
+          }}
           prefetch={false}
           data-conversation-shortcut={href}
           aria-keyshortcuts={shortcut?.aria || undefined}
           aria-describedby={running || unread ? statusDescriptionId : undefined}
-          aria-current={pathname === href ? "page" : undefined}
+          aria-current={selected ? "page" : undefined}
         >
           <MessageSquareTextIcon />
           <span className="min-w-0 flex-1 truncate">{title}</span>

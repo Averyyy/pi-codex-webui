@@ -45,6 +45,7 @@ import {
 } from "./catalog"
 import { getDatabase } from "./database"
 import { syncPiSessionFile, syncPiSessionIndex } from "./session-index"
+import { getSessionRouteIdentity } from "./session-route-identity"
 import { GET as getSessionCatalog } from "../app/api/v1/session-catalog/route"
 
 test("project availability treats missing and invalidated paths as unavailable", async () => {
@@ -64,6 +65,72 @@ test("project availability treats missing and invalidated paths as unavailable",
       false
     )
   } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test("selected route identity detects only indexed native-file revisions", async () => {
+  const root = await mkdtemp(
+    path.join(tmpdir(), "pi-web-codex-route-revision-")
+  )
+  const configRoot = path.join(root, "config")
+  const sessionRoot = path.join(root, "sessions")
+  const cwd = path.join(root, "project")
+  const previous = {
+    config: process.env.PI_WEB_CODEX_CONFIG_DIR,
+    sessions: process.env.PI_CODING_AGENT_SESSION_DIR,
+  }
+  process.env.PI_WEB_CODEX_CONFIG_DIR = configRoot
+  process.env.PI_CODING_AGENT_SESSION_DIR = sessionRoot
+  globalThis.piWebCodexDatabase = undefined
+  globalThis.piWebCodexIndexSync = undefined
+
+  try {
+    await mkdir(sessionRoot, { recursive: true })
+    await mkdir(cwd)
+    const file = path.join(sessionRoot, "external.jsonl")
+    await writeFile(file, sessionJsonl("external-native", cwd, "first prompt"))
+    const indexed = await getSessionIdentityByNativeFile(file)
+    assert.ok(indexed)
+
+    const unchanged = await getSessionRouteIdentity(indexed.id)
+    assert.equal(unchanged?.nativeFileChanged, false)
+    const originalRevision = unchanged?.nativeFileRevision
+
+    await appendFile(
+      file,
+      `${JSON.stringify({
+        type: "message",
+        id: "external-native-second",
+        parentId: "external-native-message",
+        timestamp: "2026-07-15T00:00:00.000Z",
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: "appended outside the WebUI" }],
+          timestamp: Date.parse("2026-07-15T00:00:00.000Z"),
+        },
+      })}\n`
+    )
+
+    const changed = await getSessionRouteIdentity(indexed.id)
+    assert.equal(changed?.nativeFileChanged, true)
+    assert.notEqual(changed?.nativeFileRevision, originalRevision)
+
+    await syncPiSessionFile(file)
+    const indexedAgain = await getSessionRouteIdentity(indexed.id)
+    assert.equal(indexedAgain?.nativeFileChanged, false)
+  } finally {
+    const database = await getDatabase()
+    database.close()
+    globalThis.piWebCodexDatabase = undefined
+    globalThis.piWebCodexIndexSync = undefined
+    globalThis.piWebCodexProjectRegistrations = undefined
+    if (previous.config === undefined)
+      delete process.env.PI_WEB_CODEX_CONFIG_DIR
+    else process.env.PI_WEB_CODEX_CONFIG_DIR = previous.config
+    if (previous.sessions === undefined)
+      delete process.env.PI_CODING_AGENT_SESSION_DIR
+    else process.env.PI_CODING_AGENT_SESSION_DIR = previous.sessions
     await rm(root, { recursive: true, force: true })
   }
 })
@@ -1155,7 +1222,12 @@ test("non-session JSONL under the sessions root is ignored without errors", asyn
   await withSessionIndexHarness(
     "pi-web-codex-foreign-jsonl-",
     async ({ sessionRoot, projectCwd }) => {
-      const traceFile = path.join(sessionRoot, "proj", "traces", "trace-x.jsonl")
+      const traceFile = path.join(
+        sessionRoot,
+        "proj",
+        "traces",
+        "trace-x.jsonl"
+      )
       const projectFile = path.join(sessionRoot, "proj", "project.jsonl")
       await mkdir(path.dirname(traceFile), { recursive: true })
       await Promise.all([

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import test from "node:test"
@@ -7,12 +7,16 @@ import { pathToFileURL } from "node:url"
 
 import * as codingAgent from "@earendil-works/pi-coding-agent"
 import {
-  modelSettingsSchema,
+  modelSettingsSnapshotSchema,
   type HostToWorkerMessage,
 } from "@workspace/runtime-protocol"
 
 import type { ModelThinkingModule } from "./coding-agent.js"
-import { handleModelSettingsMessage } from "./model-settings.js"
+import { projectTrustedForWeb } from "./project-trust.js"
+import {
+  handleModelSettingsMessage,
+  providerAuthPresentation,
+} from "./model-settings.js"
 
 type ProviderMessage = Extract<
   HostToWorkerMessage,
@@ -95,12 +99,88 @@ test("model settings preserve models without supported thinking levels", async (
           `${worker}/${scope}`
         )
         assert.equal(model?.defaultThinkingLevel, "off", `${worker}/${scope}`)
-        assert.equal(modelSettingsSchema.safeParse(result).success, true)
+        assert.equal(
+          modelSettingsSnapshotSchema.safeParse(result).success,
+          true
+        )
       }
     }
   } finally {
     await rm(root, { recursive: true, force: true })
   }
+})
+
+test("provider auth presentation requires affirmative provider status", () => {
+  const missingApiKey = providerAuthPresentation({
+    authStatus: { configured: false },
+    providerKnown: true,
+    hasOAuthAuth: false,
+    hasApiKeyAuth: true,
+    apiKeyHasLogin: true,
+    delegatedRuntime: false,
+  })
+  assert.equal(missingApiKey.authKind, "api-key")
+  assert.equal(missingApiKey.authStatus, "missing")
+  assert.equal(missingApiKey.apiKeyConfigured, false)
+
+  const environment = providerAuthPresentation({
+    authStatus: { configured: true, source: "environment" },
+    providerKnown: true,
+    hasOAuthAuth: false,
+    hasApiKeyAuth: true,
+    apiKeyHasLogin: false,
+    delegatedRuntime: false,
+  })
+  assert.equal(environment.authKind, "environment")
+  assert.equal(environment.authStatus, "configured")
+  assert.equal(environment.apiKeyConfigured, true)
+
+  const oauthCredentialWithoutCurrentStatus = providerAuthPresentation({
+    authStatus: { configured: false },
+    credentialType: "oauth",
+    providerKnown: true,
+    hasOAuthAuth: true,
+    hasApiKeyAuth: false,
+    apiKeyHasLogin: false,
+    delegatedRuntime: false,
+  })
+  assert.equal(oauthCredentialWithoutCurrentStatus.authKind, "oauth")
+  assert.equal(oauthCredentialWithoutCurrentStatus.authStatus, "unknown")
+
+  const keylessLocalWithNoAuthEvidence = providerAuthPresentation({
+    authStatus: { configured: false },
+    providerKnown: true,
+    hasOAuthAuth: false,
+    hasApiKeyAuth: true,
+    apiKeyHasLogin: false,
+    delegatedRuntime: false,
+  })
+  assert.equal(keylessLocalWithNoAuthEvidence.authKind, "environment")
+  assert.equal(keylessLocalWithNoAuthEvidence.authStatus, "missing")
+
+  const noAuthProvider = providerAuthPresentation({
+    authStatus: { configured: false },
+    providerKnown: true,
+    hasOAuthAuth: false,
+    hasApiKeyAuth: false,
+    apiKeyHasLogin: false,
+    delegatedRuntime: false,
+  })
+  assert.equal(noAuthProvider.authKind, "none")
+  assert.equal(noAuthProvider.authStatus, "not-required")
+
+  const delegated = providerAuthPresentation({
+    authStatus: { configured: true, source: "stored" },
+    credentialType: "api_key",
+    providerKnown: true,
+    hasOAuthAuth: true,
+    hasApiKeyAuth: true,
+    apiKeyHasLogin: true,
+    delegatedRuntime: true,
+  })
+  assert.equal(delegated.authKind, "delegated")
+  assert.equal(delegated.authStatus, "configured")
+  assert.equal(delegated.apiKeyConfigured, false)
 })
 
 test("custom provider settings persist, edit, and remove through Pi files", async () => {
@@ -468,6 +548,211 @@ test("composer reads only scoped models without live refresh or provider metadat
     )
     const unmatched = await read()
     assert.match(unmatched.scopeWarnings?.[0] ?? "", /No models match/)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test("full, enabled, and refresh catalogs honor the runtime project trust decision", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "pi-model-project-trust-"))
+  const agentDir = path.join(root, "agent")
+  const cwd = path.join(root, "project")
+  await mkdir(path.join(cwd, ".pi"), { recursive: true })
+  await mkdir(agentDir, { recursive: true })
+  const projectSettingsPath = path.join(cwd, ".pi", "settings.json")
+  try {
+    await writeFile(
+      path.join(agentDir, "models.json"),
+      JSON.stringify({
+        providers: {
+          fixture: {
+            api: "openai-completions",
+            baseUrl: "http://127.0.0.1:1/v1",
+            apiKey: "fixture-key",
+            models: [
+              {
+                id: "global-model",
+                name: "Global model",
+                reasoning: false,
+                input: ["text"],
+                contextWindow: 16_000,
+                maxTokens: 2_000,
+              },
+              {
+                id: "alternate-model",
+                name: "Project model",
+                reasoning: false,
+                input: ["text"],
+                contextWindow: 16_000,
+                maxTokens: 2_000,
+              },
+            ],
+          },
+        },
+      })
+    )
+    await writeFile(
+      projectSettingsPath,
+      JSON.stringify({
+        enabledModels: ["fixture/alternate-model"],
+        defaultProvider: "fixture",
+        defaultModel: "alternate-model",
+      })
+    )
+
+    const trustStore = new codingAgent.ProjectTrustStore(agentDir)
+    const cases = [
+      {
+        name: "explicit true",
+        decision: true as boolean | null,
+        defaultProjectTrust: "never",
+        trusted: true,
+        expectedModel: "alternate-model",
+      },
+      {
+        name: "explicit false overrides always",
+        decision: false as boolean | null,
+        defaultProjectTrust: "always",
+        trusted: false,
+        expectedModel: "global-model",
+      },
+      {
+        name: "default always without an explicit decision",
+        decision: null,
+        defaultProjectTrust: "always",
+        trusted: true,
+        expectedModel: "alternate-model",
+      },
+    ]
+
+    for (const fixture of cases) {
+      await writeFile(
+        path.join(agentDir, "settings.json"),
+        JSON.stringify({
+          defaultProjectTrust: fixture.defaultProjectTrust,
+          enabledModels: ["fixture/global-model"],
+          defaultProvider: "fixture",
+          defaultModel: "global-model",
+        })
+      )
+      trustStore.set(cwd, fixture.decision)
+      assert.equal(
+        projectTrustedForWeb(codingAgent, cwd, agentDir),
+        fixture.trusted,
+        fixture.name
+      )
+
+      const all = await handleModelSettingsMessage(codingAgent, modelThinking, {
+        type: "models.catalog",
+        requestId: `${fixture.name}-all`,
+        payload: { cwd, agentDir, scope: "all" },
+      })
+      const enabled = await handleModelSettingsMessage(
+        codingAgent,
+        modelThinking,
+        {
+          type: "models.catalog",
+          requestId: `${fixture.name}-enabled`,
+          payload: { cwd, agentDir, scope: "enabled" },
+        }
+      )
+      const refreshed = await handleModelSettingsMessage(
+        codingAgent,
+        modelThinking,
+        {
+          type: "models.refresh",
+          requestId: `${fixture.name}-refresh`,
+          payload: { cwd, agentDir },
+        }
+      )
+
+      for (const snapshot of [all, refreshed]) {
+        assert.equal(
+          snapshot.defaultModel?.id,
+          fixture.expectedModel,
+          fixture.name
+        )
+        const selected = snapshot.models.find(
+          ({ id }) => id === fixture.expectedModel
+        )
+        assert.equal(selected?.enabled, true, fixture.name)
+      }
+      assert.deepEqual(
+        enabled.models.map(({ id }) => id),
+        [fixture.expectedModel],
+        fixture.name
+      )
+      assert.equal(
+        enabled.defaultModel?.id,
+        fixture.expectedModel,
+        fixture.name
+      )
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test("full and composer catalogs agree for partial and unmatched scopes", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "pi-model-scope-parity-"))
+  try {
+    await writeFile(
+      path.join(root, "models.json"),
+      JSON.stringify({
+        providers: {
+          parity: {
+            api: "openai-completions",
+            baseUrl: "http://127.0.0.1:1/v1",
+            apiKey: "fixture-key",
+            models: [
+              { id: "one", name: "One", reasoning: true },
+              { id: "two", name: "Two", reasoning: true },
+            ],
+          },
+        },
+      })
+    )
+    for (const enabledModels of [
+      ["parity/one:high"],
+      ["parity/two"],
+      ["parity/two", "parity/one:high"],
+      ["parity/not-present"],
+    ]) {
+      await writeFile(
+        path.join(root, "settings.json"),
+        JSON.stringify({
+          enabledModels,
+          defaultProvider: "parity",
+          defaultModel: "one",
+          defaultThinkingLevel: "medium",
+        })
+      )
+      const read = (scope: "all" | "enabled") =>
+        handleModelSettingsMessage(codingAgent, modelThinking, {
+          type: "models.catalog",
+          requestId: `scope-parity-${scope}`,
+          payload: { cwd: root, agentDir: root, scope },
+        })
+      const [all, enabled] = await Promise.all([read("all"), read("enabled")])
+      assert.deepEqual(
+        enabled.models,
+        all.models.filter((model) => model.enabled),
+        `scope ${enabledModels[0]}`
+      )
+      assert.deepEqual(enabled.scopeWarnings, all.scopeWarnings)
+      const enabledIds = new Set(
+        enabled.models.map((model) => `${model.provider}/${model.id}`)
+      )
+      assert.deepEqual(
+        all.defaultModel &&
+          enabledIds.has(`${all.defaultModel.provider}/${all.defaultModel.id}`)
+          ? all.defaultModel
+          : null,
+        enabled.defaultModel
+      )
+      assert.deepEqual(enabled.enabledModels, all.enabledModels)
+      assert.deepEqual(enabled.providers, [])
+    }
   } finally {
     await rm(root, { recursive: true, force: true })
   }

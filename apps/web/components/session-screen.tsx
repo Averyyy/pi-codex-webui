@@ -1,38 +1,14 @@
-import { stat } from "node:fs/promises"
 import { notFound } from "next/navigation"
 
-import { ExtensionOverlayHosts } from "@/components/extension-overlay-hosts"
-import { ExtensionSlot } from "@/components/extension-slot"
-import { SessionDiagnostics } from "@/components/session-diagnostics"
-import { SessionExtensionProvider } from "@/components/session-extension-provider"
-import { SessionOperations } from "@/components/session-operations"
-import { SessionRuntime } from "@/components/session-runtime"
-import {
-  SessionStreamingMessage,
-  SessionStreamingProvider,
-} from "@/components/session-streaming"
-import { SessionWorkspace } from "@/components/session-workspace"
-import { SubagentsProvider } from "@/components/subagents"
-import { SessionTranscript } from "@/components/transcript"
-import { getSessionView } from "@/lib/session-view"
+import { SessionRouteSlot } from "@/components/session-viewport-host"
 import { loadConfig } from "@/lib/config"
-import { createTranslator } from "@/lib/i18n"
-import { readProjectGitStatus } from "@/lib/project-git"
-import { projectFileManager } from "@/lib/project-reveal"
+import { hasTintinSubagentsExtension } from "@/lib/subagents"
+import { isProjectDirectoryAvailable } from "@/lib/catalog"
 import { getMutationToken } from "@/lib/request-security"
 import { getRuntimeSupervisor } from "@/lib/runtime-supervisor"
-import { displaySessionTitle, formatTimestamp } from "@/lib/session-display"
-import { hasTintinSubagentsExtension } from "@/lib/subagents"
-import { webUiExtensionCatalog } from "@/lib/webui-extensions/registry"
-
-async function directoryAvailable(cwd: string) {
-  try {
-    return (await stat(cwd)).isDirectory()
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false
-    throw error
-  }
-}
+import { getSessionRouteIdentity } from "@/lib/session-route-identity"
+import type { SessionRouteClientData } from "@/lib/session-route-client"
+import { projectFileManager } from "@/lib/project-reveal"
 
 export async function SessionScreen({
   sessionId,
@@ -41,191 +17,55 @@ export async function SessionScreen({
   sessionId: string
   projectId: string | null
 }) {
-  const supervisor = getRuntimeSupervisor()
-  const [view, config] = await Promise.all([
-    getSessionView(sessionId),
+  const [routeIdentity, config] = await Promise.all([
+    getSessionRouteIdentity(sessionId),
     loadConfig(),
   ])
-  if (!view) notFound()
-  const { snapshot, runtime } = view
-  if (!snapshot || snapshot.session.projectId !== projectId) notFound()
+  if (!routeIdentity || routeIdentity.session.projectId !== projectId)
+    notFound()
+  const { session } = routeIdentity
 
-  const standalone = projectId === null
-  const workspaceAvailable = await directoryAvailable(snapshot.session.cwd)
-  const [resources, git, initialWebUiViews] = await Promise.all([
-    workspaceAvailable
-      ? (supervisor.knownResourceCatalog(snapshot.session.cwd) ??
-        supervisor.resourceCatalog(snapshot.session.cwd))
-      : null,
-    !standalone && workspaceAvailable
-      ? readProjectGitStatus(snapshot.session.cwd)
-      : null,
-    runtime.snapshot ? supervisor.webUiViews(sessionId) : [],
+  const supervisor = getRuntimeSupervisor()
+  const workspaceAvailable = await isProjectDirectoryAvailable(session.cwd)
+  const knownResources = workspaceAvailable
+    ? await supervisor.knownResourceCatalogIfCurrent(session.cwd)
+    : null
+  const runtimeStatus = supervisor.state(sessionId).status
+  const fileManager = projectFileManager(process.platform)
+  const identityKey = JSON.stringify([
+    session.id,
+    session.projectId,
+    session.runtimeProfileId,
+    session.runtimeKind,
+    session.cwd,
+    session.projectPath,
+    session.nativeSessionFile,
   ])
-  const webUiExtensions = await webUiExtensionCatalog(
-    standalone
-      ? { projectId: null, projectTrusted: false }
-      : {
-          ...(workspaceAvailable ? { cwd: snapshot.session.cwd } : {}),
-          projectId,
-          projectTrusted: resources?.projectTrusted ?? false,
-        }
-  )
-  webUiExtensions.statuses = supervisor.webUiExtensionStatuses([sessionId])
-  const locale = config.appearance.language
-  const t = createTranslator(locale)
-  const mutationToken = getMutationToken()
-  const title = displaySessionTitle(snapshot.session, {
-    task: t("workspace.nav.newTask"),
-    conversation: t("workspace.nav.unnamedConversation"),
-  })
-  const projectGit =
-    git ??
-    ({ available: false, error: t("session.workspaceUnavailable") } as const)
-  const fileManager = standalone ? null : projectFileManager(process.platform)
-  const subagentsInstalled = hasTintinSubagentsExtension(resources)
+  const route: SessionRouteClientData = {
+    session,
+    nativeFileChanged: routeIdentity.nativeFileChanged,
+    nativeFileRevision: routeIdentity.nativeFileRevision,
+    identityKey,
+    projectId,
+    workspaceAvailable,
+    projectTrusted:
+      projectId === null ? false : (knownResources?.projectTrusted ?? null),
+    subagentsInstalled: knownResources
+      ? hasTintinSubagentsExtension(knownResources)
+      : null,
+    mutationToken: getMutationToken(),
+    runtime: { status: runtimeStatus, snapshot: null },
+    runtimeProfiles: Object.entries(config.developer.runtime.profiles)
+      .filter(([, profile]) => profile.enabled)
+      .map(([id, profile]) => ({
+        id,
+        label: profile.kind === "pi" ? "Pi" : "Pi Client",
+      })),
+    fileManagerKind:
+      fileManager?.kind === "file-explorer"
+        ? "explorer"
+        : (fileManager?.kind ?? null),
+  }
 
-  return (
-    <SessionStreamingProvider
-      key={sessionId}
-      sessionId={sessionId}
-      initialView={view}
-    >
-      <SessionExtensionProvider
-        sessionId={sessionId}
-        projectId={projectId}
-        mutationToken={mutationToken}
-        initialCatalog={webUiExtensions}
-        initialViews={initialWebUiViews}
-      >
-        <SubagentsProvider
-          sessionId={sessionId}
-          mutationToken={mutationToken}
-          installed={subagentsInstalled}
-        >
-          <SessionWorkspace
-            key={`${sessionId}:${subagentsInstalled ? "subagents" : "base"}`}
-            sessionId={sessionId}
-            conversationId={snapshot.session.nativeSessionId}
-            conversationPath={snapshot.session.nativeSessionFile}
-            workingDirectory={snapshot.session.cwd}
-            projectId={projectId}
-            mutationToken={mutationToken}
-            title={title}
-            contextLabel={
-              standalone
-                ? t("session.context.standalone")
-                : (snapshot.session.projectName ?? t("session.context.project"))
-            }
-            updatedAt={formatTimestamp(snapshot.session.updatedAt, locale)}
-            runtimeLabel={
-              snapshot.session.runtimeKind === "pi" ? "Pi" : "Pi Client"
-            }
-            workspaceAvailable={workspaceAvailable}
-            subagentsInstalled={subagentsInstalled}
-            initialGit={!standalone && workspaceAvailable ? git : null}
-            fileManagerLabel={
-              fileManager
-                ? t(
-                    fileManager.kind === "finder"
-                      ? "session.workspace.openFinder"
-                      : "session.workspace.openFileExplorer"
-                  )
-                : null
-            }
-            environment={
-              standalone
-                ? null
-                : {
-                    cwd: snapshot.session.cwd,
-                    projectName: snapshot.session.projectName,
-                    runtimeKind: snapshot.session.runtimeKind,
-                    runtimeStatus: runtime.status,
-                    updatedAt: snapshot.session.updatedAt,
-                    git: projectGit,
-                    workspaceAvailable,
-                    subagentsInstalled,
-                  }
-            }
-            headerActions={
-              <div key="header-actions" className="contents">
-                {workspaceAvailable ? (
-                  <div key="workspace-actions" className="contents">
-                    <SessionDiagnostics
-                      key={`session-diagnostics:${sessionId}`}
-                      sessionId={sessionId}
-                    />
-                    <SessionOperations
-                      key={`session-operations:${config.revision}`}
-                      sessionId={sessionId}
-                      projectId={projectId}
-                      title={title}
-                      isPinned={snapshot.session.isPinned}
-                      mutationToken={mutationToken}
-                      runtimeProfileId={snapshot.session.runtimeProfileId}
-                      initialRuntimeStatus={runtime.status}
-                      runtimeProfiles={Object.entries(
-                        config.developer.runtime.profiles
-                      )
-                        .filter(([, profile]) => profile.enabled)
-                        .map(([id, profile]) => ({
-                          id,
-                          label: profile.kind === "pi" ? "Pi" : "Pi Client",
-                        }))}
-                    />
-                  </div>
-                ) : null}
-                <ExtensionSlot key="session-header" name="session.header" />
-              </div>
-            }
-            toolbar={
-              <ExtensionSlot key="session-toolbar" name="session.toolbar" />
-            }
-            conversation={
-              <div key="conversation-content" className="contents">
-                <ExtensionSlot
-                  key="conversation-before"
-                  name="conversation.before"
-                />
-                <SessionTranscript
-                  key="transcript"
-                  snapshot={snapshot}
-                  sessionId={sessionId}
-                  mutationToken={mutationToken}
-                  workspaceUnavailable={!workspaceAvailable}
-                  initialRuntimeStatus={runtime.status}
-                  locale={locale}
-                />
-                <ExtensionSlot
-                  key="conversation-after"
-                  name="conversation.after"
-                />
-                <SessionStreamingMessage key="streaming-message" />
-              </div>
-            }
-            composer={
-              workspaceAvailable ? (
-                <SessionRuntime
-                  key="session-runtime"
-                  sessionId={sessionId}
-                  mutationToken={mutationToken}
-                  initialStatus={runtime.status}
-                  initialSnapshot={runtime.snapshot}
-                  initialGoalState={snapshot.goalState}
-                />
-              ) : (
-                <div
-                  key="read-only-composer"
-                  className="shrink-0 border-t px-4 py-3 text-center text-xs text-muted-foreground"
-                >
-                  {t("session.readOnlyComposer")}
-                </div>
-              )
-            }
-          />
-        </SubagentsProvider>
-        <ExtensionOverlayHosts key="extension-overlays" />
-      </SessionExtensionProvider>
-    </SessionStreamingProvider>
-  )
+  return <SessionRouteSlot route={route} />
 }

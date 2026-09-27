@@ -139,11 +139,11 @@ test("runtime initialization declares resume, new, or duplicate explicitly", () 
 
 test("subagent snapshots and stop requests remain protocol validated", () => {
   const subagents = subagentsSnapshotSchema.parse({
-      version: 1,
-      revision: 2,
-      available: true,
-      agents: [],
-    })
+    version: 1,
+    revision: 2,
+    available: true,
+    agents: [],
+  })
   assert.equal(subagents.revision, 2)
   assert.deepEqual(subagents.sessions, [])
   assert.equal(
@@ -255,6 +255,23 @@ test("runtime errors survive server bundle boundaries", async () => {
     error: "The Pi runtime is not active.",
     code: "RuntimeNotActive",
   })
+})
+
+test("catalog backpressure and superseded reads return retryable statuses", () => {
+  for (const [code, expectedStatus] of [
+    ["ModelCatalogBusy", 503],
+    ["ModelCatalogChanged", 409],
+    ["ModelCatalogUnavailable", 409],
+    ["ModelNotAvailable", 409],
+    ["ProjectTrustChanged", 409],
+  ] as const) {
+    const response = runtimeErrorResponse({
+      isPiWebCodexRuntimeRequestError: true,
+      code,
+      message: "Retry after the catalog or session state settles.",
+    })
+    assert.equal(response.status, expectedStatus, code)
+  }
 })
 
 test("a selected runtime model must still be available", () => {

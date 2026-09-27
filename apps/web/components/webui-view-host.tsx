@@ -1,16 +1,20 @@
 "use client"
 
-import { useContext, useEffect, useMemo, useRef } from "react"
+import { useEffect, useMemo, useRef } from "react"
 
 import type {
   ClientExtensionInitializer,
   ExternalViewRenderer,
 } from "@pi-web-codex/extension-sdk"
-import type { WebUiViewSnapshot } from "@workspace/runtime-protocol"
 import { cn } from "@workspace/ui/lib/utils"
 
 import { useI18n } from "@/components/i18n-provider"
-import { SessionExtensionContext } from "@/components/session-extension-provider"
+import { isExtensionCandidateAvailable } from "@/lib/webui-extensions/authorization"
+import {
+  useSessionExtensionRuntime,
+  useSessionExtensionState,
+  useSessionExtensionView,
+} from "@/components/session-extension-provider"
 
 const clients = new Map<
   string,
@@ -48,43 +52,78 @@ function loadClient(url: string) {
 }
 
 export function WebUiViewHost({
-  view,
+  instanceId,
   className,
 }: {
-  view: WebUiViewSnapshot
+  instanceId: string
   className?: string
 }) {
   const { t } = useI18n()
-  const runtime = useContext(SessionExtensionContext)
+  const runtime = useSessionExtensionRuntime()
+  const state = useSessionExtensionState()
+  const view = useSessionExtensionView(instanceId)
+  const extensionId = view?.extensionId
+  const viewInstanceId = view?.instanceId
+  const adapterKey = view?.adapterKey
+  const viewState = view?.state
+  const viewRevision = view?.revision
   const hostRef = useRef<HTMLDivElement>(null)
   const mountedRef = useRef<{
     update?(state: unknown): void
     dispose(): void
   } | null>(null)
-  const stateRef = useRef(view.state)
-  if (!runtime) {
-    throw new Error("WebUiViewHost requires SessionExtensionProvider.")
-  }
-  const { catalog, invoke, report } = runtime
-  const { adapterKey, extensionId, instanceId, viewId } = view
+  const stateRef = useRef<unknown>(viewState)
+  const viewId = view?.viewId
+
   const identity = useMemo(
-    () => ({ extensionId, instanceId }),
-    [extensionId, instanceId]
+    () =>
+      extensionId && viewInstanceId
+        ? { extensionId, instanceId: viewInstanceId }
+        : null,
+    [extensionId, viewInstanceId]
   )
-  const candidate = catalog.groups
-    .flatMap((group) => group.candidates)
-    .find((item) => item.key === adapterKey)
-  const clientUrl = candidate?.client.url
-  const styleUrl = candidate?.style?.url
+  const candidate = useMemo(
+    () =>
+      adapterKey
+        ? (state.catalog?.groups
+            .flatMap((group) => group.candidates)
+            .find((item) => item.key === adapterKey) ?? null)
+        : null,
+    [adapterKey, state.catalog]
+  )
+  const candidateAvailable = isExtensionCandidateAvailable(
+    candidate,
+    state.catalog?.projectTrusted === true,
+    state.catalogInvalidated
+  )
+  const projectViewBlocked = Boolean(
+    candidate?.source === "project" && !candidateAvailable
+  )
+  const catalogAvailable = state.catalog !== null
+  const clientUrl = projectViewBlocked ? undefined : candidate?.client.url
+  const styleUrl = projectViewBlocked ? undefined : candidate?.style?.url
 
   useEffect(() => {
-    stateRef.current = view.state
-    mountedRef.current?.update?.(view.state)
-  }, [view.revision, view.state])
+    if (extensionId && viewInstanceId) {
+      stateRef.current = viewState
+      mountedRef.current?.update?.(viewState)
+    }
+  }, [extensionId, viewInstanceId, viewRevision, viewState])
 
   useEffect(() => {
     const host = hostRef.current
-    if (!host) return
+    if (
+      !host ||
+      !viewId ||
+      !identity ||
+      !catalogAvailable ||
+      !candidateAvailable ||
+      !clientUrl ||
+      !runtime.authorized ||
+      projectViewBlocked
+    ) {
+      return
+    }
     const controller = new AbortController()
     const shadowRoot = host.shadowRoot ?? host.attachShadow({ mode: "open" })
     const container = document.createElement("div")
@@ -107,13 +146,10 @@ export function WebUiViewHost({
       notice.style.cssText =
         "margin:0;padding:12px;font:14px system-ui;opacity:.7"
       shadowRoot.replaceChildren(notice)
-      void report(identity, "error", message).catch(console.error)
+      void runtime.report(identity, "error", message).catch(console.error)
     }
 
     void (async () => {
-      if (!clientUrl) {
-        throw new Error(`Missing client asset for ${adapterKey}.`)
-      }
       const renderers = await loadClient(clientUrl)
       if (controller.signal.aborted) return
       const renderer = renderers.get(viewId)
@@ -125,11 +161,12 @@ export function WebUiViewHost({
         shadowRoot,
         state: stateRef.current,
         signal: controller.signal,
-        invoke: (action, input) => invoke(identity, action, input),
+        invoke: (action, input) => runtime.invoke(identity, action, input),
         close: (result) => {
-          void invoke(identity, "__close", result)
+          void runtime
+            .invoke(identity, "__close", result)
             .catch((error: unknown) =>
-              report(
+              runtime.report(
                 identity,
                 "error",
                 error instanceof Error ? error.message : String(error)
@@ -147,7 +184,7 @@ export function WebUiViewHost({
       }
       mountedRef.current = result
       mounted = true
-      await report(identity, "ready")
+      await runtime.report(identity, "ready")
     })().catch((error: unknown) => {
       if (!controller.signal.aborted) {
         const message = error instanceof Error ? error.message : String(error)
@@ -166,12 +203,45 @@ export function WebUiViewHost({
       controller.abort()
       mountedRef.current?.dispose()
       mountedRef.current = null
-      if (mounted) {
-        void report(identity, "disposed").catch(console.error)
-      }
+      if (mounted)
+        void runtime.report(identity, "disposed").catch(console.error)
       shadowRoot.replaceChildren()
     }
-  }, [adapterKey, clientUrl, identity, invoke, report, styleUrl, t, viewId])
+  }, [
+    clientUrl,
+    candidateAvailable,
+    identity,
+    catalogAvailable,
+    projectViewBlocked,
+    runtime,
+    styleUrl,
+    t,
+    viewId,
+  ])
+
+  if (!view) return null
+  if (projectViewBlocked) {
+    return (
+      <div
+        className={cn("px-3 py-2 text-xs text-muted-foreground", className)}
+        role="status"
+      >
+        {t("settings.resources.projectUntrusted")}
+      </div>
+    )
+  }
+  if (!state.catalog || !clientUrl || !candidateAvailable) {
+    return (
+      <div
+        className={cn("px-3 py-2 text-xs text-muted-foreground", className)}
+        role="status"
+      >
+        {!state.catalog
+          ? (state.catalogError ?? t("session.extension.catalogLoading"))
+          : t("session.extension.adapterUnavailable")}
+      </div>
+    )
+  }
 
   return <div ref={hostRef} className={cn("min-w-0", className)} />
 }

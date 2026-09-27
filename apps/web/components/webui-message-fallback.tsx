@@ -1,9 +1,8 @@
 "use client"
 
-import { useContext, type ReactNode } from "react"
+import type { ReactNode } from "react"
 
-import { SessionExtensionContext } from "@/components/session-extension-provider"
-import { replacesTranscriptEntry } from "@/lib/webui-message-replacements"
+import { useSessionExtensionHasReplacementEntry } from "@/components/session-extension-provider"
 
 export function WebUiMessageFallback({
   entryId,
@@ -12,8 +11,6 @@ export function WebUiMessageFallback({
   entryId: string
   children: ReactNode
 }) {
-  const runtime = useContext(SessionExtensionContext)
-  return runtime && replacesTranscriptEntry(runtime.views, entryId)
-    ? null
-    : children
+  const replaced = useSessionExtensionHasReplacementEntry(entryId)
+  return replaced ? null : children
 }

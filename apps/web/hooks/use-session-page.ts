@@ -4,13 +4,34 @@ import { useCallback, useEffect, useRef, useState } from "react"
 
 import { responseJson } from "@/lib/api-response"
 import {
+  applySessionEntityUpdate,
   SESSION_CATALOG_CHANGED,
+  SESSION_ENTITY_UPDATED,
   type SessionCatalogChangedDetail,
+  type SessionEntityUpdatedDetail,
 } from "@/lib/session-catalog-events"
 import type { SessionListScope, SessionPage } from "@/lib/session-types"
+import {
+  appendSessionPage,
+  applyPendingSessionEntityUpdates,
+  clearConfirmedSessionEntityUpdates,
+  mergeSessionEntityUpdateOverlay,
+  sessionPageQueryIdentity,
+  type SessionEntityUpdateOverlay,
+} from "@/lib/session-page-data"
 import { SIDEBAR_PAGE_SIZE } from "@/lib/workspace-nav-persistence"
 
 const emptyPage: SessionPage = { sessions: [], nextCursor: null }
+const MAX_ENTITY_UPDATES = 256
+
+interface PageState {
+  key: string
+  targetKey: string
+  page: SessionPage
+  started: boolean
+  loading: boolean
+  error: string | null
+}
 
 async function fetchPage(
   scope: SessionListScope,
@@ -41,14 +62,6 @@ async function fetchPage(
   return page
 }
 
-function appendPage(current: SessionPage, page: SessionPage): SessionPage {
-  const sessions = new Map(
-    current.sessions.map((session) => [session.id, session])
-  )
-  for (const session of page.sessions) sessions.set(session.id, session)
-  return { sessions: [...sessions.values()], nextCursor: page.nextCursor }
-}
-
 export function useSessionPage({
   scope,
   projectId,
@@ -65,25 +78,29 @@ export function useSessionPage({
   sidebar?: boolean
 }) {
   const [mutationRevision, setMutationRevision] = useState(0)
-  const key = JSON.stringify([
+  const targetKey = JSON.stringify([scope, projectId ?? null, sidebar])
+  const key = sessionPageQueryIdentity(
     scope,
     projectId,
-    initialPage,
-    revision,
     sidebar,
-    mutationRevision,
-  ])
-  const [state, setState] = useState(() => ({
+    revision,
+    mutationRevision
+  )
+  const [state, setState] = useState<PageState>(() => ({
     key,
+    targetKey,
     page: initialPage ?? emptyPage,
     started: initialPage !== null,
     loading: false,
-    error: null as string | null,
+    error: null,
   }))
   const requestRef = useRef<{
     key: string
+    targetKey: string
     controller: AbortController
   } | null>(null)
+  const entityUpdatesRef = useRef(new Map<string, SessionEntityUpdateOverlay>())
+  const entityRevisionRef = useRef(0)
   const [retryRevision, setRetryRevision] = useState(0)
 
   useEffect(() => {
@@ -98,13 +115,54 @@ export function useSessionPage({
       }
       setMutationRevision((value) => value + 1)
     }
+    const updateEntity = (event: Event) => {
+      const detail = (event as CustomEvent<SessionEntityUpdatedDetail>).detail
+      if (!detail?.sessionId) return
+      const revision = ++entityRevisionRef.current
+      const previous = entityUpdatesRef.current.get(detail.sessionId)
+      entityUpdatesRef.current.delete(detail.sessionId)
+      entityUpdatesRef.current.set(
+        detail.sessionId,
+        mergeSessionEntityUpdateOverlay(previous, detail, revision)
+      )
+      while (entityUpdatesRef.current.size > MAX_ENTITY_UPDATES) {
+        const oldest = entityUpdatesRef.current.keys().next().value
+        if (oldest === undefined) break
+        entityUpdatesRef.current.delete(oldest)
+      }
+      setState((current) => {
+        if (current.targetKey !== targetKey) return current
+        const page = applySessionEntityUpdate(current.page, detail)
+        return page === current.page ? current : { ...current, page }
+      })
+    }
     window.addEventListener(SESSION_CATALOG_CHANGED, invalidate)
-    return () => window.removeEventListener(SESSION_CATALOG_CHANGED, invalidate)
-  }, [projectId, scope])
+    window.addEventListener(SESSION_ENTITY_UPDATED, updateEntity)
+    return () => {
+      window.removeEventListener(SESSION_CATALOG_CHANGED, invalidate)
+      window.removeEventListener(SESSION_ENTITY_UPDATED, updateEntity)
+    }
+  }, [projectId, scope, targetKey])
+
+  useEffect(() => {
+    if (state.targetKey === targetKey) return
+    requestRef.current?.controller.abort()
+    requestRef.current = null
+    entityUpdatesRef.current.clear()
+    entityRevisionRef.current = 0
+    setState({
+      key,
+      targetKey,
+      page: initialPage ?? emptyPage,
+      started: initialPage !== null,
+      loading: false,
+      error: null,
+    })
+  }, [initialPage, key, state.targetKey, targetKey])
 
   const loadMore = useCallback(async () => {
     if (!enabled) return
-    if (state.key !== key) {
+    if (state.targetKey !== targetKey || state.key !== key) {
       setRetryRevision((value) => value + 1)
       return
     }
@@ -112,9 +170,14 @@ export function useSessionPage({
     if (requestRef.current?.key === key) return
     requestRef.current?.controller.abort()
     const controller = new AbortController()
-    const request = { key, controller }
+    const request = { key, targetKey, controller }
     requestRef.current = request
-    setState({ ...state, loading: true, error: null })
+    const requestEntityRevision = entityRevisionRef.current
+    setState((current) =>
+      current.targetKey === targetKey
+        ? { ...current, loading: true, error: null }
+        : current
+    )
     try {
       const page = await fetchPage(
         scope,
@@ -124,34 +187,57 @@ export function useSessionPage({
         sidebar
       )
       if (!controller.signal.aborted) {
-        setState({
-          key,
-          page: appendPage(state.page, page),
-          started: true,
-          loading: false,
-          error: null,
+        const responseUpdates = new Map(entityUpdatesRef.current)
+        setState((current) => {
+          if (current.targetKey !== targetKey) return current
+          const appended = appendSessionPage(current.page, page)
+          const updated = applyPendingSessionEntityUpdates(
+            appended,
+            responseUpdates,
+            requestEntityRevision
+          )
+          return {
+            key,
+            targetKey,
+            page: updated,
+            started: true,
+            loading: false,
+            error: null,
+          }
         })
+        clearConfirmedSessionEntityUpdates(
+          entityUpdatesRef.current,
+          responseUpdates,
+          page.sessions.map((session) => session.id)
+        )
       }
     } catch (error) {
-      if (!controller.signal.aborted)
-        setState({
-          ...state,
-          loading: false,
-          error: error instanceof Error ? error.message : String(error),
-        })
+      if (!controller.signal.aborted) {
+        setState((current) =>
+          current.targetKey === targetKey
+            ? {
+                ...current,
+                loading: false,
+                error: error instanceof Error ? error.message : String(error),
+              }
+            : current
+        )
+      }
     } finally {
       if (requestRef.current === request) {
         requestRef.current = null
         if (controller.signal.aborted) {
           setState((current) =>
-            current.key === key && current.loading
+            current.targetKey === targetKey &&
+            current.key === key &&
+            current.loading
               ? { ...current, loading: false }
               : current
           )
         }
       }
     }
-  }, [enabled, state, key, scope, projectId, sidebar])
+  }, [enabled, key, projectId, scope, sidebar, state, targetKey])
 
   useEffect(() => {
     if (enabled) return
@@ -162,15 +248,21 @@ export function useSessionPage({
     )
   }, [enabled])
 
-  // A mutation can affect a row outside the first server-rendered page.
-  // Refresh the loaded window through bounded requests, keeping the existing
-  // rows mounted until the authoritative replacement is ready.
+  // Structural mutations reload the loaded window through the explicit catalog
+  // event. Title and unread updates are applied by entity ID and never enter it.
   useEffect(() => {
-    if (state.key === key || !enabled) return
+    if (state.targetKey !== targetKey || state.key === key || !enabled) return
     const controller = new AbortController()
     requestRef.current?.controller.abort()
-    const request = { key, controller }
+    const request = { key, targetKey, controller }
     requestRef.current = request
+    const requestEntityRevision = entityRevisionRef.current
+    const loadedCount = state.page.sessions.length
+    setState((current) =>
+      current.targetKey === targetKey
+        ? { ...current, loading: true, error: null }
+        : current
+    )
     void (async () => {
       try {
         let page = await fetchPage(
@@ -180,11 +272,8 @@ export function useSessionPage({
           controller.signal,
           sidebar
         )
-        while (
-          page.nextCursor &&
-          page.sessions.length < state.page.sessions.length
-        ) {
-          page = appendPage(
+        while (page.nextCursor && page.sessions.length < loadedCount) {
+          page = appendSessionPage(
             page,
             await fetchPage(
               scope,
@@ -196,21 +285,50 @@ export function useSessionPage({
           )
         }
         if (!controller.signal.aborted) {
-          setState({ key, page, started: true, loading: false, error: null })
+          const responseUpdates = new Map(entityUpdatesRef.current)
+          setState((current) =>
+            current.targetKey === targetKey
+              ? {
+                  key,
+                  targetKey,
+                  page: applyPendingSessionEntityUpdates(
+                    page,
+                    responseUpdates,
+                    requestEntityRevision
+                  ),
+                  started: true,
+                  loading: false,
+                  error: null,
+                }
+              : current
+          )
+          clearConfirmedSessionEntityUpdates(
+            entityUpdatesRef.current,
+            responseUpdates,
+            page.sessions.map((session) => session.id)
+          )
         }
       } catch (error) {
-        if (!controller.signal.aborted)
-          setState((current) => ({
-            ...current,
-            loading: false,
-            error: error instanceof Error ? error.message : String(error),
-          }))
+        if (!controller.signal.aborted) {
+          setState((current) =>
+            current.targetKey === targetKey
+              ? {
+                  ...current,
+                  key,
+                  loading: false,
+                  error: error instanceof Error ? error.message : String(error),
+                }
+              : current
+          )
+        }
       } finally {
         if (requestRef.current === request) {
           requestRef.current = null
           if (controller.signal.aborted) {
             setState((current) =>
-              current.key === key && current.loading
+              current.targetKey === targetKey &&
+              current.key === key &&
+              current.loading
                 ? { ...current, loading: false }
                 : current
             )
@@ -223,11 +341,13 @@ export function useSessionPage({
     key,
     state.key,
     state.page.sessions.length,
+    state.targetKey,
     enabled,
     scope,
     projectId,
     sidebar,
     retryRevision,
+    targetKey,
   ])
 
   useEffect(
@@ -237,12 +357,27 @@ export function useSessionPage({
     []
   )
 
+  const visibleState =
+    state.targetKey === targetKey
+      ? state
+      : {
+          key,
+          targetKey,
+          page: initialPage ?? emptyPage,
+          started: initialPage !== null,
+          loading: false,
+          error: null,
+        }
+
   return {
-    sessions: state.page.sessions,
-    started: state.started,
-    hasMore: !state.started || state.page.nextCursor !== null,
-    loading: state.loading || state.key !== key,
-    error: state.error,
+    sessions: visibleState.page.sessions,
+    started: visibleState.started,
+    hasMore: !visibleState.started || visibleState.page.nextCursor !== null,
+    loading:
+      state.targetKey !== targetKey
+        ? initialPage === null
+        : state.loading || state.key !== key,
+    error: visibleState.error,
     loadMore,
   }
 }

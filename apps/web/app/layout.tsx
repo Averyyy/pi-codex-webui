@@ -1,4 +1,4 @@
-import type { CSSProperties } from "react"
+import { Suspense, type CSSProperties } from "react"
 import { connection } from "next/server"
 
 import "@workspace/ui/globals.css"
@@ -12,6 +12,8 @@ import { AppUpdateProvider } from "@/components/app-update-provider"
 import { KeyboardShortcutsProvider } from "@/components/keyboard-shortcuts-provider"
 import { PwaRegistration } from "@/components/pwa-registration"
 import { SessionComposerDraftProvider } from "@/components/session-composer-draft-context"
+import { ModelCatalogProvider } from "@/components/model-catalog-provider"
+import { PerformanceDiagnosticsPanel } from "@/components/performance-diagnostics-panel"
 import { getLocalizedConfig } from "@/lib/i18n-server"
 import { getMutationToken } from "@/lib/request-security"
 
@@ -54,11 +56,18 @@ export default async function RootLayout({
                 >
                   {t("ui.skipToMain")}
                 </a>
-                <SessionComposerDraftProvider>
-                  <AppUpdateProvider mutationToken={mutationToken}>
-                    <TooltipProvider>{children}</TooltipProvider>
-                  </AppUpdateProvider>
-                </SessionComposerDraftProvider>
+                <ModelCatalogProvider>
+                  <SessionComposerDraftProvider>
+                    <AppUpdateProvider mutationToken={mutationToken}>
+                      <TooltipProvider>
+                        {children}
+                        <Suspense fallback={null}>
+                          <PerformanceDiagnosticsPanel />
+                        </Suspense>
+                      </TooltipProvider>
+                    </AppUpdateProvider>
+                  </SessionComposerDraftProvider>
+                </ModelCatalogProvider>
                 <Toaster />
                 <PwaRegistration />
               </KeyboardShortcutsProvider>

@@ -4,14 +4,14 @@ import {
   useCallback,
   useEffect,
   useEffectEvent,
+  useLayoutEffect,
   useRef,
   useState,
-  useTransition,
+  useSyncExternalStore,
   type Dispatch,
   type FormEvent,
   type SetStateAction,
 } from "react"
-import { useRouter } from "next/navigation"
 import {
   FileTextIcon,
   GitMergeIcon,
@@ -45,7 +45,6 @@ import {
 import { Label } from "@workspace/ui/components/label"
 import { Textarea } from "@workspace/ui/components/textarea"
 import type {
-  ExtensionUIRequest,
   ExtensionUIResponse,
   QueuedPromptItem,
   RuntimeSnapshot,
@@ -57,7 +56,6 @@ import type {
 import {
   extensionUIRequestSchema,
   queueStateSchema,
-  queueUpdatedEventSchema,
   runtimeSnapshotSchema,
   runtimeStatusSchema,
   tuiSurfaceEventSchema,
@@ -96,6 +94,7 @@ import {
   useSessionEvents,
   useSessionStreaming,
 } from "@/components/session-streaming"
+import { useSessionViewController } from "@/components/session-streaming-context"
 import { stripAnsi } from "@/lib/ansi"
 import { ApiError, responseJson } from "@/lib/api-response"
 import { notifyWhenHidden } from "@/lib/browser-notifications"
@@ -106,57 +105,20 @@ import { parseSessionLiveEvent } from "@/lib/session-live-events"
 import { useStreamingRuntimeStatus } from "@/components/session-streaming-context"
 import { draftAfterAcceptedSend } from "@/lib/session-composer-draft-store"
 import { isVisibleTuiSurface } from "@/lib/tui-surface"
+import { useModelCatalog } from "@/hooks/use-model-catalog"
+import { sessionModelOptions } from "@/lib/session-model-options"
 import type { Translator } from "@/lib/i18n"
 import {
-  createRuntimeLeaseId,
-  RuntimeLeaseController,
-} from "@/lib/runtime-lease"
+  activeExtensionRequest,
+  reconcileExtensionRequestSnapshot,
+  reconcileTuiSurfaceSnapshot,
+  runAfterSessionEventCheckpoint,
+  type ActiveExtensionRequest,
+} from "@/lib/session-runtime-controller"
 
 interface RuntimeStatePayload {
   status: RuntimeStatus
   snapshot: RuntimeSnapshot | null
-}
-
-interface RuntimeLeaseResult {
-  state: RuntimeStatePayload
-  generation: number
-}
-
-type RuntimeLeasePhase = "connecting" | "ready" | "error" | "paused"
-
-type ActiveExtensionRequest = Extract<
-  ExtensionUIRequest,
-  { method: "select" | "confirm" | "input" | "editor" }
-> & {
-  requestId: string
-  value: string
-  expiresAt: number | null
-}
-
-function activeExtensionRequest(
-  requestId: string,
-  request: ExtensionUIRequest,
-  expiresAt: number | null
-): ActiveExtensionRequest {
-  if (
-    request.method !== "select" &&
-    request.method !== "confirm" &&
-    request.method !== "input" &&
-    request.method !== "editor"
-  ) {
-    throw new Error("Runtime returned a non-blocking extension UI request.")
-  }
-  return {
-    ...request,
-    requestId,
-    value:
-      request.method === "editor"
-        ? (request.prefill ?? "")
-        : request.method === "select"
-          ? (request.options[0] ?? "")
-          : "",
-    expiresAt,
-  }
 }
 
 const PONYTAIL_MODES = ["lite", "full", "ultra"] as const
@@ -200,66 +162,6 @@ type PendingSurfaceEvent = Extract<
   { kind: "write" | "title" | "progress" }
 >
 
-function applySurfaceEvents(
-  surface: TuiSurfaceSnapshot,
-  events: PendingSurfaceEvent[]
-) {
-  return events.reduce((current, event) => {
-    if (event.kind === "write") {
-      return event.revision > current.revision
-        ? {
-            ...current,
-            revision: event.revision,
-            data: current.data + event.data,
-          }
-        : current
-    }
-    if (event.kind === "title") return { ...current, title: event.title }
-    return { ...current, progress: event.active }
-  }, surface)
-}
-
-function applyTuiSurfaceEvent(
-  current: Record<string, TuiSurfaceSnapshot>,
-  event: TuiSurfaceEvent,
-  pendingEvents: Map<string, PendingSurfaceEvent[]>
-) {
-  if (event.kind === "submit") return current
-  if (event.kind === "open") {
-    const id = event.surface.surfaceId
-    const existing = current[id]
-    const base =
-      existing && existing.revision >= event.surface.revision
-        ? existing
-        : event.surface
-    const pending = pendingEvents.get(id)
-    pendingEvents.delete(id)
-    return {
-      ...current,
-      [id]: pending ? applySurfaceEvents(base, pending) : base,
-    }
-  }
-  if (event.kind === "close") {
-    pendingEvents.delete(event.surfaceId)
-    if (!(event.surfaceId in current)) return current
-    const next = { ...current }
-    delete next[event.surfaceId]
-    return next
-  }
-
-  const surface = current[event.surfaceId]
-  if (!surface) {
-    const pending = pendingEvents.get(event.surfaceId) ?? []
-    pending.push(event)
-    pendingEvents.set(event.surfaceId, pending)
-    return current
-  }
-  return {
-    ...current,
-    [event.surfaceId]: applySurfaceEvents(surface, [event]),
-  }
-}
-
 function retryDescription(t: Translator, payload: unknown) {
   if (
     typeof payload !== "object" ||
@@ -301,25 +203,55 @@ export function SessionRuntime({
   initialStatus,
   initialSnapshot,
   initialGoalState,
+  canConnect = true,
+  canSend = true,
 }: {
   sessionId: string
   mutationToken: string
   initialStatus: RuntimeStatus
   initialSnapshot: RuntimeSnapshot | null
   initialGoalState: PiGoalState | null
+  canConnect?: boolean
+  canSend?: boolean
 }) {
   const { t } = useI18n()
-  const router = useRouter()
   const sessionEvents = useSessionEvents()
+  const sessionController = useSessionViewController()
+  const runtimeController = sessionController.runtime
   const stream = useSessionStreaming()
   const composerDraftStore = useSessionComposerDraftStore()
-  const [, startTranscriptTransition] = useTransition()
-  const status = useStreamingRuntimeStatus() ?? initialStatus
-  const [snapshot, setSnapshot] = useState(initialSnapshot)
+  const runtimePresentation = useSyncExternalStore(
+    runtimeController.subscribe,
+    runtimeController.getSnapshot,
+    runtimeController.getInitialSnapshot
+  )
+  const status =
+    useStreamingRuntimeStatus() ?? runtimePresentation.status ?? initialStatus
+  const snapshot =
+    runtimePresentation.snapshot === undefined
+      ? initialSnapshot
+      : runtimePresentation.snapshot
+  const setSnapshot = useCallback(
+    (next: RuntimeSnapshot | null) => runtimeController.setSnapshot(next),
+    [runtimeController]
+  )
+  useEffect(() => {
+    if (
+      runtimeController.getSnapshot().snapshot === undefined &&
+      initialSnapshot !== null
+    ) {
+      runtimeController.setSnapshot(initialSnapshot)
+    }
+  }, [initialSnapshot, runtimeController])
   const [initialComposerDraft] = useState(() =>
     composerDraftStore.read(sessionId)
   )
   const [draft, setDraftState] = useState(initialComposerDraft.text)
+  useEffect(() => {
+    runtimeController.setDraftWriter((text) =>
+      composerDraftStore.setText(sessionId, text)
+    )
+  }, [composerDraftStore, runtimeController, sessionId])
   const composerTextareaRef = useRef<HTMLTextAreaElement>(null)
   const goalReturnFocusRef = useRef<HTMLElement | null>(null)
   const setDraft = useCallback<Dispatch<SetStateAction<string>>>(
@@ -357,70 +289,112 @@ export function SessionRuntime({
   const updatingRef = useRef(false)
   const [queueUpdating, setQueueUpdating] = useState(false)
   const queueUpdatingRef = useRef(false)
-  const [compacting, setCompacting] = useState(
-    initialSnapshot?.isCompacting ?? false
+  const compacting = runtimePresentation.compacting
+  const setCompacting = useCallback(
+    (next: boolean) => runtimeController.update({ compacting: next }),
+    [runtimeController]
   )
-  const [compactionNotice, setCompactionNotice] = useState<
-    "running" | "complete" | null
-  >(initialSnapshot?.isCompacting ? "running" : null)
+  const compactionNotice = runtimePresentation.compactionNotice
+  const setCompactionNotice = useCallback(
+    (next: "running" | "complete" | null) =>
+      runtimeController.update({ compactionNotice: next }),
+    [runtimeController]
+  )
   const [commandNotice, setCommandNotice] = useState<string | null>(null)
   const compactRequestRef = useRef(false)
-  const [compactQueuedOptimistic, setCompactQueuedOptimistic] = useState(false)
+  const compactQueuedOptimistic = runtimePresentation.compactQueuedOptimistic
+  const setCompactQueuedOptimistic = useCallback(
+    (next: boolean) =>
+      runtimeController.update({ compactQueuedOptimistic: next }),
+    [runtimeController]
+  )
   const [treeOpen, setTreeOpen] = useState(false)
   const [goalDialogOpen, setGoalDialogOpen] = useState(false)
   const [goalObjective, setGoalObjective] = useState("")
   const [goalTokenBudget, setGoalTokenBudget] = useState("")
   const [error, setError] = useState<string | null>(null)
   const [connectionError, setConnectionError] = useState<string | null>(null)
-  const [leasePhase, setLeasePhase] = useState<RuntimeLeasePhase>("connecting")
-  const [leaseError, setLeaseError] = useState<string | null>(null)
-  const leaseControllerRef =
-    useRef<RuntimeLeaseController<RuntimeLeaseResult> | null>(null)
+  const leasePhase = runtimePresentation.leasePhase
+  const leaseError = runtimePresentation.leaseError
   const leaseStarterRef = useRef<(() => void) | null>(null)
   const runtimeSessionGeneration = useRef(0)
   const connectionStateRef = useRef<"open" | "error" | null>(null)
-  const [queuedMessages, setQueuedMessages] = useState<QueuedPromptItem[]>(
-    initialSnapshot?.queuedPrompts ?? []
+  const queuedMessages = runtimePresentation.queuedMessages
+  const setQueuedMessages = useCallback(
+    (
+      update:
+        | QueuedPromptItem[]
+        | ((current: QueuedPromptItem[]) => QueuedPromptItem[])
+    ) => runtimeController.updateQueuedMessages(update),
+    [runtimeController]
   )
-  const queuedMessagesRevision = useRef(0)
-  const [retrying, setRetrying] = useState<string | null>(null)
-  const [extensionRequests, setExtensionRequests] = useState<
-    ActiveExtensionRequest[]
-  >([])
+  const retrying = runtimePresentation.retrying
+  const setRetrying = useCallback(
+    (next: string | null) => runtimeController.update({ retrying: next }),
+    [runtimeController]
+  )
+  const extensionRequests = runtimePresentation.extensionRequests
+  const setExtensionRequests = useCallback(
+    (
+      update:
+        | ActiveExtensionRequest[]
+        | ((current: ActiveExtensionRequest[]) => ActiveExtensionRequest[])
+    ) => runtimeController.setExtensionRequests(update),
+    [runtimeController]
+  )
   const extensionRequestLoadBuffers = useRef(
     new Set<ActiveExtensionRequest[]>()
   )
   const closedExtensionRequestIds = useRef(new Set<string>())
-  const extensionRequestLoadGeneration = useRef(0)
   const [respondingRequestId, setRespondingRequestId] = useState<string | null>(
     null
   )
   const respondingExtensionRequestIds = useRef(new Set<string>())
-  const [extensionStatuses, setExtensionStatuses] = useState<
-    Record<string, string>
-  >(initialSnapshot?.extensionStatuses ?? {})
-  const [extensionWidgets, setExtensionWidgets] = useState<
-    Record<
-      string,
-      { lines: string[]; placement: "aboveEditor" | "belowEditor" }
-    >
-  >({})
-  const [tuiSurfaces, setTuiSurfaces] = useState<
-    Record<string, TuiSurfaceSnapshot>
-  >({})
+  const extensionStatuses = runtimePresentation.extensionStatuses
+  const setExtensionStatuses = useCallback(
+    (
+      update:
+        | Record<string, string>
+        | ((current: Record<string, string>) => Record<string, string>)
+    ) => runtimeController.setExtensionStatuses(update),
+    [runtimeController]
+  )
+  const extensionWidgets = runtimePresentation.extensionWidgets
+  const tuiSurfaces = runtimePresentation.tuiSurfaces
+  const setTuiSurfaces = useCallback(
+    (
+      update:
+        | Record<string, TuiSurfaceSnapshot>
+        | ((
+            current: Record<string, TuiSurfaceSnapshot>
+          ) => Record<string, TuiSurfaceSnapshot>)
+    ) => runtimeController.setTuiSurfaces(update),
+    [runtimeController]
+  )
   const pendingSurfaceEvents = useRef(new Map<string, PendingSurfaceEvent[]>())
   const surfaceLoadBuffers = useRef(new Set<TuiSurfaceEvent[]>())
-  const surfaceLoadGeneration = useRef(0)
-  const surfaceLoadSequence = useRef(0)
   const closingTuiSurfaceIds = useRef(new Set<string>())
-  const extensionRequestLoadSequence = useRef(0)
-  const runtimeStateLoadSequence = useRef(0)
-  const runtimeStateGeneration = useRef(0)
   const wasBusy = useRef(status === "busy")
   const agentRunActive = useRef(status === "busy")
   const streamRevision = useRef(0)
   const completedStreamRevision = useRef<number | null>(null)
   const selectedModel = snapshot?.model
+  const modelCatalog = useModelCatalog({ sessionId }, "enabled")
+  const modelOptions = sessionModelOptions(modelCatalog)
+  const currentModelSelectable = Boolean(
+    selectedModel &&
+    modelOptions.some(
+      (model) =>
+        model.provider === selectedModel.provider &&
+        model.id === selectedModel.id
+    )
+  )
+  const unavailableModelReason =
+    modelCatalog.status === "idle" || modelCatalog.status === "loading"
+      ? t("composer.model.catalogLoading")
+      : modelCatalog.status === "error"
+        ? t("composer.model.catalogError")
+        : t("composer.model.unavailable")
   const queuedControl = (
     type: NonNullable<QueuedPromptItem["control"]>["type"]
   ) =>
@@ -451,17 +425,19 @@ export function SessionRuntime({
     [stream]
   )
 
-  const updateQueuedMessages = useCallback((items: QueuedPromptItem[]) => {
-    queuedMessagesRevision.current += 1
-    setQueuedMessages(items)
-    if (
-      !items.some(
-        (item) => item.kind === "control" && item.control?.type === "compact"
-      )
-    ) {
-      setCompactQueuedOptimistic(false)
-    }
-  }, [])
+  const updateQueuedMessages = useCallback(
+    (items: QueuedPromptItem[]) => {
+      setQueuedMessages(items)
+      if (
+        !items.some(
+          (item) => item.kind === "control" && item.control?.type === "compact"
+        )
+      ) {
+        setCompactQueuedOptimistic(false)
+      }
+    },
+    [setQueuedMessages, setCompactQueuedOptimistic]
+  )
 
   const applyRuntimeState = useCallback(
     (nextState: RuntimeStatePayload) => {
@@ -474,29 +450,38 @@ export function SessionRuntime({
       agentRunActive.current = nextState.status === "busy"
       wasBusy.current = nextState.status === "busy"
     },
-    [updateQueuedMessages, updateRuntimeStatus]
+    [
+      setCompactionNotice,
+      setCompacting,
+      setExtensionStatuses,
+      setSnapshot,
+      updateQueuedMessages,
+      updateRuntimeStatus,
+    ]
   )
 
-  async function mutate<T>(
-    path: string,
-    method: "POST" | "PUT",
-    body?: unknown
-  ) {
-    const response = await fetch(path, {
-      method,
-      headers: {
-        ...(body === undefined ? {} : { "Content-Type": "application/json" }),
-        "X-Pi-Web-Codex-Mutation-Token": mutationToken,
-      },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    })
-    return responseJson<T>(
-      response,
-      response.ok
-        ? t("session.runtime.emptyResponse")
-        : t("session.runtime.operationFailed", { status: response.status })
-    )
-  }
+  const mutate = useCallback(
+    async <T,>(path: string, method: "POST" | "PUT", body?: unknown) => {
+      if (!canConnect) {
+        throw new Error(t("session.runtime.authorizationPending"))
+      }
+      const response = await fetch(path, {
+        method,
+        headers: {
+          ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+          "X-Pi-Web-Codex-Mutation-Token": mutationToken,
+        },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      })
+      return responseJson<T>(
+        response,
+        response.ok
+          ? t("session.runtime.emptyResponse")
+          : t("session.runtime.operationFailed", { status: response.status })
+      )
+    },
+    [canConnect, mutationToken, t]
+  )
 
   async function sendMessage(
     rawMessage: string,
@@ -508,6 +493,7 @@ export function SessionRuntime({
       (!text && images.length === 0) ||
       submittingRef.current ||
       abortingRef.current ||
+      !canSend ||
       leasePhase !== "ready" ||
       !["ready", "busy"].includes(status)
     ) {
@@ -540,27 +526,28 @@ export function SessionRuntime({
     }
   }
 
+  const sendMessageRef = useRef(sendMessage)
+  useLayoutEffect(() => {
+    sendMessageRef.current = sendMessage
+  })
+
   const sendTuiMessage = useEffectEvent((message: string) => {
     void sendMessage(message)
   })
 
   const clearExtensionUi = useEffectEvent(() => {
-    extensionRequestLoadGeneration.current += 1
     for (const bufferedRequests of extensionRequestLoadBuffers.current) {
       bufferedRequests.length = 0
     }
     closedExtensionRequestIds.current.clear()
-    setExtensionRequests([])
     setRespondingRequestId(null)
     respondingExtensionRequestIds.current.clear()
-    setExtensionStatuses({})
-    setExtensionWidgets({})
     document.title = "pi-web-codex"
   })
 
   const loadTuiSurfaces = useEffectEvent(async () => {
-    const generation = surfaceLoadGeneration.current
-    const sequence = ++surfaceLoadSequence.current
+    const generation = runtimeController.getTuiGeneration()
+    const sequence = runtimeController.beginTuiLoad()
     const bufferedEvents: TuiSurfaceEvent[] = []
     const pendingBeforeLoad = new Map(
       [...pendingSurfaceEvents.current].map(([surfaceId, events]) => [
@@ -570,9 +557,12 @@ export function SessionRuntime({
     )
     surfaceLoadBuffers.current.add(bufferedEvents)
     try {
-      const response = await fetch(
-        `/api/v1/sessions/${sessionId}/tui-surfaces`,
-        { cache: "no-store" }
+      const response = await runAfterSessionEventCheckpoint(
+        sessionController.whenEventCheckpointReady(),
+        () =>
+          fetch(`/api/v1/sessions/${sessionId}/tui-surfaces`, {
+            cache: "no-store",
+          })
       )
       if (!response.ok) {
         throw new Error(
@@ -580,41 +570,34 @@ export function SessionRuntime({
         )
       }
       const snapshots = tuiSurfaceSnapshotsSchema.parse(await response.json())
-      if (
-        generation !== surfaceLoadGeneration.current ||
-        sequence !== surfaceLoadSequence.current
-      ) {
+      if (!runtimeController.isCurrentTuiLoad(sequence, generation)) {
         return
       }
 
-      let next: Record<string, TuiSurfaceSnapshot> = {}
-      const pending = pendingBeforeLoad
-      for (const snapshot of snapshots) {
-        const queued = pending.get(snapshot.surfaceId)
-        next[snapshot.surfaceId] = queued
-          ? applySurfaceEvents(snapshot, queued)
-          : snapshot
-        pending.delete(snapshot.surfaceId)
-      }
-      for (const event of bufferedEvents) {
-        next = applyTuiSurfaceEvent(next, event, pending)
-      }
-      pendingSurfaceEvents.current = pending
-      setTuiSurfaces(next)
+      const reconciled = reconcileTuiSurfaceSnapshot(
+        snapshots,
+        pendingBeforeLoad,
+        bufferedEvents
+      )
+      pendingSurfaceEvents.current = reconciled.pending
+      setTuiSurfaces(reconciled.surfaces)
     } finally {
       surfaceLoadBuffers.current.delete(bufferedEvents)
     }
   })
 
   const loadExtensionRequests = useEffectEvent(async () => {
-    const generation = extensionRequestLoadGeneration.current
-    const sequence = ++extensionRequestLoadSequence.current
+    const generation = runtimeController.getExtensionRequestGeneration()
+    const sequence = runtimeController.beginExtensionRequestLoad()
     const bufferedRequests: ActiveExtensionRequest[] = []
     extensionRequestLoadBuffers.current.add(bufferedRequests)
     try {
-      const response = await fetch(
-        `/api/v1/sessions/${sessionId}/extension-ui-requests`,
-        { cache: "no-store" }
+      const response = await runAfterSessionEventCheckpoint(
+        sessionController.whenEventCheckpointReady(),
+        () =>
+          fetch(`/api/v1/sessions/${sessionId}/extension-ui-requests`, {
+            cache: "no-store",
+          })
       )
       if (!response.ok) {
         throw new Error(
@@ -647,31 +630,20 @@ export function SessionRuntime({
         )
       })
       if (
-        generation !== extensionRequestLoadGeneration.current ||
-        sequence !== extensionRequestLoadSequence.current
+        !runtimeController.isCurrentExtensionRequestLoad(sequence, generation)
       ) {
         return
       }
 
-      const byId = new Map<string, ActiveExtensionRequest>()
-      for (const request of [...loaded, ...bufferedRequests]) {
-        if (
-          closedExtensionRequestIds.current.has(request.requestId) ||
-          (request.expiresAt !== null && request.expiresAt <= now)
-        ) {
-          continue
-        }
-        byId.set(request.requestId, request)
-      }
-      closedExtensionRequestIds.current.clear()
-      setExtensionRequests((current) =>
-        [...byId.values()].map((request) => {
-          const existing = current.find(
-            (candidate) => candidate.requestId === request.requestId
-          )
-          return existing ? { ...request, value: existing.value } : request
-        })
+      const reconciled = reconcileExtensionRequestSnapshot(
+        loaded,
+        bufferedRequests,
+        closedExtensionRequestIds.current,
+        now,
+        runtimeController.getSnapshot().extensionRequests
       )
+      closedExtensionRequestIds.current.clear()
+      setExtensionRequests(reconciled)
     } finally {
       extensionRequestLoadBuffers.current.delete(bufferedRequests)
     }
@@ -685,13 +657,14 @@ export function SessionRuntime({
       for (;;) {
         if (expectedSessionGeneration !== runtimeSessionGeneration.current)
           return
-        const generation = runtimeStateGeneration.current
-        const sequence = ++runtimeStateLoadSequence.current
-        const response = await fetch(
-          `/api/v1/sessions/${expectedSessionId}/runtime`,
-          {
-            cache: "no-store",
-          }
+        const generation = runtimeController.getGeneration()
+        const sequence = runtimeController.beginRuntimeStateLoad()
+        const response = await runAfterSessionEventCheckpoint(
+          sessionController.whenEventCheckpointReady(),
+          () =>
+            fetch(`/api/v1/sessions/${expectedSessionId}/runtime`, {
+              cache: "no-store",
+            })
         )
         const body = (await response.json()) as {
           status?: unknown
@@ -705,8 +678,12 @@ export function SessionRuntime({
           )
         }
         const nextState = parseRuntimeStatePayload(body)
-        if (sequence !== runtimeStateLoadSequence.current) return
-        if (generation !== runtimeStateGeneration.current) continue
+        if (
+          !runtimeController.isCurrentRuntimeStateLoad(sequence, generation)
+        ) {
+          if (generation !== runtimeController.getGeneration()) continue
+          return
+        }
         if (expectedSessionGeneration !== runtimeSessionGeneration.current)
           return
 
@@ -725,116 +702,12 @@ export function SessionRuntime({
 
   useEffect(() => {
     let disposed = false
-    const sessionGeneration = ++runtimeSessionGeneration.current
-    const requestLease = async (
-      method: "POST" | "PUT",
-      targetSessionId: string,
-      leaseId: string
-    ): Promise<RuntimeLeaseResult> => {
-      const generation = runtimeStateGeneration.current
-      const response = await fetch(
-        `/api/v1/sessions/${targetSessionId}/runtime/lease`,
-        {
-          method,
-          headers: {
-            "Content-Type": "application/json",
-            "X-Pi-Web-Codex-Mutation-Token": mutationToken,
-          },
-          body: JSON.stringify({ leaseId }),
-          cache: "no-store",
-        }
-      )
-      const body = await responseJson<unknown>(
-        response,
-        t("session.runtime.operationFailed", { status: response.status })
-      )
-      return { state: parseRuntimeStatePayload(body), generation }
-    }
-    const controller = new RuntimeLeaseController<RuntimeLeaseResult>(
-      {
-        acquire: (targetSessionId, leaseId) =>
-          requestLease("POST", targetSessionId, leaseId),
-        renew: (targetSessionId, leaseId) =>
-          requestLease("PUT", targetSessionId, leaseId),
-        async release(targetSessionId, leaseId) {
-          const response = await fetch(
-            `/api/v1/sessions/${targetSessionId}/runtime/lease`,
-            {
-              method: "DELETE",
-              keepalive: true,
-              headers: {
-                "Content-Type": "application/json",
-                "X-Pi-Web-Codex-Mutation-Token": mutationToken,
-              },
-              body: JSON.stringify({ leaseId }),
-              cache: "no-store",
-            }
-          )
-          if (!response.ok) {
-            await responseJson<unknown>(
-              response,
-              t("session.runtime.operationFailed", {
-                status: response.status,
-              })
-            )
-          }
-        },
-      },
-      {
-        onReady: (result) => {
-          if (disposed) return
-          setLeasePhase("ready")
-          setLeaseError(null)
-          if (result.generation !== runtimeStateGeneration.current) {
-            void loadRuntimeState(sessionId, sessionGeneration).catch(
-              (failure: unknown) =>
-                setLeaseError(
-                  failure instanceof Error ? failure.message : String(failure)
-                )
-            )
-            return
-          }
-          applyRuntimeState(result.state)
-          setError(null)
-        },
-        onError: (failure: unknown) => {
-          if (disposed) return
-          setLeasePhase("error")
-          setLeaseError(
-            failure instanceof Error ? failure.message : String(failure)
-          )
-        },
-        onReleaseError: (failure: unknown) => {
-          console.error("Could not release the runtime lease:", failure)
-          if (disposed) return
-          setLeaseError(
-            failure instanceof Error ? failure.message : String(failure)
-          )
-        },
-      }
-    )
-    leaseControllerRef.current = controller
-    const startLease = () => {
-      if (disposed) return
-      runtimeStateGeneration.current += 1
-      setLeasePhase("connecting")
-      setLeaseError(null)
-      try {
-        controller.start(sessionId, createRuntimeLeaseId())
-      } catch (failure) {
-        setLeasePhase("error")
-        setLeaseError(
-          failure instanceof Error ? failure.message : String(failure)
-        )
-      }
-    }
-    leaseStarterRef.current = startLease
-    startLease()
-
+    runtimeSessionGeneration.current++
     const reconnect = () => {
-      if (disposed) return
-      controller.reconnect()
+      if (!disposed && canConnect) runtimeController.reconnectLeaseIfRunning()
     }
+    leaseStarterRef.current = reconnect
+    if (canConnect) runtimeController.retainLease(mutationToken)
     const onVisibilityChange = () => {
       if (document.visibilityState === "visible") reconnect()
     }
@@ -842,49 +715,29 @@ export function SessionRuntime({
     document.addEventListener("visibilitychange", onVisibilityChange)
 
     const expectedSessionGeneration = runtimeSessionGeneration.current
-    void Promise.all([
-      loadRuntimeState(sessionId, expectedSessionGeneration),
-      loadTuiSurfaces(),
-      loadExtensionRequests(),
-    ]).catch((failure: unknown) =>
-      setError(failure instanceof Error ? failure.message : String(failure))
-    )
+    if (canConnect) {
+      void Promise.all([
+        loadRuntimeState(sessionId, expectedSessionGeneration),
+        loadTuiSurfaces(),
+        loadExtensionRequests(),
+      ]).catch((failure: unknown) =>
+        setError(failure instanceof Error ? failure.message : String(failure))
+      )
+    }
     const handoffTranscript = () => {
       completedStreamRevision.current = streamRevision.current
-      startTranscriptTransition(() => router.refresh())
     }
     const handle = (source: Event) => {
       const event = parseSessionLiveEvent(source)
-      if (
-        [
-          "runtime.starting",
-          "runtime.ready",
-          "runtime.busy",
-          "runtime.idle",
-          "runtime.stopping",
-          "runtime.stopped",
-          "runtime.crashed",
-          "session.completed",
-          "queue.updated",
-          "compaction.start",
-          "compaction.end",
-        ].includes(event.type)
-      ) {
-        runtimeStateGeneration.current += 1
-      }
+      if (runtimeController.isStaleRuntimeSnapshotEvent(event)) return
       if (event.type === "runtime.starting") {
         streamRevision.current += 1
         agentRunActive.current = false
         completedStreamRevision.current = null
 
         updateRuntimeStatus("starting")
-        setTuiSurfaces({})
         pendingSurfaceEvents.current.clear()
         closingTuiSurfaceIds.current.clear()
-        surfaceLoadGeneration.current += 1
-        setCompacting(false)
-        setCompactionNotice(null)
-        setRetrying(null)
         clearExtensionUi()
       }
       if (event.type === "runtime.ready") {
@@ -894,11 +747,6 @@ export function SessionRuntime({
             ? "busy"
             : "ready"
         )
-        setSnapshot(nextSnapshot)
-        updateQueuedMessages(nextSnapshot.queuedPrompts)
-        setExtensionStatuses(nextSnapshot.extensionStatuses)
-        setCompacting(nextSnapshot.isCompacting)
-        setCompactionNotice(nextSnapshot.isCompacting ? "running" : null)
         setError(null)
         void Promise.all([loadTuiSurfaces(), loadExtensionRequests()]).catch(
           (failure: unknown) =>
@@ -928,43 +776,24 @@ export function SessionRuntime({
       }
       if (event.type === "runtime.stopping") updateRuntimeStatus("stopping")
       if (event.type === "runtime.stopped") {
-        leaseControllerRef.current?.release()
-        setLeasePhase("paused")
-        setLeaseError(null)
         if (agentRunActive.current) {
           agentRunActive.current = false
           handoffTranscript()
         }
         updateRuntimeStatus("stopped")
-        setSnapshot(null)
-        updateQueuedMessages([])
-        setTuiSurfaces({})
         pendingSurfaceEvents.current.clear()
         closingTuiSurfaceIds.current.clear()
-        surfaceLoadGeneration.current += 1
-        setCompacting(false)
-        setCompactionNotice(null)
-        setRetrying(null)
         clearExtensionUi()
       }
       if (event.type === "runtime.crashed") {
-        leaseControllerRef.current?.release()
-        setLeasePhase("paused")
-        setLeaseError(null)
         if (agentRunActive.current) {
           agentRunActive.current = false
           handoffTranscript()
         }
         wasBusy.current = false
         updateRuntimeStatus("crashed")
-        updateQueuedMessages([])
-        setTuiSurfaces({})
         pendingSurfaceEvents.current.clear()
         closingTuiSurfaceIds.current.clear()
-        surfaceLoadGeneration.current += 1
-        setCompacting(false)
-        setCompactionNotice(null)
-        setRetrying(null)
         clearExtensionUi()
         setError(t("session.runtime.crashMessage"))
         notifyWhenHidden(
@@ -980,13 +809,6 @@ export function SessionRuntime({
         }
       }
 
-      if (
-        event.type === "session.entry.appended" &&
-        !agentRunActive.current &&
-        completedStreamRevision.current === null
-      ) {
-        router.refresh()
-      }
       if (event.type === "session.completed") {
         agentRunActive.current = false
         updateRuntimeStatus("ready")
@@ -1014,28 +836,17 @@ export function SessionRuntime({
         }
         agentRunActive.current = false
         completedStreamRevision.current = null
-
-        router.refresh()
       }
 
       if (event.type === "queue.updated") {
-        updateQueuedMessages(queueUpdatedEventSchema.parse(event.payload).items)
+        // SessionRuntimeController owns the queued prompt state.
       }
       if (event.type === "compaction.start") {
-        setCompacting(true)
-        setCompactionNotice("running")
         updateRuntimeStatus("busy")
       }
       if (event.type === "compaction.end") {
         const outcome = compactionEndOutcome(event.payload)
-        setCompacting(false)
-        if (outcome.kind === "complete") {
-          setCompactionNotice("complete")
-          router.refresh()
-        } else {
-          setCompactionNotice(null)
-          if (outcome.kind === "failed") setError(outcome.message)
-        }
+        if (outcome.kind === "failed") setError(outcome.message)
       }
       if (event.type === "retry.start") {
         setRetrying(retryDescription(t, event.payload))
@@ -1049,13 +860,6 @@ export function SessionRuntime({
         if (tuiEvent.kind === "submit") {
           sendTuiMessage(tuiEvent.value)
         } else {
-          setTuiSurfaces((current) =>
-            applyTuiSurfaceEvent(
-              current,
-              tuiEvent,
-              pendingSurfaceEvents.current
-            )
-          )
           if (tuiEvent.kind === "close" && tuiEvent.value !== undefined) {
             setDraft(tuiEvent.value)
           }
@@ -1078,27 +882,11 @@ export function SessionRuntime({
           const notify = request.notifyType ?? "info"
           toast[notify](request.message)
           notifyWhenHidden(t("session.extension.defaultTitle"), request.message)
-        } else if (request.method === "setStatus") {
-          setExtensionStatuses((current) => {
-            const next = { ...current }
-            if (request.statusText !== undefined) {
-              next[request.statusKey] = request.statusText
-            } else delete next[request.statusKey]
-            return next
-          })
-        } else if (request.method === "setWidget") {
-          setExtensionWidgets((current) => {
-            const next = { ...current }
-            if (request.widgetLines) {
-              next[request.widgetKey] = {
-                lines: request.widgetLines,
-                placement: request.widgetPlacement ?? "aboveEditor",
-              }
-            } else {
-              delete next[request.widgetKey]
-            }
-            return next
-          })
+        } else if (
+          request.method === "setStatus" ||
+          request.method === "setWidget"
+        ) {
+          // SessionRuntimeController owns extension status and widget state.
         } else if (request.method === "set_editor_text") {
           setDraft(request.text)
         } else if (request.method === "set_title") {
@@ -1121,18 +909,6 @@ export function SessionRuntime({
           for (const buffer of extensionRequestLoadBuffers.current) {
             buffer.push(activeRequest)
           }
-          setExtensionRequests((current) => {
-            const existing = current.find(
-              (item) => item.requestId === requestId
-            )
-            return existing
-              ? current.map((item) =>
-                  item.requestId === requestId
-                    ? { ...activeRequest, value: item.value }
-                    : item
-                )
-              : [...current, activeRequest]
-          })
         }
       }
       if (event.type === "extension.ui.closed") {
@@ -1146,9 +922,6 @@ export function SessionRuntime({
         }
         const requestId = event.payload.requestId
         closedExtensionRequestIds.current.add(requestId)
-        setExtensionRequests((current) =>
-          current.filter((request) => request.requestId !== requestId)
-        )
       }
       if (event.type === "resync.required") {
         completedStreamRevision.current = null
@@ -1156,20 +929,12 @@ export function SessionRuntime({
         agentRunActive.current = false
         wasBusy.current = false
         clearExtensionUi()
-        setTuiSurfaces({})
         pendingSurfaceEvents.current.clear()
         closingTuiSurfaceIds.current.clear()
         for (const bufferedEvents of surfaceLoadBuffers.current) {
           bufferedEvents.length = 0
         }
-        surfaceLoadGeneration.current += 1
-        setCompacting(false)
-        setCompactionNotice(null)
-        setCompactQueuedOptimistic(false)
-        updateQueuedMessages([])
-        setRetrying(null)
         setError(null)
-        router.refresh()
         void Promise.all([
           loadRuntimeState(),
           loadTuiSurfaces(),
@@ -1188,40 +953,44 @@ export function SessionRuntime({
         state === "error" ? t("session.runtime.connectionLost") : null
       )
       if (state === "open" && previous === "error") {
-        leaseControllerRef.current?.reconnect()
-        void Promise.all([
-          loadRuntimeState(sessionId, expectedSessionGeneration),
-          loadTuiSurfaces(),
-          loadExtensionRequests(),
-        ]).catch((failure: unknown) =>
-          setError(failure instanceof Error ? failure.message : String(failure))
-        )
+        if (canConnect) {
+          runtimeController.reconnectLeaseIfRunning()
+          void Promise.all([
+            loadRuntimeState(sessionId, expectedSessionGeneration),
+            loadTuiSurfaces(),
+            loadExtensionRequests(),
+          ]).catch((failure: unknown) =>
+            setError(
+              failure instanceof Error ? failure.message : String(failure)
+            )
+          )
+        }
       }
     })
     return () => {
       disposed = true
       runtimeSessionGeneration.current += 1
-      runtimeStateGeneration.current += 1
       window.removeEventListener("online", reconnect)
       document.removeEventListener("visibilitychange", onVisibilityChange)
-      if (leaseStarterRef.current === startLease) leaseStarterRef.current = null
-      if (leaseControllerRef.current === controller)
-        leaseControllerRef.current = null
-      controller.release()
+      if (leaseStarterRef.current === reconnect) leaseStarterRef.current = null
+      if (canConnect) runtimeController.releaseLease()
       unsubscribeEvents()
       unsubscribeConnection()
     }
   }, [
     applyRuntimeState,
     mutationToken,
-    router,
     sessionEvents,
     sessionId,
     setDraft,
     stream,
+    canConnect,
+    canSend,
     t,
     updateQueuedMessages,
     updateRuntimeStatus,
+    runtimeController,
+    setRetrying,
   ])
 
   useEffect(() => {
@@ -1235,7 +1004,7 @@ export function SessionRuntime({
       )
     }, timeout)
     return () => window.clearTimeout(timer)
-  }, [extensionRequest])
+  }, [extensionRequest, setExtensionRequests])
 
   useEffect(
     () => () => {
@@ -1298,57 +1067,74 @@ export function SessionRuntime({
     void sendMessage(`/ponytail ${mode}`)
   }
 
-  async function setModel(model: RuntimeSnapshot["availableModels"][number]) {
-    if (status === "busy") {
-      await sendMessage(`/model ${model.provider}/${model.id}`)
-      return
-    }
-    if (updatingRef.current) return
-    updatingRef.current = true
-    setUpdating(true)
-    setError(null)
-    try {
-      setSnapshot(
-        await mutate<RuntimeSnapshot>(
-          `/api/v1/sessions/${sessionId}/model`,
-          "PUT",
-          { provider: model.provider, modelId: model.id }
+  const setModel = useCallback(
+    async (model: RuntimeSnapshot["availableModels"][number]) => {
+      if (status === "busy") {
+        await sendMessageRef.current(`/model ${model.provider}/${model.id}`)
+        return
+      }
+      if (updatingRef.current) return
+      updatingRef.current = true
+      setUpdating(true)
+      setError(null)
+      try {
+        setSnapshot(
+          await mutate<RuntimeSnapshot>(
+            `/api/v1/sessions/${sessionId}/model`,
+            "PUT",
+            { provider: model.provider, modelId: model.id }
+          )
         )
-      )
-      router.refresh()
-    } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure))
-    } finally {
-      updatingRef.current = false
-      setUpdating(false)
-    }
-  }
+      } catch (failure) {
+        setError(failure instanceof Error ? failure.message : String(failure))
+      } finally {
+        updatingRef.current = false
+        setUpdating(false)
+      }
+    },
+    [mutate, sessionId, setSnapshot, status]
+  )
 
-  async function setThinkingLevel(level: RuntimeSnapshot["thinkingLevel"]) {
-    if (status === "busy") {
-      await sendMessage(`/thinking ${level}`)
-      return
-    }
-    if (updatingRef.current) return
-    updatingRef.current = true
-    setUpdating(true)
-    setError(null)
-    try {
-      setSnapshot(
-        await mutate<RuntimeSnapshot>(
-          `/api/v1/sessions/${sessionId}/thinking-level`,
-          "PUT",
-          { level }
+  const setThinkingLevel = useCallback(
+    async (level: RuntimeSnapshot["thinkingLevel"]) => {
+      if (status === "busy") {
+        await sendMessageRef.current(`/thinking ${level}`)
+        return
+      }
+      if (updatingRef.current) return
+      updatingRef.current = true
+      setUpdating(true)
+      setError(null)
+      try {
+        setSnapshot(
+          await mutate<RuntimeSnapshot>(
+            `/api/v1/sessions/${sessionId}/thinking-level`,
+            "PUT",
+            { level }
+          )
         )
-      )
-      router.refresh()
-    } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure))
-    } finally {
-      updatingRef.current = false
-      setUpdating(false)
-    }
-  }
+      } catch (failure) {
+        setError(failure instanceof Error ? failure.message : String(failure))
+      } finally {
+        updatingRef.current = false
+        setUpdating(false)
+      }
+    },
+    [mutate, sessionId, setSnapshot, status]
+  )
+
+  const onModelChange = useCallback(
+    (model: RuntimeSnapshot["availableModels"][number]) => {
+      void setModel(model)
+    },
+    [setModel]
+  )
+  const onThinkingLevelChange = useCallback(
+    (level: RuntimeSnapshot["thinkingLevel"]) => {
+      void setThinkingLevel(level)
+    },
+    [setThinkingLevel]
+  )
 
   async function reload() {
     if (updatingRef.current) return
@@ -1363,7 +1149,6 @@ export function SessionRuntime({
       setSnapshot(nextSnapshot)
       updateQueuedMessages(nextSnapshot.queuedPrompts)
       toast.success(t("session.runtime.reloadSuccess"))
-      router.refresh()
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure))
     } finally {
@@ -1375,7 +1160,7 @@ export function SessionRuntime({
   async function replaceQueuedMessages(next: QueuedPromptItem[]) {
     if (queueUpdatingRef.current || abortingRef.current) return
     queueUpdatingRef.current = true
-    const revisionAtStart = queuedMessagesRevision.current
+    const revisionAtStart = runtimeController.getSnapshot().queueRevision
     setQueueUpdating(true)
     setError(null)
     try {
@@ -1385,15 +1170,16 @@ export function SessionRuntime({
           next,
         })
       )
-      setQueuedMessages((current) =>
+      const currentRevision = runtimeController.getSnapshot().queueRevision
+      runtimeController.setQueuedMessagesFromMutation(
         reconcilePromptQueueMutation(
-          current,
+          runtimeController.getSnapshot().queuedMessages,
           state.items,
           revisionAtStart,
-          queuedMessagesRevision.current
+          currentRevision
         )
       )
-      if (revisionAtStart === queuedMessagesRevision.current) {
+      if (revisionAtStart === currentRevision) {
         setCompactQueuedOptimistic(
           state.items.some(
             (item) =>
@@ -1440,7 +1226,6 @@ export function SessionRuntime({
       )
       setSnapshot(result.snapshot)
       setCompactionNotice("complete")
-      router.refresh()
     } catch (failure) {
       setCompactionNotice(null)
       setError(failure instanceof Error ? failure.message : String(failure))
@@ -1537,11 +1322,13 @@ export function SessionRuntime({
     runtimeActive ? "session.runtime.active" : "session.runtime.inactive"
   )
   const settingsDisabled =
+    !canConnect ||
     leasePhase !== "ready" ||
     !["ready", "busy"].includes(status) ||
     updating ||
     compacting
   const reloadDisabled =
+    !canConnect ||
     ["starting", "busy", "stopping", "crashed"].includes(status) ||
     updating ||
     compacting
@@ -1607,6 +1394,7 @@ export function SessionRuntime({
             ? FileTextIcon
             : TerminalIcon,
       disabled:
+        !canSend ||
         leasePhase !== "ready" ||
         submitting ||
         aborting ||
@@ -1645,7 +1433,9 @@ export function SessionRuntime({
             ))}
           <GoalStatusBar
             initialState={initialGoalState}
-            disabled={status === "starting" || status === "crashed"}
+            disabled={
+              !canConnect || status === "starting" || status === "crashed"
+            }
             queueCommands={isBusy}
             onCommand={(args) => sendMessage(`/goal ${args}`)}
           />
@@ -1654,7 +1444,11 @@ export function SessionRuntime({
             items={queuedMessages}
             onReplace={replaceQueuedMessages}
             disabled={
-              leasePhase !== "ready" || submitting || aborting || queueUpdating
+              !canConnect ||
+              leasePhase !== "ready" ||
+              submitting ||
+              aborting ||
+              queueUpdating
             }
             fallbackFocusRef={composerTextareaRef}
           />
@@ -1665,6 +1459,7 @@ export function SessionRuntime({
           onSubmit={submit}
           submitting={submitting}
           sendDisabled={
+            !canSend ||
             leasePhase !== "ready" ||
             !["ready", "busy"].includes(status) ||
             status === "crashed" ||
@@ -1796,7 +1591,15 @@ export function SessionRuntime({
           actions={
             <>
               <SessionStreamingToolStatus />
-              {leasePhase === "connecting" ? (
+              {!canConnect ? (
+                <span
+                  role="status"
+                  aria-live="polite"
+                  className="text-xs text-muted-foreground"
+                >
+                  {t("session.runtime.authorizationPending")}
+                </span>
+              ) : leasePhase === "connecting" ? (
                 <span
                   role="status"
                   aria-live="polite"
@@ -1866,7 +1669,7 @@ export function SessionRuntime({
                 <Select
                   value={streamingBehavior}
                   onValueChange={selectStreamingBehavior}
-                  disabled={aborting}
+                  disabled={!canConnect || aborting}
                 >
                   <SelectTrigger
                     size="sm"
@@ -1891,7 +1694,7 @@ export function SessionRuntime({
                   size="icon"
                   onClick={abort}
                   aria-label={t("session.runtime.abort")}
-                  disabled={aborting}
+                  disabled={!canConnect || aborting}
                 >
                   {aborting ? (
                     <LoaderCircleIcon className="animate-spin" />
@@ -1905,20 +1708,30 @@ export function SessionRuntime({
           settings={
             snapshot ? (
               <>
-                {snapshot.model && snapshot.availableModels.length ? (
+                {snapshot.model ? (
                   <ComposerModelSelect
                     model={
                       queuedModel
-                        ? (snapshot.availableModels.find(
+                        ? (modelOptions.find(
                             (model) =>
                               `${model.provider}/${model.id}` === queuedModel
                           ) ?? snapshot.model)
                         : snapshot.model
                     }
-                    models={snapshot.availableModels}
-                    onModelChange={(model) => void setModel(model)}
+                    models={modelOptions}
+                    onModelChange={onModelChange}
                     disabled={settingsDisabled}
                     settingsHref={`/settings/models?sessionId=${encodeURIComponent(sessionId)}`}
+                    unavailableModelLabel={
+                      snapshot.model && !currentModelSelectable
+                        ? `${snapshot.model.provider} / ${snapshot.model.name}`
+                        : null
+                    }
+                    unavailableModelReason={
+                      snapshot.model && !currentModelSelectable
+                        ? unavailableModelReason
+                        : null
+                    }
                   />
                 ) : null}
                 <ComposerThinkingSelect
@@ -1927,7 +1740,7 @@ export function SessionRuntime({
                     snapshot.thinkingLevel
                   }
                   levels={snapshot.availableThinkingLevels}
-                  onLevelChange={(level) => void setThinkingLevel(level)}
+                  onLevelChange={onThinkingLevelChange}
                   disabled={settingsDisabled}
                 />
               </>
@@ -1955,7 +1768,7 @@ export function SessionRuntime({
                 variant="outline"
                 size="sm"
                 onClick={() => void restartRuntime()}
-                disabled={updating}
+                disabled={!canConnect || updating}
               >
                 <RefreshCwIcon
                   className={updating ? "animate-spin" : undefined}
@@ -1973,9 +1786,7 @@ export function SessionRuntime({
                 variant="outline"
                 size="sm"
                 onClick={() => {
-                  setLeasePhase("connecting")
-                  setLeaseError(null)
-                  leaseStarterRef.current?.()
+                  runtimeController.retryLease()
                 }}
               >
                 <RefreshCwIcon />

@@ -24,6 +24,7 @@ export const STREAM_EVENT_TYPES = [
   "tool.execution.update",
   "tool.execution.end",
   "compaction.start",
+  "compaction.end",
   "session.completed",
   "session.leaf.changed",
   "resync.required",

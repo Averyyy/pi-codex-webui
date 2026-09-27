@@ -12,10 +12,11 @@ export async function GET(
   const previousLeaf = params.has("previousLeaf")
     ? params.get("previousLeaf") || null
     : undefined
+  const syncSelectedFile = params.get("syncSelectedFile") === "1"
   if (previousLeaf && previousLeaf.length > 1024)
     return Response.json({ error: "Invalid previous leaf." }, { status: 400 })
   try {
-    const view = await getSessionView(sessionId, previousLeaf)
+    const view = await getSessionView(sessionId, previousLeaf, syncSelectedFile)
     return view
       ? Response.json(view, { headers: { "Cache-Control": "no-store" } })
       : Response.json({ error: "Session not found." }, { status: 404 })

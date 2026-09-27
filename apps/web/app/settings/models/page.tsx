@@ -1,9 +1,10 @@
 import { notFound } from "next/navigation"
 
-import { ModelSettings } from "@/components/model-settings"
+import { ModelSettingsLoader } from "@/components/model-settings-loader"
 import { SettingsSection } from "@/components/settings-section"
+import { getSessionRuntimeTarget } from "@/lib/catalog"
 import { getLocalizedConfig } from "@/lib/i18n-server"
-import { loadModelSettings } from "@/lib/model-settings-data"
+import { getMutationToken } from "@/lib/request-security"
 
 export default async function ModelSettingsPage({
   searchParams,
@@ -12,19 +13,18 @@ export default async function ModelSettingsPage({
 }) {
   const { sessionId } = await searchParams
   const { t } = await getLocalizedConfig()
-  const data = await loadModelSettings(sessionId)
-  if (!data) notFound()
+  const session = sessionId ? await getSessionRuntimeTarget(sessionId) : null
+  if (sessionId && !session) notFound()
 
   return (
     <SettingsSection
       title={t("settings.page.models.title")}
       description={t("settings.page.models.description")}
     >
-      <ModelSettings
-        key={data.sessionId ?? "global"}
-        initial={data.settings}
-        mutationToken={data.mutationToken}
-        sessionId={data.sessionId}
+      <ModelSettingsLoader
+        mutationToken={getMutationToken()}
+        sessionId={sessionId ?? null}
+        projectId={session?.projectId ?? null}
       />
     </SettingsSection>
   )

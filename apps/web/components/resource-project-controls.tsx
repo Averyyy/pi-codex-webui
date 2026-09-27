@@ -28,6 +28,7 @@ import {
 
 import { useI18n } from "@/components/i18n-provider"
 import { validatedResponseJson } from "@/lib/api-response"
+import { dispatchModelCatalogInvalidated } from "@/lib/model-catalog-events"
 
 export interface ResourceProject {
   id: string
@@ -79,6 +80,7 @@ export function ResourceProjectControls({
         t("settings.common.saveFailed")
       )
       onCatalogChange(result)
+      dispatchModelCatalogInvalidated({ target: { projectId } })
       router.refresh()
     } catch (failure) {
       onError(failure instanceof Error ? failure.message : String(failure))

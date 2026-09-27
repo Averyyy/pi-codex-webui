@@ -1,6 +1,16 @@
 "use client"
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react"
+import {
+  memo,
+  useDeferredValue,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react"
 import {
   ChevronDownIcon,
   ListChecksIcon,
@@ -57,8 +67,11 @@ import { CustomProviderForm } from "@/components/custom-provider-form"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { useI18n } from "@/components/i18n-provider"
 import { ApiError, responseJson } from "@/lib/api-response"
+import { refreshModelAndExtensionCatalogs } from "@/lib/catalog-refresh-client"
+import { useModelCatalogStore } from "@/components/model-catalog-provider"
 import type { Translator } from "@/lib/i18n"
 import { nextModelProviderFocusTarget } from "@/lib/model-settings-focus"
+import { isModelProviderVisibleByDefault } from "@/lib/model-settings-display"
 
 function modelKey(model: Pick<ModelSettingsModel, "provider" | "id">) {
   return `${model.provider}/${model.id}`
@@ -68,13 +81,15 @@ function query(sessionId: string | null) {
   return sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : ""
 }
 
-function authLabel(
-  auth: ModelSettings["providers"][number]["auth"],
+function authStatusLabel(
+  status: ModelSettingsProvider["authStatus"],
   t: Translator
 ) {
-  if (auth === "oauth") return t("settings.models.auth.oauth")
-  if (auth === "api-key") return t("settings.models.auth.apiKey")
-  return t("settings.models.auth.environment")
+  return t(`settings.models.auth.status.${status}`)
+}
+
+function authKindLabel(kind: ModelSettingsProvider["authKind"], t: Translator) {
+  return t(`settings.models.auth.kind.${kind}`)
 }
 
 function providerDescription(provider: ModelSettingsProvider, t: Translator) {
@@ -89,6 +104,53 @@ function providerDescription(provider: ModelSettingsProvider, t: Translator) {
   return t("settings.models.noAvailableModels")
 }
 
+const ModelSearchCard = memo(function ModelSearchCard({
+  t,
+  total,
+  visible,
+  onSearchChange,
+}: {
+  t: Translator
+  total: number
+  visible: number
+  onSearchChange: (value: string) => void
+}) {
+  const [value, setValue] = useState("")
+  const deferredValue = useDeferredValue(value)
+
+  useEffect(() => {
+    onSearchChange(deferredValue.trim().toLocaleLowerCase())
+  }, [deferredValue, onSearchChange])
+
+  return (
+    <Card>
+      <CardContent className="flex flex-col gap-4">
+        <FieldGroup>
+          <Field>
+            <FieldLabel htmlFor="model-search" className="sr-only">
+              {t("settings.models.searchLabel")}
+            </FieldLabel>
+            <Input
+              id="model-search"
+              type="search"
+              value={value}
+              autoComplete="off"
+              placeholder={t("settings.models.searchPlaceholder")}
+              onChange={(event) => setValue(event.target.value)}
+              aria-busy={value !== deferredValue}
+            />
+            {deferredValue.trim() ? (
+              <FieldDescription aria-live="polite">
+                {t("settings.models.filteredSummary", { visible, total })}
+              </FieldDescription>
+            ) : null}
+          </Field>
+        </FieldGroup>
+      </CardContent>
+    </Card>
+  )
+})
+
 function operationError(failure: unknown, t: Translator) {
   if (failure instanceof ApiError && failure.code === "InvalidCustomProvider") {
     return t("settings.models.invalidProvider")
@@ -99,17 +161,64 @@ function operationError(failure: unknown, t: Translator) {
   return failure instanceof Error ? failure.message : String(failure)
 }
 
-export function ModelSettings({
-  initial,
-  mutationToken,
-  sessionId,
-}: {
+interface ModelSettingsProps {
   initial: ModelSettings
   mutationToken: string
   sessionId: string | null
-}) {
+  extensionProjectId: string | null
+}
+
+export function ModelSettings(props: ModelSettingsProps) {
   const { t } = useI18n()
-  const [settings, setSettings] = useState(initial)
+  const catalogStore = useModelCatalogStore()
+  const catalogTarget = useMemo(
+    () =>
+      props.sessionId
+        ? { sessionId: props.sessionId }
+        : { defaultTarget: true },
+    [props.sessionId]
+  )
+  const subscribe = useCallback(
+    (listener: () => void) =>
+      catalogStore.subscribe(catalogTarget, "all", listener),
+    [catalogStore, catalogTarget]
+  )
+  const getSnapshot = useCallback(
+    () => catalogStore.getState(catalogTarget, "all").snapshot,
+    [catalogStore, catalogTarget]
+  )
+  const settings = useSyncExternalStore(
+    subscribe,
+    getSnapshot,
+    () => props.initial
+  )
+  if (!settings) {
+    return (
+      <Card aria-busy="true">
+        <CardContent className="grid min-h-32 gap-3 py-6">
+          <p role="status" className="text-sm text-muted-foreground">
+            {t("home.status.loadingModels")}
+          </p>
+        </CardContent>
+      </Card>
+    )
+  }
+  return <ModelSettingsEditor {...props} initial={settings} />
+}
+
+function ModelSettingsEditor({
+  initial,
+  mutationToken,
+  sessionId,
+  extensionProjectId,
+}: ModelSettingsProps) {
+  const { t } = useI18n()
+  const catalogStore = useModelCatalogStore()
+  const catalogTarget = useMemo(
+    () => (sessionId ? { sessionId } : { defaultTarget: true }),
+    [sessionId]
+  )
+  const settings = initial
   const [working, setWorking] = useState<string | null>(null)
   const workingRef = useRef(false)
   const [error, setError] = useState<string | null>(null)
@@ -133,6 +242,11 @@ export function ModelSettings({
       | "settings.models.deleteProviderAuth"
   } | null>(null)
   const [modelSearch, setModelSearch] = useState("")
+  const [showProvidersNeedingSetup, setShowProvidersNeedingSetup] =
+    useState(false)
+  const handleModelSearchChange = useCallback((value: string) => {
+    setModelSearch(value)
+  }, [])
 
   useEffect(() => {
     if (!error || working !== null || providerDialogOpen) return
@@ -160,6 +274,14 @@ export function ModelSettings({
     return parsed.data
   }
 
+  function publishMutationResult(token: number, next: ModelSettings) {
+    if (catalogStore.publishMutation(catalogTarget, "all", token, next)) {
+      return true
+    }
+    setError(t("settings.models.conflict"))
+    return false
+  }
+
   function beginWorking(key: string) {
     if (workingRef.current) return false
     workingRef.current = true
@@ -178,6 +300,7 @@ export function ModelSettings({
       .map(modelKey)
 
     if (!beginWorking(key)) return
+    const operationToken = catalogStore.beginMutation(catalogTarget, "all")
     setError(null)
     try {
       const next = await readSettings(
@@ -193,18 +316,15 @@ export function ModelSettings({
           }),
         })
       )
-      setSettings(next)
+      publishMutationResult(operationToken, next)
     } catch (failure) {
       if (
         failure instanceof ApiError &&
         failure.code === "ModelScopeConflict"
       ) {
+        catalogStore.finishMutation(catalogTarget, "all", operationToken)
         try {
-          setSettings(
-            await readSettings(
-              await fetch(`/api/v1/model-settings${query(sessionId)}`)
-            )
-          )
+          await catalogStore.load(catalogTarget, "all", { force: true })
         } catch (refreshFailure) {
           setError(operationError(refreshFailure, t))
           return
@@ -212,6 +332,7 @@ export function ModelSettings({
       }
       setError(operationError(failure, t))
     } finally {
+      catalogStore.finishMutation(catalogTarget, "all", operationToken)
       finishWorking()
     }
   }
@@ -249,22 +370,21 @@ export function ModelSettings({
     if (!beginWorking("refresh")) return
     setError(null)
     try {
-      const next = await readSettings(
-        await fetch(`/api/v1/model-settings/refresh${query(sessionId)}`, {
-          method: "POST",
-          headers: {
-            "X-Pi-Web-Codex-Mutation-Token": mutationToken,
-          },
-        })
+      const result = await refreshModelAndExtensionCatalogs(
+        catalogStore,
+        {
+          models: catalogTarget,
+          extensionProjectId,
+          sessionId: sessionId ?? undefined,
+        },
+        mutationToken
       )
-      setSettings(next)
-      if (next.refreshErrors && next.refreshErrors.length > 0) {
-        toast.error(
-          next.refreshErrors
-            .map(({ provider, message }) => `${provider}: ${message}`)
-            .join("; ")
-        )
-      } else {
+      const errors = [
+        ...result.modelRefreshErrors,
+        ...result.extensionRefreshErrors,
+      ]
+      if (errors.length) toast.error(errors.join("; "))
+      else {
         toast.success(t("settings.models.refreshSuccess"))
       }
     } catch (failure) {
@@ -277,6 +397,7 @@ export function ModelSettings({
   async function saveProvider(input: ModelSettingsProviderInput) {
     const provider = editingProvider?.provider ?? input.provider
     if (!beginWorking(`provider-save:${provider}`)) return
+    const operationToken = catalogStore.beginMutation(catalogTarget, "all")
     setError(null)
     try {
       const endpoint = editingProvider
@@ -292,11 +413,12 @@ export function ModelSettings({
           body: JSON.stringify(input),
         })
       )
-      setSettings(next)
-      setProviderDialogOpen(false)
+      if (publishMutationResult(operationToken, next))
+        setProviderDialogOpen(false)
     } catch (failure) {
       setError(operationError(failure, t))
     } finally {
+      catalogStore.finishMutation(catalogTarget, "all", operationToken)
       finishWorking()
     }
   }
@@ -307,6 +429,7 @@ export function ModelSettings({
       provider
     )
     if (!beginWorking(provider)) return
+    const operationToken = catalogStore.beginMutation(catalogTarget, "all")
     setError(null)
     try {
       const next = await readSettings(
@@ -320,15 +443,16 @@ export function ModelSettings({
           }
         )
       )
+      if (!publishMutationResult(operationToken, next)) return
       focusAfterProviderRemovalRef.current = next.providers.some(
         (entry) => entry.provider === provider
       )
         ? provider
         : nextFocusTarget
-      setSettings(next)
     } catch (failure) {
       setError(operationError(failure, t))
     } finally {
+      catalogStore.finishMutation(catalogTarget, "all", operationToken)
       finishWorking()
     }
   }
@@ -374,33 +498,74 @@ export function ModelSettings({
     if (!open) setError(null)
   }
 
-  const enabledCount = settings.models.filter((model) => model.enabled).length
+  const enabledCount = useMemo(
+    () =>
+      settings.models.reduce(
+        (count, model) => count + Number(model.enabled),
+        0
+      ),
+    [settings.models]
+  )
   const hasScope = Boolean(settings.enabledModels?.length)
-  const normalizedSearch = modelSearch.trim().toLocaleLowerCase()
-  const visibleProviders = settings.providers.flatMap((provider) => {
-    const models = settings.models.filter(
-      (model) => model.provider === provider.provider
-    )
-    if (!normalizedSearch) return [{ provider, models }]
-
-    const providerMatches = [provider.provider, provider.name].some((value) =>
-      value?.toLocaleLowerCase().includes(normalizedSearch)
-    )
-    const matchingModels = providerMatches
-      ? models
-      : models.filter((model) =>
-          [model.name, model.id].some((value) =>
-            value.toLocaleLowerCase().includes(normalizedSearch)
-          )
-        )
-
-    return providerMatches || matchingModels.length
-      ? [{ provider, models: matchingModels }]
-      : []
-  })
-  const visibleModelCount = visibleProviders.reduce(
-    (count, provider) => count + provider.models.length,
+  const normalizedSearch = modelSearch
+  const providerRows = useMemo(() => {
+    const modelsByProvider = new Map<string, ModelSettingsModel[]>()
+    for (const model of settings.models) {
+      const models = modelsByProvider.get(model.provider)
+      if (models) models.push(model)
+      else modelsByProvider.set(model.provider, [model])
+    }
+    return settings.providers.map((provider) => {
+      const models = modelsByProvider.get(provider.provider) ?? []
+      return {
+        provider,
+        allModels: models,
+        enabledCount: models.reduce(
+          (count, model) => count + Number(model.enabled),
+          0
+        ),
+      }
+    })
+  }, [settings.models, settings.providers])
+  const hiddenProviderCount = providerRows.reduce(
+    (count, row) =>
+      count + Number(!isModelProviderVisibleByDefault(row.provider)),
     0
+  )
+  const visibleProviders = useMemo(
+    () =>
+      providerRows.flatMap(({ provider, allModels, enabledCount }) => {
+        if (
+          !normalizedSearch &&
+          !showProvidersNeedingSetup &&
+          !isModelProviderVisibleByDefault(provider)
+        ) {
+          return []
+        }
+        const providerMatches = [provider.provider, provider.name].some(
+          (value) => value?.toLocaleLowerCase().includes(normalizedSearch)
+        )
+        const models =
+          !normalizedSearch || providerMatches
+            ? allModels
+            : allModels.filter((model) =>
+                [model.name, model.id].some((value) =>
+                  value.toLocaleLowerCase().includes(normalizedSearch)
+                )
+              )
+        return providerMatches || models.length || !normalizedSearch
+          ? [{ provider, models, providerModels: allModels, enabledCount }]
+          : []
+      }),
+    [normalizedSearch, providerRows, showProvidersNeedingSetup]
+  )
+  const visibleModelCount = useMemo(
+    () =>
+      visibleProviders.reduce(
+        (count, provider) => count + provider.models.length,
+        0
+      ),
+    [visibleProviders]
   )
 
   return (
@@ -469,31 +634,32 @@ export function ModelSettings({
               ))}
             </ul>
           ) : null}
-          <FieldGroup>
-            <Field>
-              <FieldLabel htmlFor="model-search" className="sr-only">
-                {t("settings.models.searchLabel")}
-              </FieldLabel>
-              <Input
-                id="model-search"
-                type="search"
-                value={modelSearch}
-                autoComplete="off"
-                placeholder={t("settings.models.searchPlaceholder")}
-                onChange={(event) => setModelSearch(event.target.value)}
-              />
-              {normalizedSearch ? (
-                <FieldDescription aria-live="polite">
-                  {t("settings.models.filteredSummary", {
-                    visible: visibleModelCount,
-                    total: settings.models.length,
-                  })}
-                </FieldDescription>
-              ) : null}
-            </Field>
-          </FieldGroup>
         </CardContent>
       </Card>
+
+      <ModelSearchCard
+        t={t}
+        total={settings.models.length}
+        visible={visibleModelCount}
+        onSearchChange={handleModelSearchChange}
+      />
+
+      {!normalizedSearch && hiddenProviderCount > 0 ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="justify-self-start"
+          aria-expanded={showProvidersNeedingSetup}
+          onClick={() => setShowProvidersNeedingSetup((current) => !current)}
+        >
+          {showProvidersNeedingSetup
+            ? t("settings.models.hideProvidersNeedingSetup")
+            : t("settings.models.showProvidersNeedingSetup", {
+                count: hiddenProviderCount,
+              })}
+        </Button>
+      ) : null}
 
       {error && !providerDialogOpen ? (
         <FieldError
@@ -506,238 +672,235 @@ export function ModelSettings({
       ) : null}
 
       {visibleProviders.length ? (
-        visibleProviders.map(({ provider, models }) => {
-          const providerModels = settings.models.filter(
-            (model) => model.provider === provider.provider
-          )
-          const providerEnabledCount = providerModels.filter(
-            (model) => model.enabled
-          ).length
-          const enableProviderKey = `provider-scope:${provider.provider}:enable`
-          const disableProviderKey = `provider-scope:${provider.provider}:disable`
-          return (
-            <Card key={provider.provider} className="overflow-hidden">
-              <details
-                open={
-                  Boolean(normalizedSearch) ||
-                  !collapsedProviders.has(provider.provider)
-                }
-                className="group"
-                onToggle={(event) => {
-                  if (normalizedSearch) return
-                  const isOpen = event.currentTarget.open
-                  setCollapsedProviders((current) => {
-                    const next = new Set(current)
-                    if (isOpen) next.delete(provider.provider)
-                    else next.add(provider.provider)
-                    return next
-                  })
-                }}
-              >
-                <summary
-                  ref={(summary) => {
-                    if (summary) {
-                      providerSummaryRefs.current.set(
-                        provider.provider,
-                        summary
-                      )
-                    } else {
-                      providerSummaryRefs.current.delete(provider.provider)
-                    }
-                  }}
-                  className={`flex list-none items-center gap-3 px-4 py-4 [&::-webkit-details-marker]:hidden ${normalizedSearch ? "cursor-default" : "cursor-pointer"}`}
-                  onClick={(event) => {
-                    if (normalizedSearch) event.preventDefault()
+        visibleProviders.map(
+          ({ provider, models, providerModels, enabledCount }) => {
+            const enableProviderKey = `provider-scope:${provider.provider}:enable`
+            const disableProviderKey = `provider-scope:${provider.provider}:disable`
+            return (
+              <Card key={provider.provider} className="overflow-hidden">
+                <details
+                  open={
+                    Boolean(normalizedSearch) ||
+                    !collapsedProviders.has(provider.provider)
+                  }
+                  className="group"
+                  onToggle={(event) => {
+                    if (normalizedSearch) return
+                    const isOpen = event.currentTarget.open
+                    setCollapsedProviders((current) => {
+                      const next = new Set(current)
+                      if (isOpen) next.delete(provider.provider)
+                      else next.add(provider.provider)
+                      return next
+                    })
                   }}
                 >
-                  <ChevronDownIcon className="size-4 shrink-0 transition-transform group-open:rotate-180" />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate font-medium">
-                      {provider.name ?? provider.provider}
-                    </span>
-                    {provider.name ? (
-                      <span className="block truncate text-xs text-muted-foreground">
-                        {provider.provider}
-                      </span>
-                    ) : null}
-                    <span className="block text-xs text-muted-foreground">
-                      {providerDescription(provider, t)}
-                    </span>
-                  </span>
-                  <span
-                    className="flex shrink-0 items-center gap-2"
-                    onClick={(event) => event.stopPropagation()}
+                  <summary
+                    ref={(summary) => {
+                      if (summary) {
+                        providerSummaryRefs.current.set(
+                          provider.provider,
+                          summary
+                        )
+                      } else {
+                        providerSummaryRefs.current.delete(provider.provider)
+                      }
+                    }}
+                    className={`flex list-none items-center gap-3 px-4 py-4 [&::-webkit-details-marker]:hidden ${normalizedSearch ? "cursor-default" : "cursor-pointer"}`}
+                    onClick={(event) => {
+                      if (normalizedSearch) event.preventDefault()
+                    }}
                   >
-                    <Badge variant="outline">
-                      {authLabel(provider.auth, t)}
-                    </Badge>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          aria-label={t(
-                            "settings.models.enableProviderModels",
-                            {
-                              provider: provider.name ?? provider.provider,
-                            }
-                          )}
-                          disabled={
-                            working !== null ||
-                            providerModels.length === 0 ||
-                            providerEnabledCount === providerModels.length
-                          }
-                          onClick={(event) => {
-                            event.preventDefault()
-                            void setProviderModelsEnabled(
-                              provider.provider,
-                              providerModels,
-                              true
-                            )
-                          }}
-                        >
-                          {working === enableProviderKey ? (
-                            <LoaderCircleIcon className="animate-spin" />
-                          ) : (
-                            <ListChecksIcon />
-                          )}
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent side="bottom">
-                        {t("settings.models.enableProviderModels", {
-                          provider: provider.name ?? provider.provider,
-                        })}
-                      </TooltipContent>
-                    </Tooltip>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          aria-label={t(
-                            "settings.models.disableProviderModels",
-                            {
-                              provider: provider.name ?? provider.provider,
-                            }
-                          )}
-                          disabled={
-                            working !== null || providerEnabledCount === 0
-                          }
-                          onClick={(event) => {
-                            event.preventDefault()
-                            void setProviderModelsEnabled(
-                              provider.provider,
-                              providerModels,
-                              false
-                            )
-                          }}
-                        >
-                          {working === disableProviderKey ? (
-                            <LoaderCircleIcon className="animate-spin" />
-                          ) : (
-                            <ListXIcon />
-                          )}
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent side="bottom">
-                        {t("settings.models.disableProviderModels", {
-                          provider: provider.name ?? provider.provider,
-                        })}
-                      </TooltipContent>
-                    </Tooltip>
-                    {provider.custom ? (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        aria-label={t("settings.models.editProvider", {
-                          provider: provider.provider,
-                        })}
-                        disabled={working !== null}
-                        onClick={(event) => {
-                          event.preventDefault()
-                          openEditProvider(provider, event.currentTarget)
-                        }}
+                    <ChevronDownIcon className="size-4 shrink-0 transition-transform group-open:rotate-180" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate font-medium">
+                        {provider.name ?? provider.provider}
+                      </span>
+                      {provider.name ? (
+                        <span className="block truncate text-xs text-muted-foreground">
+                          {provider.provider}
+                        </span>
+                      ) : null}
+                      <span className="block text-xs text-muted-foreground">
+                        {providerDescription(provider, t)}
+                      </span>
+                    </span>
+                    <span
+                      className="flex shrink-0 items-center gap-2"
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      <Badge
+                        variant="outline"
+                        title={authKindLabel(provider.authKind, t)}
                       >
-                        <PencilIcon />
-                      </Button>
-                    ) : null}
-                    {provider.removable ? (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        aria-label={t("settings.models.deleteProvider", {
-                          provider: provider.provider,
-                        })}
-                        disabled={working !== null}
-                        onClick={(event) => {
-                          event.preventDefault()
-                          requestRemoveProvider(provider.provider)
-                        }}
-                      >
-                        {working === provider.provider ? (
-                          <LoaderCircleIcon className="animate-spin" />
-                        ) : (
-                          <Trash2Icon />
-                        )}
-                      </Button>
-                    ) : null}
-                  </span>
-                </summary>
-                <CardContent className="divide-y border-t p-0">
-                  {models.length ? (
-                    models.map((model) => {
-                      const key = modelKey(model)
-                      return (
-                        <label
-                          className="flex items-center justify-between gap-4 px-4 py-3"
-                          aria-busy={working === key}
-                          key={key}
-                        >
-                          <span className="min-w-0">
-                            <span className="block truncate font-medium">
-                              {model.name}
-                            </span>
-                            <span className="block truncate text-xs text-muted-foreground">
-                              {model.id}
-                            </span>
-                          </span>
-                          <span className="flex shrink-0 items-center gap-2">
-                            {working === key ? (
-                              <LoaderCircleIcon
-                                aria-hidden="true"
-                                className="size-4 animate-spin text-muted-foreground"
-                              />
-                            ) : null}
-                            <Switch
-                              checked={model.enabled}
-                              disabled={working !== null}
-                              aria-label={t("settings.models.enableModel", {
-                                model: model.name,
-                              })}
-                              onCheckedChange={(enabled) =>
-                                void setModelEnabled(model, enabled)
+                        {authStatusLabel(provider.authStatus, t)}
+                      </Badge>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            aria-label={t(
+                              "settings.models.enableProviderModels",
+                              {
+                                provider: provider.name ?? provider.provider,
                               }
-                            />
-                          </span>
-                        </label>
-                      )
-                    })
-                  ) : (
-                    <p className="px-4 py-3 text-sm text-muted-foreground">
-                      {provider.customModels.length
-                        ? t("settings.models.savedModelsNoAuth")
-                        : t("settings.models.noCurrentModels")}
-                    </p>
-                  )}
-                </CardContent>
-              </details>
-            </Card>
-          )
-        })
+                            )}
+                            disabled={
+                              working !== null ||
+                              providerModels.length === 0 ||
+                              enabledCount === providerModels.length
+                            }
+                            onClick={(event) => {
+                              event.preventDefault()
+                              void setProviderModelsEnabled(
+                                provider.provider,
+                                providerModels,
+                                true
+                              )
+                            }}
+                          >
+                            {working === enableProviderKey ? (
+                              <LoaderCircleIcon className="animate-spin" />
+                            ) : (
+                              <ListChecksIcon />
+                            )}
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom">
+                          {t("settings.models.enableProviderModels", {
+                            provider: provider.name ?? provider.provider,
+                          })}
+                        </TooltipContent>
+                      </Tooltip>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            aria-label={t(
+                              "settings.models.disableProviderModels",
+                              {
+                                provider: provider.name ?? provider.provider,
+                              }
+                            )}
+                            disabled={working !== null || enabledCount === 0}
+                            onClick={(event) => {
+                              event.preventDefault()
+                              void setProviderModelsEnabled(
+                                provider.provider,
+                                providerModels,
+                                false
+                              )
+                            }}
+                          >
+                            {working === disableProviderKey ? (
+                              <LoaderCircleIcon className="animate-spin" />
+                            ) : (
+                              <ListXIcon />
+                            )}
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom">
+                          {t("settings.models.disableProviderModels", {
+                            provider: provider.name ?? provider.provider,
+                          })}
+                        </TooltipContent>
+                      </Tooltip>
+                      {provider.custom ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          aria-label={t("settings.models.editProvider", {
+                            provider: provider.provider,
+                          })}
+                          disabled={working !== null}
+                          onClick={(event) => {
+                            event.preventDefault()
+                            openEditProvider(provider, event.currentTarget)
+                          }}
+                        >
+                          <PencilIcon />
+                        </Button>
+                      ) : null}
+                      {provider.removable ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          aria-label={t("settings.models.deleteProvider", {
+                            provider: provider.provider,
+                          })}
+                          disabled={working !== null}
+                          onClick={(event) => {
+                            event.preventDefault()
+                            requestRemoveProvider(provider.provider)
+                          }}
+                        >
+                          {working === provider.provider ? (
+                            <LoaderCircleIcon className="animate-spin" />
+                          ) : (
+                            <Trash2Icon />
+                          )}
+                        </Button>
+                      ) : null}
+                    </span>
+                  </summary>
+                  <CardContent className="divide-y border-t p-0">
+                    {models.length ? (
+                      models.map((model) => {
+                        const key = modelKey(model)
+                        return (
+                          <label
+                            className="flex items-center justify-between gap-4 px-4 py-3"
+                            aria-busy={working === key}
+                            key={key}
+                          >
+                            <span className="min-w-0">
+                              <span className="block truncate font-medium">
+                                {model.name}
+                              </span>
+                              <span className="block truncate text-xs text-muted-foreground">
+                                {model.id}
+                              </span>
+                            </span>
+                            <span className="flex shrink-0 items-center gap-2">
+                              {working === key ? (
+                                <LoaderCircleIcon
+                                  aria-hidden="true"
+                                  className="size-4 animate-spin text-muted-foreground"
+                                />
+                              ) : null}
+                              <Switch
+                                checked={model.enabled}
+                                disabled={working !== null}
+                                aria-label={t("settings.models.enableModel", {
+                                  model: model.name,
+                                })}
+                                onCheckedChange={(enabled) =>
+                                  void setModelEnabled(model, enabled)
+                                }
+                              />
+                            </span>
+                          </label>
+                        )
+                      })
+                    ) : (
+                      <p className="px-4 py-3 text-sm text-muted-foreground">
+                        {provider.customModels.length
+                          ? t("settings.models.savedModelsNoAuth")
+                          : t("settings.models.noCurrentModels")}
+                      </p>
+                    )}
+                  </CardContent>
+                </details>
+              </Card>
+            )
+          }
+        )
       ) : normalizedSearch ? (
         <Empty className="min-h-48 border">
           <EmptyHeader>

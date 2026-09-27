@@ -9,6 +9,7 @@ import { toast } from "sonner"
 import { cn } from "@workspace/ui/lib/utils"
 
 import { useI18n } from "@/components/i18n-provider"
+import { suspendIdleSessionEventStreams } from "@/lib/session-view-controller"
 import { TerminalActionQueue } from "@/lib/terminal-action-queue"
 
 const INPUT_BATCH_MS = 8
@@ -33,6 +34,8 @@ export function ShellTerminal({
   const reportError = useEffectEvent((error: unknown) => {
     toast.error(error instanceof Error ? error.message : String(error))
   })
+
+  useEffect(() => suspendIdleSessionEventStreams(), [])
 
   useEffect(() => {
     const container = containerRef.current

@@ -8,12 +8,14 @@ import type { SessionView } from "./session-view-types"
 
 export async function getSessionView(
   sessionId: string,
-  previousLeaf?: string | null
+  previousLeaf?: string | null,
+  syncSelectedFile = false
 ): Promise<SessionView | null> {
   const supervisor = getRuntimeSupervisor()
   for (;;) {
     const live = supervisor.liveState(sessionId)
-    let sync = live === null || live.state.messages.length === 0
+    let sync =
+      syncSelectedFile || live === null || live.state.messages.length === 0
     if (live?.baseLeafId) {
       const database = await getDatabase()
       if (
@@ -27,12 +29,25 @@ export async function getSessionView(
     }
     const snapshot = await getSessionTranscriptPage(sessionId, {
       sync,
-      ...(live ? { leafId: live.baseLeafId } : {}),
+      ...(live && !syncSelectedFile ? { leafId: live.baseLeafId } : {}),
       previousLeaf,
     })
     if (!snapshot) return null
     const current = supervisor.liveState(sessionId)
-    if (current && current.baseLeafId !== snapshot.history!.leafId) continue
+    if (current && current.baseLeafId !== snapshot.history!.leafId) {
+      if (!syncSelectedFile) continue
+      if (
+        current.state.messages.length > 0 ||
+        current.state.tools.length > 0 ||
+        ["starting", "busy", "stopping"].includes(
+          current.state.runtimeStatus ?? ""
+        )
+      ) {
+        throw new Error(
+          "The session file changed while the runtime had active output. Reload the selected session after the current turn ends."
+        )
+      }
+    }
     const runtime = supervisor.state(sessionId)
     return {
       snapshot,

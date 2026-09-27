@@ -61,18 +61,18 @@ async function directories(root: string) {
 
 async function packageLocations(options: DiscoveryOptions) {
   const locations: PackageLocation[] = []
-  for (const packagePath of await directories(
-    getBuiltinWebUiExtensionsRoot()
-  )) {
+  const [builtinPackages, externalPackages] = await Promise.all([
+    directories(getBuiltinWebUiExtensionsRoot()),
+    directories(getExternalWebUiExtensionsRoot()),
+  ])
+  for (const packagePath of builtinPackages) {
     locations.push({
       path: packagePath,
       source: "builtin",
       manifestRequired: true,
     })
   }
-  for (const packagePath of await directories(
-    getExternalWebUiExtensionsRoot()
-  )) {
+  for (const packagePath of externalPackages) {
     locations.push({
       path: packagePath,
       source: "external",
@@ -100,6 +100,26 @@ async function packageLocations(options: DiscoveryOptions) {
   return locations
 }
 
+async function mapWithLimit<T, R>(
+  items: T[],
+  limit: number,
+  operation: (item: T) => Promise<R>
+): Promise<R[]> {
+  const results = new Array<R>(items.length)
+  let cursor = 0
+  const workerCount = Math.min(items.length, limit)
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      for (;;) {
+        const index = cursor++
+        if (index >= items.length) return
+        results[index] = await operation(items[index]!)
+      }
+    })
+  )
+  return results
+}
+
 async function containedFile(packageRoot: string, relativePath: string) {
   const [root, file] = await Promise.all([
     realpath(packageRoot),
@@ -122,7 +142,7 @@ async function asset(
   const digest = webUiAssetDigest(content)
   const file = path.basename(assetPath)
   const url = `/api/v1/webui-extensions/${extensionId}/assets/${digest}/${encodeURIComponent(file)}`
-  registerWebUiAsset(extensionId, digest, file, assetPath)
+  registerWebUiAsset(extensionId, digest, file, assetPath, content)
   return { digest, file, path: assetPath, url }
 }
 
@@ -204,33 +224,66 @@ export async function discoverWebUiExtensions(options: DiscoveryOptions = {}) {
   const diagnostics: WebUiExtensionDiagnostic[] = []
   const roots = new Set<string>()
   const keys = new Set<string>()
-  for (const location of await packageLocations(options)) {
-    let canonical: string
-    try {
-      canonical = await realpath(location.path)
-    } catch (error) {
+  const locations = await packageLocations(options)
+  const canonicalLocations = await Promise.all(
+    locations.map(async (location) => {
+      try {
+        return { location, canonical: await realpath(location.path) }
+      } catch (error) {
+        return {
+          location,
+          error: error instanceof Error ? error.message : String(error),
+        }
+      }
+    })
+  )
+  const uniqueLocations: PackageLocation[] = []
+  for (const prepared of canonicalLocations) {
+    if (!prepared.canonical) {
       diagnostics.push({
-        path: location.path,
-        message: error instanceof Error ? error.message : String(error),
+        path: prepared.location.path,
+        message: prepared.error!,
       })
       continue
     }
-    if (roots.has(canonical)) continue
-    roots.add(canonical)
-    try {
-      const discovered = await discoverPackage(location)
-      for (const extension of discovered ?? []) {
-        if (keys.has(extension.key)) {
-          throw new Error(`Duplicate adapter key: ${extension.key}`)
+    if (roots.has(prepared.canonical)) continue
+    roots.add(prepared.canonical)
+    uniqueLocations.push(prepared.location)
+  }
+  const packageResults = await mapWithLimit(
+    uniqueLocations,
+    4,
+    async (location) => {
+      try {
+        return {
+          location,
+          discovered: await discoverPackage(location),
+          error: null,
         }
-        keys.add(extension.key)
-        extensions.push(extension)
+      } catch (error) {
+        return {
+          location,
+          discovered: null,
+          error: error instanceof Error ? error.message : String(error),
+        }
       }
-    } catch (error) {
-      diagnostics.push({
-        path: location.path,
-        message: error instanceof Error ? error.message : String(error),
-      })
+    }
+  )
+  for (const result of packageResults) {
+    if (result.error) {
+      diagnostics.push({ path: result.location.path, message: result.error })
+      continue
+    }
+    for (const extension of result.discovered ?? []) {
+      if (keys.has(extension.key)) {
+        diagnostics.push({
+          path: result.location.path,
+          message: `Duplicate adapter key: ${extension.key}`,
+        })
+        continue
+      }
+      keys.add(extension.key)
+      extensions.push(extension)
     }
   }
   return { extensions, diagnostics }

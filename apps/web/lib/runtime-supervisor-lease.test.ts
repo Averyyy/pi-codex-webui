@@ -14,6 +14,16 @@ test("idle recycling preserves a leased runtime until its lease expires", async 
         status: string
         cleaned: boolean
         lastActivityAt: number
+        pending: Map<string, unknown>
+        mcpCalls: Map<string, AbortController>
+        extensionUiRequests: Map<string, unknown>
+        pendingResourceReload: boolean
+        pendingModelReload: boolean
+        pendingMcpRestart: boolean
+        pendingWebUiRestart: boolean
+        resourceReloadPromise: Promise<unknown> | null
+        modelReloadPromise: Promise<unknown> | null
+        webUiRestartPromise: Promise<void> | null
         runtimeLeases: Map<string, number>
         child: { kill(): boolean }
       }
@@ -26,6 +36,16 @@ test("idle recycling preserves a leased runtime until its lease expires", async 
     status: "ready",
     cleaned: false,
     lastActivityAt: Date.now() - 16 * 60_000,
+    pending: new Map(),
+    mcpCalls: new Map(),
+    extensionUiRequests: new Map(),
+    pendingResourceReload: false,
+    pendingModelReload: false,
+    pendingMcpRestart: false,
+    pendingWebUiRestart: false,
+    resourceReloadPromise: null,
+    modelReloadPromise: null,
+    webUiRestartPromise: null,
     runtimeLeases: new Map<string, number>(),
     child: { kill: () => true },
   }
@@ -55,6 +75,16 @@ test("idle recycling delegates unclaimed drafts to their own lease reaper", () =
         status: string
         cleaned: boolean
         lastActivityAt: number
+        pending: Map<string, unknown>
+        mcpCalls: Map<string, AbortController>
+        extensionUiRequests: Map<string, unknown>
+        pendingResourceReload: boolean
+        pendingModelReload: boolean
+        pendingMcpRestart: boolean
+        pendingWebUiRestart: boolean
+        resourceReloadPromise: Promise<unknown> | null
+        modelReloadPromise: Promise<unknown> | null
+        webUiRestartPromise: Promise<void> | null
         runtimeLeases: Map<string, number>
         child: { kill(): boolean }
       }
@@ -73,6 +103,16 @@ test("idle recycling delegates unclaimed drafts to their own lease reaper", () =
           status: string
           cleaned: boolean
           lastActivityAt: number
+          pending: Map<string, unknown>
+          mcpCalls: Map<string, AbortController>
+          extensionUiRequests: Map<string, unknown>
+          pendingResourceReload: boolean
+          pendingModelReload: boolean
+          pendingMcpRestart: boolean
+          pendingWebUiRestart: boolean
+          resourceReloadPromise: Promise<unknown> | null
+          modelReloadPromise: Promise<unknown> | null
+          webUiRestartPromise: Promise<void> | null
           runtimeLeases: Map<string, number>
         }
       }
@@ -86,6 +126,16 @@ test("idle recycling delegates unclaimed drafts to their own lease reaper", () =
     status: "ready",
     cleaned: false,
     lastActivityAt: Date.now() - 16 * 60_000,
+    pending: new Map(),
+    mcpCalls: new Map(),
+    extensionUiRequests: new Map(),
+    pendingResourceReload: false,
+    pendingModelReload: false,
+    pendingMcpRestart: false,
+    pendingWebUiRestart: false,
+    resourceReloadPromise: null,
+    modelReloadPromise: null,
+    webUiRestartPromise: null,
     runtimeLeases: new Map<string, number>(),
     child: { kill: () => true },
   }

@@ -8,7 +8,7 @@ import type {
   ReactNode,
   Ref,
 } from "react"
-import { useId, useRef, useState } from "react"
+import { memo, useId, useMemo, useRef, useState } from "react"
 import {
   ArrowUpIcon,
   ImagePlusIcon,
@@ -49,12 +49,15 @@ import {
   useShortcutAction,
 } from "@/components/keyboard-shortcuts-provider"
 import type { Translator } from "@/lib/i18n"
+import { PerformanceProbe } from "@/components/performance-probe"
 
 function modelValue(model: { provider: string; id: string }) {
   return JSON.stringify([model.provider, model.id])
 }
 
 const imageCommandId = "image"
+const EMPTY_COMMANDS: ComposerCommand[] = []
+const EMPTY_IMAGES: ComposerImage[] = []
 
 function noop() {}
 
@@ -72,7 +75,7 @@ export function ConversationComposer({
   endActions,
   settings,
   sessionControls,
-  images = [],
+  images = EMPTY_IMAGES,
   imageError,
   imagesSupported = false,
   allowImageChangesWhileSubmitting = false,
@@ -82,7 +85,7 @@ export function ConversationComposer({
   onDecreaseThinkingLevel,
   onIncreaseThinkingLevel,
   textareaRef,
-  commands = [],
+  commands = EMPTY_COMMANDS,
 }: {
   value: string
   onValueChange: (value: string) => void
@@ -134,34 +137,43 @@ export function ConversationComposer({
   const [openedWithSlash, setOpenedWithSlash] = useState(false)
   const [activeCommandId, setActiveCommandId] = useState<string | null>(null)
   const imageChangesDisabled = submitting && !allowImageChangesWhileSubmitting
-  const availableCommands: ComposerCommand[] = [
-    ...commands,
-    {
-      id: imageCommandId,
-      label: t("composer.image.label"),
-      description:
-        imagesSupported === false
-          ? t("composer.image.unsupported")
-          : imagesSupported === null
-            ? t("composer.image.addPendingValidation")
-            : t("composer.image.add"),
-      icon: ImagePlusIcon,
-      disabled:
-        imagesSupported === false || imageChangesDisabled || !onImagesAdd,
-      onSelect: noop,
-    },
-  ]
-  const matchingCommands = filterComposerCommands(
-    availableCommands,
-    commandQuery
+  const availableCommands = useMemo<ComposerCommand[]>(
+    () => [
+      ...commands,
+      {
+        id: imageCommandId,
+        label: t("composer.image.label"),
+        description:
+          imagesSupported === false
+            ? t("composer.image.unsupported")
+            : imagesSupported === null
+              ? t("composer.image.addPendingValidation")
+              : t("composer.image.add"),
+        icon: ImagePlusIcon,
+        disabled:
+          imagesSupported === false || imageChangesDisabled || !onImagesAdd,
+        onSelect: noop,
+      },
+    ],
+    [commands, imageChangesDisabled, imagesSupported, onImagesAdd, t]
   )
-  const enabledMatchingCommands = matchingCommands.filter(
-    (command) => !command.disabled
+  const matchingCommands = useMemo(
+    () => filterComposerCommands(availableCommands, commandQuery),
+    [availableCommands, commandQuery]
   )
-  const activeCommand =
-    enabledMatchingCommands.find((command) => command.id === activeCommandId) ??
-    enabledMatchingCommands[0] ??
-    null
+  const enabledMatchingCommands = useMemo(
+    () => matchingCommands.filter((command) => !command.disabled),
+    [matchingCommands]
+  )
+  const activeCommand = useMemo(
+    () =>
+      enabledMatchingCommands.find(
+        (command) => command.id === activeCommandId
+      ) ??
+      enabledMatchingCommands[0] ??
+      null,
+    [activeCommandId, enabledMatchingCommands]
+  )
   const hasUnsupportedImages = images.length > 0 && imagesSupported === false
   const submissionDisabled =
     (!value.trim() && images.length === 0) ||
@@ -342,183 +354,231 @@ export function ConversationComposer({
   })
 
   return (
-    <form
-      ref={formRef}
-      onSubmit={onSubmit}
-      className="rounded-2xl border bg-card p-2 shadow-sm"
-    >
-      {settings || editor === undefined ? (
-        <div className="flex flex-wrap items-center gap-2 border-b px-1 pb-2">
-          {editor === undefined ? (
-            <>
-              <ComposerCommandMenu
-                open={commandMenuOpen}
-                onOpenChange={(open) => {
-                  setCommandMenuOpen(open)
-                  if (!open) {
+    <PerformanceProbe id="conversationComposer">
+      <form
+        ref={formRef}
+        onSubmit={onSubmit}
+        className="rounded-2xl border bg-card p-2 shadow-sm"
+      >
+        {settings || editor === undefined ? (
+          <div className="flex flex-wrap items-center gap-2 border-b px-1 pb-2">
+            {editor === undefined ? (
+              <>
+                <ComposerCommandMenu
+                  open={commandMenuOpen}
+                  onOpenChange={(open) => {
+                    setCommandMenuOpen(open)
+                    if (!open) {
+                      setCommandQuery("")
+                      setOpenedWithSlash(false)
+                      setActiveCommandId(null)
+                    }
+                  }}
+                  commands={availableCommands}
+                  query={commandQuery}
+                  menuId={commandMenuId}
+                  activeCommandId={activeCommand?.id ?? null}
+                  preserveInputFocus={openedWithSlash}
+                  onTriggerClick={() => {
                     setCommandQuery("")
                     setOpenedWithSlash(false)
                     setActiveCommandId(null)
-                  }
-                }}
-                commands={availableCommands}
-                query={commandQuery}
-                menuId={commandMenuId}
-                activeCommandId={activeCommand?.id ?? null}
-                preserveInputFocus={openedWithSlash}
-                onTriggerClick={() => {
-                  setCommandQuery("")
-                  setOpenedWithSlash(false)
-                  setActiveCommandId(null)
-                }}
-                onActiveCommandChange={setActiveCommandId}
-                onCommandSelect={handleCommandSelect}
-              />
-              <input
-                ref={imageInputRef}
-                type="file"
-                accept="image/*"
-                multiple
-                className="hidden"
-                onChange={(event) => {
-                  const files = Array.from(event.currentTarget.files ?? [])
-                  event.currentTarget.value = ""
-                  if (!files.length) return
-                  if (imageChangesDisabled) {
-                    toast.error(t("composer.image.sending"))
-                    return
-                  }
-                  if (imagesSupported === false) {
-                    toast.error(t("composer.image.unsupportedSentence"))
-                    return
-                  }
-                  void onImagesAdd?.(files)
-                }}
-              />
-            </>
-          ) : null}
-          {settings}
-          {sessionControls?.compact ? (
+                  }}
+                  onActiveCommandChange={setActiveCommandId}
+                  onCommandSelect={handleCommandSelect}
+                />
+                <input
+                  ref={imageInputRef}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className="hidden"
+                  onChange={(event) => {
+                    const files = Array.from(event.currentTarget.files ?? [])
+                    event.currentTarget.value = ""
+                    if (!files.length) return
+                    if (imageChangesDisabled) {
+                      toast.error(t("composer.image.sending"))
+                      return
+                    }
+                    if (imagesSupported === false) {
+                      toast.error(t("composer.image.unsupportedSentence"))
+                      return
+                    }
+                    void onImagesAdd?.(files)
+                  }}
+                />
+              </>
+            ) : null}
+            {settings}
+            {sessionControls?.compact ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={sessionControls.compact.onClick}
+                disabled={sessionControls.compact.disabled}
+              >
+                {sessionControls.compact.pending ? (
+                  <LoaderCircleIcon className="animate-spin" />
+                ) : (
+                  <Minimize2Icon />
+                )}
+                {t("session.runtime.compactContext")}
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
+        <ComposerImagePreviews
+          images={images}
+          error={
+            imageError ??
+            (hasUnsupportedImages
+              ? t("composer.image.unsupportedAttached")
+              : null)
+          }
+          onRemove={onImageRemove}
+          disabled={imageChangesDisabled}
+        />
+        {editor ?? (
+          <Textarea
+            ref={textareaRef}
+            data-composer-input
+            value={value}
+            onChange={(event) => handleValueChange(event.target.value)}
+            onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
+            placeholder={resolvedPlaceholder}
+            aria-label={resolvedAriaLabel}
+            aria-controls={
+              openedWithSlash && commandMenuOpen ? commandMenuId : undefined
+            }
+            aria-expanded={
+              openedWithSlash && commandMenuOpen ? true : undefined
+            }
+            aria-haspopup={
+              openedWithSlash && commandMenuOpen ? "menu" : undefined
+            }
+            aria-activedescendant={
+              openedWithSlash && commandMenuOpen && activeCommand
+                ? composerCommandItemId(commandMenuId, activeCommand.id)
+                : undefined
+            }
+            autoFocus={autoFocus}
+            className="min-h-24 resize-none border-0 bg-transparent shadow-none focus-visible:ring-0 sm:min-h-20"
+          />
+        )}
+        <div className="flex flex-wrap items-center gap-2 px-1 pb-1">
+          {sessionControls?.goal ? (
             <Button
               type="button"
-              variant="outline"
+              variant="ghost"
               size="sm"
-              onClick={sessionControls.compact.onClick}
-              disabled={sessionControls.compact.disabled}
+              onClick={sessionControls.goal.onClick}
+              disabled={sessionControls.goal.disabled}
             >
-              {sessionControls.compact.pending ? (
-                <LoaderCircleIcon className="animate-spin" />
-              ) : (
-                <Minimize2Icon />
-              )}
-              {t("session.runtime.compactContext")}
+              <TargetIcon />
+              {t("session.command.goal")}
             </Button>
           ) : null}
-        </div>
-      ) : null}
-      <ComposerImagePreviews
-        images={images}
-        error={
-          imageError ??
-          (hasUnsupportedImages
-            ? t("composer.image.unsupportedAttached")
-            : null)
-        }
-        onRemove={onImageRemove}
-        disabled={imageChangesDisabled}
-      />
-      {editor ?? (
-        <Textarea
-          ref={textareaRef}
-          data-composer-input
-          value={value}
-          onChange={(event) => handleValueChange(event.target.value)}
-          onKeyDown={handleKeyDown}
-          onPaste={handlePaste}
-          placeholder={resolvedPlaceholder}
-          aria-label={resolvedAriaLabel}
-          aria-controls={
-            openedWithSlash && commandMenuOpen ? commandMenuId : undefined
-          }
-          aria-expanded={openedWithSlash && commandMenuOpen ? true : undefined}
-          aria-haspopup={
-            openedWithSlash && commandMenuOpen ? "menu" : undefined
-          }
-          aria-activedescendant={
-            openedWithSlash && commandMenuOpen && activeCommand
-              ? composerCommandItemId(commandMenuId, activeCommand.id)
-              : undefined
-          }
-          autoFocus={autoFocus}
-          className="min-h-24 resize-none border-0 bg-transparent shadow-none focus-visible:ring-0 sm:min-h-20"
-        />
-      )}
-      <div className="flex flex-wrap items-center gap-2 px-1 pb-1">
-        {sessionControls?.goal ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={sessionControls.goal.onClick}
-            disabled={sessionControls.goal.disabled}
-          >
-            <TargetIcon />
-            {t("session.command.goal")}
-          </Button>
-        ) : null}
-        {sessionControls ? (
-          <span
-            role="status"
-            aria-label={sessionControls.runtime.label}
-            title={sessionControls.runtime.label}
-            className={`size-2 shrink-0 rounded-full ${
-              sessionControls.runtime.active ? "bg-emerald-500" : "bg-red-500"
-            }`}
-          />
-        ) : null}
-        {actions}
-        <div className="ml-auto flex items-center gap-2">
-          {endActions}
-          {editor === undefined ? (
-            <Button
-              type="submit"
-              size="icon"
-              className="rounded-full"
-              disabled={submissionDisabled}
-              aria-label={t("composer.send")}
-            >
-              {submitting ? (
-                <LoaderCircleIcon className="animate-spin" />
-              ) : (
-                <ArrowUpIcon />
-              )}
-            </Button>
+          {sessionControls ? (
+            <span
+              role="status"
+              aria-label={sessionControls.runtime.label}
+              title={sessionControls.runtime.label}
+              className={`size-2 shrink-0 rounded-full ${
+                sessionControls.runtime.active ? "bg-emerald-500" : "bg-red-500"
+              }`}
+            />
           ) : null}
+          {actions}
+          <div className="ml-auto flex items-center gap-2">
+            {endActions}
+            {editor === undefined ? (
+              <Button
+                type="submit"
+                size="icon"
+                className="rounded-full"
+                disabled={submissionDisabled}
+                aria-label={t("composer.send")}
+              >
+                {submitting ? (
+                  <LoaderCircleIcon className="animate-spin" />
+                ) : (
+                  <ArrowUpIcon />
+                )}
+              </Button>
+            ) : null}
+          </div>
         </div>
-      </div>
-    </form>
+      </form>
+    </PerformanceProbe>
   )
 }
 
-export function ComposerModelSelect<T extends RuntimeModel>({
-  model,
-  models,
-  onModelChange,
-  disabled = false,
-  settingsHref,
-}: {
+interface ComposerModelSelectProps<T extends RuntimeModel> {
   model: Pick<RuntimeModel, "provider" | "id"> | null
   models: T[]
   onModelChange: (model: T) => void
   disabled?: boolean
   settingsHref: string
-}) {
+  unavailableModelLabel?: string | null
+  unavailableModelReason?: string | null
+}
+
+function ComposerModelSelectView<T extends RuntimeModel>({
+  model,
+  models,
+  onModelChange,
+  disabled = false,
+  settingsHref,
+  unavailableModelLabel = null,
+  unavailableModelReason = null,
+}: ComposerModelSelectProps<T>) {
   const { t } = useI18n()
   const selected = model
     ? models.find((available) => modelValue(available) === modelValue(model))
     : null
 
   if (!selected) {
+    if (unavailableModelLabel) {
+      const reason = unavailableModelReason ?? t("composer.model.unavailable")
+      const label = (
+        <>
+          <Settings2Icon />
+          <span className="max-w-32 truncate" title={unavailableModelLabel}>
+            {unavailableModelLabel}
+          </span>
+          <span className="max-w-28 truncate text-muted-foreground">
+            {reason}
+          </span>
+        </>
+      )
+      if (disabled) {
+        return (
+          <Button
+            size="sm"
+            variant="outline"
+            disabled
+            title={reason}
+            aria-label={`${t("composer.model.ariaLabel")}: ${unavailableModelLabel}. ${reason}`}
+          >
+            {label}
+          </Button>
+        )
+      }
+      return (
+        <Button asChild size="sm" variant="outline">
+          <Link
+            href={settingsHref}
+            title={reason}
+            aria-label={`${t("composer.model.ariaLabel")}: ${unavailableModelLabel}. ${reason}`}
+          >
+            {label}
+          </Link>
+        </Button>
+      )
+    }
     if (disabled) {
       return (
         <Button size="sm" variant="outline" disabled>
@@ -589,7 +649,21 @@ export function ComposerModelSelect<T extends RuntimeModel>({
   )
 }
 
-export function ComposerThinkingSelect({
+function ComposerModelSelectProbe<T extends RuntimeModel>(
+  props: ComposerModelSelectProps<T>
+) {
+  return (
+    <PerformanceProbe id="composerModelOptions">
+      <ComposerModelSelectView {...props} />
+    </PerformanceProbe>
+  )
+}
+
+export const ComposerModelSelect = memo(
+  ComposerModelSelectProbe
+) as typeof ComposerModelSelectView
+
+function ComposerThinkingSelectView({
   level,
   levels,
   onLevelChange,
@@ -639,6 +713,8 @@ export function ComposerThinkingSelect({
     </Select>
   )
 }
+
+export const ComposerThinkingSelect = memo(ComposerThinkingSelectView)
 
 export function nextThinkingLevel(
   level: ThinkingLevel,

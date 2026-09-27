@@ -1,7 +1,7 @@
 import "server-only"
 
 import { fork, type ChildProcess } from "node:child_process"
-import { createHash, randomUUID } from "node:crypto"
+import { createHash, randomBytes, randomUUID } from "node:crypto"
 import { rmSync } from "node:fs"
 import {
   access,
@@ -17,6 +17,7 @@ import path from "node:path"
 
 import {
   modelSettingsSchema,
+  modelSettingsSnapshotSchema,
   promptAcceptedSchema,
   queueStateSchema,
   queueUpdatedEventSchema,
@@ -39,6 +40,8 @@ import {
   type RuntimeStatus,
   type SubagentsSnapshot,
   type ModelSettingsProviderInput,
+  type ModelSettingsSnapshot,
+  type ModelSettings,
   type QueuedPromptItem,
   type WebUiExtensionStatus,
   type WorkerToHostMessage,
@@ -64,7 +67,10 @@ import {
   restoreArchivedSession as restoreStoredArchivedSession,
 } from "@/lib/catalog"
 import { getEventHub, type EventHub } from "@/lib/event-hub"
+import { loadConfig } from "@/lib/config"
+import { emitCatalogMetric } from "@/lib/catalog-metrics"
 import { getMcpService } from "@/lib/mcp-service"
+import { readProjectCatalogState } from "@/lib/project-catalog-state"
 import type { PromptImage } from "@/lib/prompt-images"
 import { syncPiSessionFile } from "@/lib/session-index"
 import { RuntimeLiveState } from "@/lib/runtime-live"
@@ -79,7 +85,10 @@ import {
   resolveNewTaskRuntime,
   runtimeWorkerCredentials,
 } from "@/lib/runtime-profiles"
-import { webUiAdaptersForRuntime } from "@/lib/webui-extensions/registry"
+import {
+  invalidateWebUiExtensionCatalog,
+  webUiAdaptersForRuntime,
+} from "@/lib/webui-extensions/registry"
 
 export interface RuntimeState {
   status: RuntimeStatus
@@ -142,6 +151,7 @@ interface ManagedRuntime {
   mcpCalls: Map<string, AbortController>
   cleanupPromise: Promise<void> | null
   stopPromise: Promise<void> | null
+  stopReason?: "explicit" | "idle-budget"
   resourceReloadPromise: Promise<RuntimeSnapshot> | null
   modelReloadPromise: Promise<RuntimeSnapshot> | null
   runtimeLeases: Map<string, number>
@@ -208,6 +218,78 @@ export interface ModelSettingsRuntimeTarget {
   runtimeKind: "pi" | "pi-client"
 }
 
+interface ModelCatalogTargetState {
+  cwd: string
+  agentDir: string
+  runtimeProfileId: string
+  runtimeKind: ModelSettingsRuntimeTarget["runtimeKind"]
+  identityKey: string
+  catalogIdentity: string
+  dataVersion: string
+  securityVersion: string
+}
+
+interface ModelCatalogSnapshot {
+  catalogIdentity: string
+  dataVersion: string
+  catalogVersion: string
+  snapshot: ModelSettingsSnapshot
+}
+
+interface ModelCatalogEntry {
+  identityKey: string
+  cwd: string
+  agentDir: string
+  runtimeProfileId: string
+  runtimeKind: ModelSettingsRuntimeTarget["runtimeKind"]
+  catalogIdentity: string
+  generation: number
+  revision: number
+  dataVersion: string
+  securityVersion: string
+  snapshots: Map<"all" | "enabled", ModelSettingsSnapshot>
+  snapshotCatalogVersion: string | null
+  refreshErrors: ModelSettingsSnapshot["refreshErrors"]
+  buildPromises: Map<"all" | "enabled", Promise<ModelCatalogSnapshot>>
+  refreshPromise: Promise<ModelCatalogSnapshot> | null
+  lastUsed: number
+}
+
+interface ModelCatalogReadOperation {
+  cwd: string
+  agentDir: string
+  done: Promise<void>
+}
+
+interface PendingCatalogWrite {
+  scope: CatalogWriteScope
+  done: Promise<void>
+}
+
+interface CatalogWriteScope {
+  kind: "agentDir" | "cwd" | "subtree"
+  mode: "write" | "refresh"
+  agentDir: string
+  cwd?: string
+}
+
+interface ModelCatalogWorkerWaiter {
+  resolve(release: () => void): void
+  reject(error: Error): void
+  timeout: NodeJS.Timeout
+}
+
+interface ResourceWorkerMetricContext {
+  queueWaitMs?: number
+  readGateWaitMs?: number
+  workerSlotWaitMs?: number
+}
+
+interface ResourceWorkerLifecycle {
+  onSpawn(): void
+  onClose(): void
+}
+
 interface SessionLock {
   ownerPid: number
   webSessionId: string
@@ -248,6 +330,7 @@ type ResourceRequestMessage = Extract<
 const REQUEST_TIMEOUT_MS = 30_000
 const COMPACTION_TIMEOUT_MS = 10 * 60_000
 const IDLE_TIMEOUT_MS = 15 * 60_000
+const MAX_IDLE_RUNTIMES = 8
 const RESOURCE_WORKER_STOP_TIMEOUT_MS = 2_000
 const RESOURCE_WORKER_KILL_TIMEOUT_MS = 2_000
 
@@ -279,17 +362,15 @@ type RuntimeSupervisorProcessExitCleanup = () => void
 declare global {
   var piWebCodexRuntimeSupervisor: RuntimeSupervisor | undefined
   var piWebCodexRuntimeSupervisorExitCleanups:
-    | Set<RuntimeSupervisorProcessExitCleanup>
-    | undefined
+    Set<RuntimeSupervisorProcessExitCleanup> | undefined
   var piWebCodexRuntimeSupervisorExitHandlerRegistered: boolean | undefined
 }
 
 function registerRuntimeSupervisorProcessExitCleanup(
   cleanup: RuntimeSupervisorProcessExitCleanup
 ) {
-  const cleanups =
-    (globalThis.piWebCodexRuntimeSupervisorExitCleanups ??=
-      new Set<RuntimeSupervisorProcessExitCleanup>())
+  const cleanups = (globalThis.piWebCodexRuntimeSupervisorExitCleanups ??=
+    new Set<RuntimeSupervisorProcessExitCleanup>())
   cleanups.add(cleanup)
   if (globalThis.piWebCodexRuntimeSupervisorExitHandlerRegistered) return
 
@@ -344,11 +425,20 @@ function requestId() {
   return randomUUID()
 }
 
+class ModelCatalogReadInvalidatedError extends Error {
+  constructor() {
+    super("The model catalog changed during the read.")
+    this.name = "ModelCatalogReadInvalidatedError"
+  }
+}
+
 export class RuntimeSupervisor {
   private readonly runtimes = new Map<string, ManagedRuntime>()
   private runtimeDrafts = new Map<string, RuntimeDraft>()
   private draftPreparations = new Map<string, Promise<RuntimeDraft>>()
   private readonly knownResources = new Map<string, ResourceCatalog>()
+  private knownResourceFingerprints = new Map<string, string>()
+  private resourceCatalogFlights = new Map<string, Promise<ResourceCatalog>>()
 
   liveState(sessionId: string) {
     const runtime = this.runtimes.get(sessionId)
@@ -356,7 +446,45 @@ export class RuntimeSupervisor {
   }
 
   knownResourceCatalog(cwd: string) {
-    return this.knownResources.get(cwd) ?? null
+    return this.knownResources.get(path.resolve(cwd)) ?? null
+  }
+
+  async knownResourceCatalogIfCurrent(cwd: string) {
+    const key = path.resolve(cwd)
+    const catalog = this.knownResources.get(key)
+    const fingerprint = this.knownResourceFingerprints.get(key)
+    if (!catalog || !fingerprint) return null
+    const state = await readProjectCatalogState(cwd, getPiAgentDir())
+    if (state.resourceFingerprint === fingerprint) {
+      this.knownResources.delete(key)
+      this.knownResources.set(key, catalog)
+      return this.annotateResourceReload(cwd, catalog)
+    }
+    this.knownResources.delete(key)
+    this.knownResourceFingerprints.delete(key)
+    return null
+  }
+
+  async currentResourceCatalog(cwd: string) {
+    const cached = await this.knownResourceCatalogIfCurrent(cwd)
+    return cached ?? (await this.resourceCatalog(cwd))
+  }
+
+  private rememberResourceCatalog(
+    cwd: string,
+    catalog: ResourceCatalog,
+    fingerprint: string
+  ) {
+    const key = path.resolve(cwd)
+    this.knownResources.set(key, catalog)
+    this.knownResourceFingerprints.set(key, fingerprint)
+    while (this.knownResources.size > 48) {
+      const oldest = this.knownResources.keys().next().value as
+        string | undefined
+      if (oldest === undefined) break
+      this.knownResources.delete(oldest)
+      this.knownResourceFingerprints.delete(oldest)
+    }
   }
   private readonly activations = new Map<string, Promise<ManagedRuntime>>()
   private sessionClosures?: Map<string, Promise<unknown>>
@@ -366,6 +494,14 @@ export class RuntimeSupervisor {
   private resourceQueue: Promise<void> = Promise.resolve()
   private resourceOperationCount = 0
   private resourceChildren = new Set<ChildProcess>()
+  private modelCatalogSalt = randomBytes(32).toString("hex")
+  private modelCatalogSequence = 0
+  private modelCatalogs = new Map<string, ModelCatalogEntry>()
+  private modelCatalogReads = new Set<ModelCatalogReadOperation>()
+  private pendingCatalogWrites = new Set<PendingCatalogWrite>()
+  private modelCatalogWorkersActive = 0
+  private modelCatalogWorkerWaiters: ModelCatalogWorkerWaiter[] = []
+  private catalogFenceWaitTimeoutMs = REQUEST_TIMEOUT_MS
 
   constructor(eventHub = getEventHub()) {
     this.eventHub = eventHub
@@ -386,6 +522,25 @@ export class RuntimeSupervisor {
     supervisor.resourceQueue ??= Promise.resolve()
     supervisor.resourceOperationCount ??= 0
     supervisor.resourceChildren ??= new Set()
+    supervisor.modelCatalogSalt ??= randomBytes(32).toString("hex")
+    supervisor.modelCatalogSequence ??= 0
+    supervisor.modelCatalogs ??= new Map()
+    supervisor.modelCatalogReads ??= new Set()
+    supervisor.pendingCatalogWrites ??= new Set()
+    supervisor.modelCatalogWorkersActive ??= 0
+    supervisor.modelCatalogWorkerWaiters ??= []
+    supervisor.catalogFenceWaitTimeoutMs ??= REQUEST_TIMEOUT_MS
+    supervisor.knownResourceFingerprints ??= new Map()
+    supervisor.resourceCatalogFlights ??= new Map()
+    if (
+      [...supervisor.modelCatalogs.values()].some(
+        (entry) =>
+          !(entry.snapshots instanceof Map) ||
+          !(entry.buildPromises instanceof Map)
+      )
+    ) {
+      supervisor.modelCatalogs.clear()
+    }
     for (const runtime of supervisor.runtimes.values()) {
       runtime.resourceReloadPromise ??= null
       runtime.modelReloadPromise ??= null
@@ -433,6 +588,16 @@ export class RuntimeSupervisor {
       throw new RuntimeRequestError(
         "RuntimeBusy",
         "Wait for the active resource operation to finish before updating the WebUI."
+      )
+    }
+    if (
+      this.modelCatalogReads.size > 0 ||
+      this.modelCatalogWorkersActive > 0 ||
+      this.modelCatalogWorkerWaiters.length > 0
+    ) {
+      throw new RuntimeRequestError(
+        "RuntimeBusy",
+        "Wait for model catalog reads to finish before updating the WebUI."
       )
     }
 
@@ -556,6 +721,7 @@ export class RuntimeSupervisor {
     const runtime = this.runtimes.get(sessionId)
     if (runtime && !runtime.cleaned) {
       this.runtimeLeaseMap(runtime).delete(leaseId)
+      this.recycleIdleRuntimes()
     }
   }
 
@@ -903,6 +1069,29 @@ export class RuntimeSupervisor {
 
   async setModel(sessionId: string, provider: string, modelId: string) {
     const runtime = await this.activate(sessionId)
+    const available = () =>
+      runtime.snapshot?.availableModels.some(
+        (model) => model.provider === provider && model.id === modelId
+      ) ?? false
+    if (!available()) {
+      if (
+        runtime.status !== "ready" ||
+        runtime.snapshot?.isStreaming ||
+        runtime.snapshot?.isCompacting
+      ) {
+        throw new RuntimeRequestError(
+          "RuntimeBusy",
+          "Wait for this session to become idle before applying the refreshed model catalog."
+        )
+      }
+      await this.applyModelCatalogToRuntime(runtime)
+      if (!available()) {
+        throw new RuntimeRequestError(
+          "ModelNotAvailable",
+          `Model ${provider}/${modelId} is no longer available in this session runtime.`
+        )
+      }
+    }
     const snapshot = this.snapshotWithExtensionStatuses(
       runtime,
       runtimeSnapshotSchema.parse(
@@ -916,6 +1105,54 @@ export class RuntimeSupervisor {
     )
     runtime.snapshot = this.snapshotWithExtensionStatuses(runtime, snapshot)
     return snapshot
+  }
+
+  private async applyModelCatalogToRuntime(runtime: ManagedRuntime) {
+    this.assertRuntimeReloadable(runtime)
+    const previousStatus = runtime.status
+    runtime.status = "starting"
+    this.eventHub.publish({
+      type: "runtime.starting",
+      sessionId: runtime.webSessionId,
+      payload: { reason: "model-catalog-apply" },
+    })
+    try {
+      const snapshot = this.snapshotWithExtensionStatuses(
+        runtime,
+        runtimeSnapshotSchema.parse(
+          await this.request(runtime, {
+            type: "runtime.reload-model-settings",
+            requestId: requestId(),
+            sessionId: runtime.webSessionId,
+          })
+        )
+      )
+      this.assertRuntimeReloadable(runtime)
+      runtime.snapshot = snapshot
+      runtime.status =
+        snapshot.isStreaming || snapshot.isCompacting ? "busy" : "ready"
+      this.eventHub.publish({
+        type: "runtime.ready",
+        sessionId: runtime.webSessionId,
+        payload: snapshot,
+      })
+      return snapshot
+    } catch (error) {
+      if (
+        !runtime.cleaned &&
+        this.runtimes.get(runtime.webSessionId) === runtime
+      ) {
+        runtime.status = previousStatus
+        if (runtime.snapshot) {
+          this.eventHub.publish({
+            type: "runtime.ready",
+            sessionId: runtime.webSessionId,
+            payload: runtime.snapshot,
+          })
+        }
+      }
+      throw error
+    }
   }
 
   async setThinkingLevel(
@@ -1414,6 +1651,13 @@ export class RuntimeSupervisor {
     })
   }
 
+  webUiExtensionSessionIds(projectId: string) {
+    return [...this.runtimes.values()]
+      .filter((runtime) => !runtime.cleaned && runtime.projectId === projectId)
+      .map((runtime) => runtime.webSessionId)
+      .sort((left, right) => left.localeCompare(right))
+  }
+
   private snapshotWithExtensionStatuses(
     runtime: ManagedRuntime,
     snapshot: RuntimeSnapshot
@@ -1460,56 +1704,974 @@ export class RuntimeSupervisor {
     })
   }
 
+  private catalogOpaqueId(value: string) {
+    return createHash("sha256")
+      .update(this.modelCatalogSalt)
+      .update("\0")
+      .update(value)
+      .digest("hex")
+  }
+
+  private invalidateModelCatalogsForProfile(
+    runtimeProfileId: string,
+    reason: string
+  ) {
+    for (const entry of this.modelCatalogs.values()) {
+      if (entry.runtimeProfileId !== runtimeProfileId) continue
+      entry.generation += 1
+      entry.revision += 1
+      entry.snapshots.clear()
+      entry.snapshotCatalogVersion = null
+      entry.refreshErrors = undefined
+      entry.buildPromises.clear()
+      entry.refreshPromise = null
+      this.publishModelCatalogInvalidated(entry.catalogIdentity, reason)
+    }
+  }
+
+  private async modelCatalogTargetState(
+    target: ModelSettingsRuntimeTarget
+  ): Promise<ModelCatalogTargetState> {
+    const config = await loadConfig()
+    const profile = config.developer.runtime.profiles[target.runtimeProfileId]
+    if (!profile) {
+      this.invalidateModelCatalogsForProfile(
+        target.runtimeProfileId,
+        "runtime-profile-removed"
+      )
+      throw new RuntimeRequestError(
+        "RuntimeProfileNotFound",
+        `Runtime profile ${target.runtimeProfileId} does not exist.`
+      )
+    }
+    if (!profile.enabled) {
+      this.invalidateModelCatalogsForProfile(
+        target.runtimeProfileId,
+        "runtime-profile-disabled"
+      )
+      throw new RuntimeRequestError(
+        "RuntimeProfileDisabled",
+        `Runtime profile ${target.runtimeProfileId} is disabled.`
+      )
+    }
+    if (profile.kind !== target.runtimeKind) {
+      this.invalidateModelCatalogsForProfile(
+        target.runtimeProfileId,
+        "runtime-profile-kind-changed"
+      )
+      throw new RuntimeRequestError(
+        "RuntimeProfileMismatch",
+        `Runtime profile ${target.runtimeProfileId} changed while handling a model catalog request.`
+      )
+    }
+    const agentDir = getPiAgentDir()
+    const projectState = await readProjectCatalogState(target.cwd, agentDir)
+    const identityKey = JSON.stringify({
+      runtimeProfileId: target.runtimeProfileId,
+      runtimeKind: target.runtimeKind,
+      agentDir: projectState.canonicalAgentDir,
+      cwd: projectState.canonicalCwd,
+      trustScope: projectState.trustScope,
+    })
+    const profileVersion = { ...profile }
+    const dataVersion = this.catalogOpaqueId(
+      JSON.stringify({
+        profile: profileVersion,
+        project: projectState.version,
+      })
+    )
+    const securityVersion = this.catalogOpaqueId(
+      JSON.stringify({
+        profile: profileVersion,
+        project: projectState.authVersion,
+      })
+    )
+    return {
+      cwd: projectState.canonicalCwd,
+      agentDir: projectState.canonicalAgentDir,
+      runtimeProfileId: target.runtimeProfileId,
+      runtimeKind: target.runtimeKind,
+      identityKey,
+      catalogIdentity: this.catalogOpaqueId(identityKey),
+      dataVersion,
+      securityVersion,
+    }
+  }
+
+  private modelCatalogEntry(state: ModelCatalogTargetState) {
+    let entry = this.modelCatalogs.get(state.identityKey)
+    if (!entry) {
+      for (const previous of this.modelCatalogs.values()) {
+        if (
+          previous.cwd !== state.cwd ||
+          previous.agentDir !== state.agentDir ||
+          previous.runtimeProfileId !== state.runtimeProfileId ||
+          previous.runtimeKind !== state.runtimeKind ||
+          previous.identityKey === state.identityKey ||
+          previous.snapshots.size === 0
+        ) {
+          continue
+        }
+        previous.generation += 1
+        previous.revision += 1
+        previous.snapshots.clear()
+        previous.snapshotCatalogVersion = null
+        previous.refreshErrors = undefined
+        previous.buildPromises.clear()
+        previous.refreshPromise = null
+        this.publishModelCatalogInvalidated(
+          previous.catalogIdentity,
+          "trust-scope-changed"
+        )
+      }
+      entry = {
+        identityKey: state.identityKey,
+        cwd: state.cwd,
+        agentDir: state.agentDir,
+        runtimeProfileId: state.runtimeProfileId,
+        runtimeKind: state.runtimeKind,
+        catalogIdentity: state.catalogIdentity,
+        generation: 0,
+        revision: 0,
+        dataVersion: state.dataVersion,
+        securityVersion: state.securityVersion,
+        snapshots: new Map(),
+        snapshotCatalogVersion: null,
+        refreshErrors: undefined,
+        buildPromises: new Map(),
+        refreshPromise: null,
+        lastUsed: ++this.modelCatalogSequence,
+      }
+      this.modelCatalogs.set(entry.identityKey, entry)
+    } else {
+      entry.lastUsed = ++this.modelCatalogSequence
+      this.modelCatalogs.delete(entry.identityKey)
+      this.modelCatalogs.set(entry.identityKey, entry)
+      if (entry.dataVersion !== state.dataVersion) {
+        if (
+          entry.refreshPromise &&
+          entry.securityVersion === state.securityVersion
+        ) {
+          return entry
+        }
+        const previousVersion = entry.dataVersion
+        entry.generation += 1
+        entry.revision += 1
+        entry.dataVersion = state.dataVersion
+        entry.securityVersion = state.securityVersion
+        entry.snapshots.clear()
+        entry.snapshotCatalogVersion = null
+        entry.refreshErrors = undefined
+        entry.buildPromises.clear()
+        entry.refreshPromise = null
+        if (previousVersion && previousVersion !== state.dataVersion) {
+          this.publishModelCatalogInvalidated(
+            entry.catalogIdentity,
+            "catalog-source-changed"
+          )
+        }
+      }
+    }
+    this.trimModelCatalogs()
+    return entry
+  }
+
+  private trimModelCatalogs() {
+    while (this.modelCatalogs.size > 32) {
+      const oldestSettled = [...this.modelCatalogs].find(
+        ([, entry]) => entry.buildPromises.size === 0 && !entry.refreshPromise
+      )?.[0]
+      if (oldestSettled === undefined) return
+      this.modelCatalogs.delete(oldestSettled)
+    }
+  }
+
+  private modelCatalogVersion(
+    state: ModelCatalogTargetState,
+    entry: ModelCatalogEntry
+  ) {
+    return this.catalogOpaqueId(
+      JSON.stringify({
+        identity: state.catalogIdentity,
+        dataVersion: entry.dataVersion,
+        revision: entry.revision,
+      })
+    )
+  }
+
+  private currentModelCatalogSnapshot(
+    entry: ModelCatalogEntry,
+    scope: "all" | "enabled"
+  ): ModelCatalogSnapshot {
+    const cachedSnapshot = entry.snapshots.get(scope)
+    if (!cachedSnapshot || !entry.snapshotCatalogVersion) {
+      throw new RuntimeRequestError(
+        "ModelCatalogUnavailable",
+        "The model catalog does not have a usable snapshot."
+      )
+    }
+    const snapshot = structuredClone(cachedSnapshot)
+    if (entry.refreshErrors?.length) {
+      snapshot.refreshErrors = structuredClone(entry.refreshErrors)
+    }
+    return {
+      catalogIdentity: entry.catalogIdentity,
+      dataVersion: entry.dataVersion,
+      catalogVersion: entry.snapshotCatalogVersion,
+      snapshot,
+    }
+  }
+
+  private projectModelSettings(cached: ModelCatalogSnapshot) {
+    return modelSettingsSchema.parse({
+      ...cached.snapshot,
+      catalogIdentity: cached.catalogIdentity,
+      catalogVersion: cached.catalogVersion,
+    })
+  }
+
+  private enabledModelSettingsSnapshot(snapshot: ModelSettingsSnapshot) {
+    const models = snapshot.models.filter((model) => model.enabled)
+    const selectedDefault = snapshot.defaultModel
+    const defaultModel =
+      selectedDefault &&
+      models.some(
+        (model) =>
+          model.provider === selectedDefault.provider &&
+          model.id === selectedDefault.id
+      )
+        ? selectedDefault
+        : null
+    return {
+      ...snapshot,
+      models,
+      providers: [],
+      defaultModel,
+    }
+  }
+
+  private releaseModelCatalogWorker() {
+    const waiter = this.modelCatalogWorkerWaiters.shift()
+    if (waiter) {
+      clearTimeout(waiter.timeout)
+      waiter.resolve(() => this.releaseModelCatalogWorker())
+      return
+    }
+    this.modelCatalogWorkersActive = Math.max(
+      0,
+      this.modelCatalogWorkersActive - 1
+    )
+  }
+
+  private acquireModelCatalogWorker() {
+    if (this.modelCatalogWorkersActive < 4) {
+      this.modelCatalogWorkersActive += 1
+      return Promise.resolve(() => this.releaseModelCatalogWorker())
+    }
+    if (this.modelCatalogWorkerWaiters.length >= 32) {
+      return Promise.reject(
+        new RuntimeRequestError(
+          "ModelCatalogBusy",
+          "Too many distinct model catalogs are waiting to load. Retry shortly."
+        )
+      )
+    }
+    return new Promise<() => void>((resolve, reject) => {
+      const waiter: ModelCatalogWorkerWaiter = {
+        resolve,
+        reject,
+        timeout: setTimeout(() => {
+          const index = this.modelCatalogWorkerWaiters.indexOf(waiter)
+          if (index < 0) return
+          this.modelCatalogWorkerWaiters.splice(index, 1)
+          reject(
+            new RuntimeRequestError(
+              "ModelCatalogBusy",
+              "A model catalog worker slot did not become available in time."
+            )
+          )
+        }, REQUEST_TIMEOUT_MS),
+      }
+      waiter.timeout.unref?.()
+      this.modelCatalogWorkerWaiters.push(waiter)
+    })
+  }
+
+  private async waitForCatalogFences(fences: Promise<void>[]) {
+    if (fences.length === 0) return
+    let timeout: NodeJS.Timeout | undefined
+    try {
+      await Promise.race([
+        Promise.all(fences),
+        new Promise<never>((_, reject) => {
+          timeout = setTimeout(
+            () =>
+              reject(
+                new RuntimeRequestError(
+                  "ModelCatalogBusy",
+                  "A related resource worker is still closing. Retry after it stops."
+                )
+              ),
+            this.catalogFenceWaitTimeoutMs
+          )
+          timeout.unref?.()
+        }),
+      ])
+    } finally {
+      if (timeout) clearTimeout(timeout)
+    }
+  }
+
+  private catalogWriteScopesOverlap(
+    left: CatalogWriteScope,
+    right: CatalogWriteScope
+  ) {
+    if (left.agentDir !== right.agentDir) return false
+    if (left.kind === "agentDir" || right.kind === "agentDir") return true
+    const leftCwd = path.resolve(left.cwd!)
+    const rightCwd = path.resolve(right.cwd!)
+    if (left.kind === "cwd" && right.kind === "cwd") {
+      return leftCwd === rightCwd
+    }
+    if (left.kind === "subtree" && right.kind === "cwd") {
+      return this.pathIsWithin(leftCwd, rightCwd)
+    }
+    if (left.kind === "cwd" && right.kind === "subtree") {
+      return this.pathIsWithin(rightCwd, leftCwd)
+    }
+    return (
+      this.pathIsWithin(leftCwd, rightCwd) ||
+      this.pathIsWithin(rightCwd, leftCwd)
+    )
+  }
+
+  private async buildModelCatalogSnapshot(
+    target: ModelSettingsRuntimeTarget,
+    scope: "all" | "enabled",
+    expected: ModelCatalogTargetState,
+    entry: ModelCatalogEntry,
+    generation: number
+  ): Promise<ModelCatalogSnapshot> {
+    let release!: () => void
+    const done = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const read: ModelCatalogReadOperation = {
+      cwd: expected.cwd,
+      agentDir: expected.agentDir,
+      done,
+    }
+    this.modelCatalogReads.add(read)
+    let workerSlotTransferred = false
+    let readFenceTransferred = false
+    let readFenceReleased = false
+    const releaseReadFence = () => {
+      if (readFenceReleased) return
+      readFenceReleased = true
+      this.modelCatalogReads.delete(read)
+      release()
+    }
+    try {
+      const readGateStartedAt = Date.now()
+      const priorWrites = [...this.pendingCatalogWrites]
+        .filter((write) => this.catalogWriteAffectsRead(write, read))
+        .map((write) => write.done)
+      await this.waitForCatalogFences(priorWrites)
+      const readGateWaitMs = Date.now() - readGateStartedAt
+      const before = await this.modelCatalogTargetState(target)
+      if (
+        entry.generation !== generation ||
+        before.identityKey !== expected.identityKey ||
+        before.dataVersion !== expected.dataVersion
+      ) {
+        throw new ModelCatalogReadInvalidatedError()
+      }
+      const workerSlotStartedAt = Date.now()
+      const releaseWorker = await this.acquireModelCatalogWorker()
+      const workerSlotWaitMs = Date.now() - workerSlotStartedAt
+      let snapshot: ModelSettingsSnapshot
+      try {
+        const beforeFork = await this.modelCatalogTargetState(target)
+        if (
+          entry.generation !== generation ||
+          beforeFork.identityKey !== expected.identityKey ||
+          beforeFork.dataVersion !== expected.dataVersion
+        ) {
+          throw new ModelCatalogReadInvalidatedError()
+        }
+        this.resourceOperationCount += 1
+        try {
+          snapshot = modelSettingsSnapshotSchema.parse(
+            await this.performResourceRequest(
+              {
+                type: "models.catalog",
+                requestId: requestId(),
+                payload: {
+                  cwd: expected.cwd,
+                  agentDir: expected.agentDir,
+                  scope,
+                },
+              },
+              REQUEST_TIMEOUT_MS,
+              target,
+              { readGateWaitMs, workerSlotWaitMs },
+              {
+                onSpawn: () => {
+                  workerSlotTransferred = true
+                  readFenceTransferred = true
+                },
+                onClose: () => {
+                  releaseWorker()
+                  releaseReadFence()
+                },
+              }
+            )
+          )
+        } finally {
+          this.resourceOperationCount -= 1
+        }
+      } finally {
+        if (!workerSlotTransferred) releaseWorker()
+      }
+      const after = await this.modelCatalogTargetState(target)
+      if (
+        entry.generation !== generation ||
+        after.identityKey !== expected.identityKey ||
+        after.dataVersion !== expected.dataVersion
+      ) {
+        throw new ModelCatalogReadInvalidatedError()
+      }
+      return {
+        catalogIdentity: after.catalogIdentity,
+        dataVersion: after.dataVersion,
+        catalogVersion: "",
+        snapshot,
+      }
+    } finally {
+      if (!readFenceTransferred) releaseReadFence()
+    }
+  }
+
+  private async modelCatalogSnapshot(
+    target: ModelSettingsRuntimeTarget,
+    scope: "all" | "enabled"
+  ): Promise<ModelCatalogSnapshot> {
+    const requestStartedAt = Date.now()
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      const state = await this.modelCatalogTargetState(target)
+      const entry = this.modelCatalogEntry(state)
+      if (
+        scope === "enabled" &&
+        !entry.snapshots.has("enabled") &&
+        entry.snapshots.has("all")
+      ) {
+        entry.snapshots.set(
+          "enabled",
+          this.enabledModelSettingsSnapshot(entry.snapshots.get("all")!)
+        )
+      }
+      const hasSnapshot = entry.snapshots.has(scope)
+      const writes = [...this.pendingCatalogWrites]
+        .filter(
+          (write) =>
+            this.catalogWriteAffectsTarget(write, state) &&
+            (write.scope.mode === "write" || !hasSnapshot)
+        )
+        .map((write) => write.done)
+      if (writes.length) {
+        const waitStartedAt = Date.now()
+        await this.waitForCatalogFences(writes)
+        emitCatalogMetric("model-catalog-write-barrier", {
+          waitMs: Date.now() - waitStartedAt,
+          writes: writes.length,
+          scope,
+        })
+        continue
+      }
+      if (entry.refreshPromise && entry.snapshots.has(scope)) {
+        emitCatalogMetric("model-catalog-cache", {
+          result: "refresh-snapshot",
+          scope,
+          durationMs: Date.now() - requestStartedAt,
+          activeWorkers: this.modelCatalogWorkersActive,
+          queuedWorkers: this.modelCatalogWorkerWaiters.length,
+        })
+        return this.currentModelCatalogSnapshot(entry, scope)
+      }
+      if (
+        entry.snapshots.has(scope) &&
+        entry.dataVersion === state.dataVersion &&
+        entry.snapshotCatalogVersion
+      ) {
+        emitCatalogMetric("model-catalog-cache", {
+          result: "hit",
+          scope,
+          durationMs: Date.now() - requestStartedAt,
+          activeWorkers: this.modelCatalogWorkersActive,
+          queuedWorkers: this.modelCatalogWorkerWaiters.length,
+        })
+        return this.currentModelCatalogSnapshot(entry, scope)
+      }
+      const existingBuild = entry.buildPromises.get(scope)
+      if (existingBuild) {
+        emitCatalogMetric("model-catalog-cache", {
+          result: "singleflight",
+          scope,
+          activeWorkers: this.modelCatalogWorkersActive,
+          queuedWorkers: this.modelCatalogWorkerWaiters.length,
+        })
+        try {
+          await existingBuild
+        } catch (error) {
+          if (error instanceof ModelCatalogReadInvalidatedError) continue
+          throw error
+        }
+        continue
+      }
+
+      const generation = entry.generation
+      emitCatalogMetric("model-catalog-cache", {
+        result: "miss",
+        scope,
+        activeWorkers: this.modelCatalogWorkersActive,
+        queuedWorkers: this.modelCatalogWorkerWaiters.length,
+      })
+      const operation = this.buildModelCatalogSnapshot(
+        target,
+        scope,
+        state,
+        entry,
+        generation
+      )
+      entry.buildPromises.set(scope, operation)
+      try {
+        const built = await operation
+        if (entry.generation !== generation) continue
+        const after = await this.modelCatalogTargetState(target)
+        if (
+          after.identityKey !== state.identityKey ||
+          after.dataVersion !== built.dataVersion
+        ) {
+          continue
+        }
+        entry.dataVersion = built.dataVersion
+        entry.snapshots.set(scope, structuredClone(built.snapshot))
+        entry.refreshErrors = undefined
+        if (entry.revision === 0) entry.revision = 1
+        entry.snapshotCatalogVersion = this.modelCatalogVersion(after, entry)
+        return this.currentModelCatalogSnapshot(entry, scope)
+      } catch (error) {
+        if (error instanceof ModelCatalogReadInvalidatedError) continue
+        throw error
+      } finally {
+        if (entry.buildPromises.get(scope) === operation) {
+          entry.buildPromises.delete(scope)
+        }
+        this.trimModelCatalogs()
+      }
+    }
+    throw new RuntimeRequestError(
+      "ModelCatalogChanged",
+      "The model catalog changed repeatedly while it was being read. Retry the request."
+    )
+  }
+
+  private async storeMutatedModelSettings(
+    target: ModelSettingsRuntimeTarget,
+    snapshot: ModelSettingsSnapshot
+  ) {
+    const state = await this.modelCatalogTargetState(target)
+    const entry = this.modelCatalogEntry(state)
+    entry.generation += 1
+    entry.dataVersion = state.dataVersion
+    entry.snapshots.set("all", structuredClone(snapshot))
+    entry.snapshots.set(
+      "enabled",
+      structuredClone(this.enabledModelSettingsSnapshot(snapshot))
+    )
+    entry.refreshErrors = undefined
+    entry.revision += 1
+    entry.snapshotCatalogVersion = this.modelCatalogVersion(state, entry)
+    return this.projectModelSettings(
+      this.currentModelCatalogSnapshot(entry, "all")
+    )
+  }
+
+  private invalidateModelCatalogsAfterRefresh(current: ModelCatalogEntry) {
+    for (const entry of this.modelCatalogs.values()) {
+      if (entry === current || entry.agentDir !== current.agentDir) {
+        continue
+      }
+      entry.generation += 1
+      entry.revision += 1
+      entry.snapshots.clear()
+      entry.snapshotCatalogVersion = null
+      entry.refreshErrors = undefined
+      entry.buildPromises.clear()
+      this.publishModelCatalogInvalidated(
+        entry.catalogIdentity,
+        "model-refresh-updated-other-target"
+      )
+    }
+  }
+
+  private catalogWriteScope(
+    message: ResourceRequestMessage
+  ): CatalogWriteScope | null {
+    const agentDir = path.resolve(message.payload.agentDir)
+    switch (message.type) {
+      case "models.catalog":
+      case "resources.catalog":
+        return null
+      case "models.refresh":
+        return { kind: "agentDir", mode: "refresh", agentDir }
+      case "models.set-scope":
+      case "providers.remove":
+      case "providers.save":
+        return { kind: "agentDir", mode: "write", agentDir }
+      case "resources.set-enabled":
+        return message.payload.writeScope === "global"
+          ? { kind: "agentDir", mode: "write", agentDir }
+          : {
+              kind: "cwd",
+              mode: "write",
+              agentDir,
+              cwd: path.resolve(message.payload.cwd),
+            }
+      case "packages.install":
+        return message.payload.scope === "global"
+          ? { kind: "agentDir", mode: "write", agentDir }
+          : {
+              kind: "cwd",
+              mode: "write",
+              agentDir,
+              cwd: path.resolve(message.payload.cwd),
+            }
+      case "packages.remove":
+      case "packages.update":
+        return { kind: "agentDir", mode: "write", agentDir }
+      case "project.trust.set":
+        return {
+          kind: "subtree",
+          mode: "write",
+          agentDir,
+          cwd: path.resolve(message.payload.cwd),
+        }
+    }
+  }
+
+  private pathIsWithin(parent: string, child: string) {
+    const relative = path.relative(parent, child)
+    return (
+      relative === "" ||
+      (relative !== ".." &&
+        !relative.startsWith(`..${path.sep}`) &&
+        !path.isAbsolute(relative))
+    )
+  }
+
+  private catalogWriteAffectsRead(
+    write: PendingCatalogWrite,
+    read: ModelCatalogReadOperation
+  ) {
+    const scope = write.scope
+    if (scope.agentDir !== path.resolve(read.agentDir)) return false
+    if (scope.kind === "agentDir") return true
+    if (scope.kind === "cwd") {
+      return scope.cwd === path.resolve(read.cwd)
+    }
+    return this.pathIsWithin(scope.cwd!, path.resolve(read.cwd))
+  }
+
+  private catalogWriteAffectsTarget(
+    write: PendingCatalogWrite,
+    target: ModelCatalogTargetState
+  ) {
+    const scope = write.scope
+    if (scope.agentDir !== path.resolve(target.agentDir)) return false
+    if (scope.kind === "agentDir") return true
+    if (scope.kind === "cwd") return scope.cwd === path.resolve(target.cwd)
+    return this.pathIsWithin(scope.cwd!, path.resolve(target.cwd))
+  }
+
+  private async invalidateCatalogCachesForWrite(
+    scope: CatalogWriteScope,
+    message: ResourceRequestMessage
+  ) {
+    if (message.type === "models.refresh") return []
+    const invalidatedModelIdentities: string[] = []
+    for (const entry of this.modelCatalogs.values()) {
+      const affected =
+        scope.agentDir === path.resolve(entry.agentDir) &&
+        (scope.kind === "agentDir" ||
+          (scope.kind === "cwd" && scope.cwd === path.resolve(entry.cwd)) ||
+          (scope.kind === "subtree" &&
+            this.pathIsWithin(scope.cwd!, path.resolve(entry.cwd))))
+      if (!affected) continue
+      entry.generation += 1
+      entry.revision += 1
+      entry.snapshots.clear()
+      entry.snapshotCatalogVersion = null
+      entry.refreshErrors = undefined
+      entry.buildPromises.clear()
+      entry.refreshPromise = null
+      invalidatedModelIdentities.push(entry.catalogIdentity)
+    }
+
+    if (
+      message.type === "packages.remove" ||
+      message.type === "packages.update"
+    ) {
+      await invalidateWebUiExtensionCatalog()
+    } else if (message.type === "packages.install") {
+      if (message.payload.scope === "global") {
+        await invalidateWebUiExtensionCatalog()
+      } else {
+        await invalidateWebUiExtensionCatalog(message.payload.cwd)
+      }
+    } else if (message.type === "project.trust.set") {
+      await invalidateWebUiExtensionCatalog(message.payload.cwd)
+    }
+    return [...new Set(invalidatedModelIdentities)]
+  }
+
+  private publishModelCatalogInvalidated(
+    catalogIdentity: string,
+    reason: string,
+    catalogVersion?: string,
+    kind: "invalidate" | "data-refresh" = "invalidate"
+  ) {
+    this.eventHub.publish({
+      type: "model.catalog.invalidated",
+      payload: {
+        catalogIdentity,
+        reason,
+        kind,
+        ...(catalogVersion ? { catalogVersion } : {}),
+      },
+    })
+  }
+
+  private publishExtensionCatalogInvalidated(reason: string) {
+    this.eventHub.publish({
+      type: "webui.extension.catalog.invalidated",
+      payload: { kind: "invalidate", reason, all: true },
+    })
+  }
+
+  private publishResourceWriteInvalidations(
+    message: ResourceRequestMessage,
+    identities: string[],
+    result?: unknown
+  ) {
+    const settings =
+      typeof result === "object" &&
+      result !== null &&
+      "catalogIdentity" in result &&
+      typeof result.catalogIdentity === "string" &&
+      "catalogVersion" in result &&
+      typeof result.catalogVersion === "string"
+        ? (result as Pick<ModelSettings, "catalogIdentity" | "catalogVersion">)
+        : null
+    for (const identity of identities) {
+      if (identity === settings?.catalogIdentity) continue
+      this.publishModelCatalogInvalidated(identity, `resource:${message.type}`)
+    }
+    if (settings) {
+      this.publishModelCatalogInvalidated(
+        settings.catalogIdentity,
+        `resource:${message.type}`,
+        settings.catalogVersion
+      )
+    }
+    if (
+      message.type === "packages.install" ||
+      message.type === "packages.remove" ||
+      message.type === "packages.update" ||
+      message.type === "project.trust.set"
+    ) {
+      this.publishExtensionCatalogInvalidated(`resource:${message.type}`)
+    }
+  }
+
   async resourceCatalog(cwd: string) {
-    const catalog = this.annotateResourceReload(
-      cwd,
-      resourceCatalogSchema.parse(
+    const key = path.resolve(cwd)
+    const existing = this.resourceCatalogFlights.get(key)
+    if (existing) return existing
+    const operation = this.readResourceCatalogStable(cwd)
+    this.resourceCatalogFlights.set(key, operation)
+    try {
+      return await operation
+    } finally {
+      if (this.resourceCatalogFlights.get(key) === operation) {
+        this.resourceCatalogFlights.delete(key)
+      }
+    }
+  }
+
+  private async readResourceCatalogStable(cwd: string) {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const before = await readProjectCatalogState(cwd, getPiAgentDir())
+      const catalog = resourceCatalogSchema.parse(
         await this.resourceRequest({
           type: "resources.catalog",
           requestId: requestId(),
-          payload: { cwd, agentDir: getPiAgentDir() },
+          payload: {
+            cwd: before.canonicalCwd,
+            agentDir: before.canonicalAgentDir,
+          },
         })
       )
+      const after = await readProjectCatalogState(cwd, getPiAgentDir())
+      if (before.resourceFingerprint !== after.resourceFingerprint) continue
+      this.rememberResourceCatalog(cwd, catalog, after.resourceFingerprint)
+      return this.annotateResourceReload(cwd, catalog)
+    }
+    throw new RuntimeRequestError(
+      "ProjectTrustChanged",
+      "Project trust or settings changed repeatedly while resources were being read. Retry the request."
     )
-    this.knownResources.set(cwd, catalog)
-    return catalog
   }
 
   async modelSettings(
     target: ModelSettingsRuntimeTarget,
     scope: "all" | "enabled" = "all"
   ) {
-    return modelSettingsSchema.parse(
-      await this.resourceRequest(
-        {
-          type: "models.catalog",
-          requestId: requestId(),
-          payload: {
-            cwd: target.cwd,
-            agentDir: getPiAgentDir(),
-            scope,
-          },
-        },
-        REQUEST_TIMEOUT_MS,
-        target
+    const cached = await this.modelCatalogSnapshot(target, scope)
+    return this.projectModelSettings(cached)
+  }
+
+  private async modelRefreshSecurityIsCurrent(
+    target: ModelSettingsRuntimeTarget,
+    initial: ModelCatalogTargetState,
+    entry: ModelCatalogEntry,
+    generation: number
+  ) {
+    let current: ModelCatalogTargetState | null = null
+    try {
+      current = await this.modelCatalogTargetState(target)
+    } catch {
+      // A removed or invalid runtime profile cannot keep a prior snapshot.
+    }
+    const stillCurrent =
+      current !== null &&
+      current.identityKey === initial.identityKey &&
+      current.securityVersion === initial.securityVersion &&
+      entry.generation === generation
+    if (stillCurrent) return true
+
+    if (entry.generation === generation) {
+      entry.generation += 1
+      entry.revision += 1
+      entry.snapshots.clear()
+      entry.snapshotCatalogVersion = null
+      entry.refreshErrors = undefined
+      entry.buildPromises.clear()
+      this.publishModelCatalogInvalidated(
+        entry.catalogIdentity,
+        "refresh-security-or-target-changed"
       )
-    )
+    }
+    return false
   }
 
   async refreshModelSettings(target: ModelSettingsRuntimeTarget) {
-    const settings = modelSettingsSchema.parse(
-      await this.resourceRequest(
-        {
-          type: "models.refresh",
-          requestId: requestId(),
-          payload: { cwd: target.cwd, agentDir: getPiAgentDir() },
-        },
-        REQUEST_TIMEOUT_MS,
-        target
-      )
-    )
-    await this.reloadModelSettings()
-    return settings
+    await this.modelSettings(target, "all")
+    const state = await this.modelCatalogTargetState(target)
+    const entry = this.modelCatalogEntry(state)
+    if (entry.refreshPromise) {
+      return this.projectModelSettings(await entry.refreshPromise)
+    }
+
+    const generation = entry.generation
+    const operation = (async (): Promise<ModelCatalogSnapshot> => {
+      try {
+        const refreshed = modelSettingsSnapshotSchema.parse(
+          await this.resourceRequest(
+            {
+              type: "models.refresh",
+              requestId: requestId(),
+              payload: { cwd: state.cwd, agentDir: state.agentDir },
+            },
+            REQUEST_TIMEOUT_MS,
+            target
+          )
+        )
+        if (
+          !(await this.modelRefreshSecurityIsCurrent(
+            target,
+            state,
+            entry,
+            generation
+          ))
+        ) {
+          throw new ModelCatalogReadInvalidatedError()
+        }
+        const errors = refreshed.refreshErrors ?? []
+        if (errors.length > 0 && entry.snapshots.has("all")) {
+          entry.refreshErrors = errors
+          return this.currentModelCatalogSnapshot(entry, "all")
+        }
+
+        const currentState = await this.modelCatalogTargetState(target)
+        if (
+          entry.generation !== generation ||
+          currentState.identityKey !== state.identityKey ||
+          currentState.dataVersion !== state.dataVersion
+        ) {
+          throw new ModelCatalogReadInvalidatedError()
+        }
+        this.invalidateModelCatalogsAfterRefresh(entry)
+        entry.dataVersion = currentState.dataVersion
+        entry.snapshots.set("all", structuredClone(refreshed))
+        entry.snapshots.set(
+          "enabled",
+          structuredClone(this.enabledModelSettingsSnapshot(refreshed))
+        )
+        entry.refreshErrors = undefined
+        entry.revision += 1
+        entry.snapshotCatalogVersion = this.modelCatalogVersion(
+          currentState,
+          entry
+        )
+        this.publishModelCatalogInvalidated(
+          entry.catalogIdentity,
+          "explicit-model-refresh",
+          entry.snapshotCatalogVersion,
+          "data-refresh"
+        )
+        return this.currentModelCatalogSnapshot(entry, "all")
+      } catch (error) {
+        const securityIsCurrent = await this.modelRefreshSecurityIsCurrent(
+          target,
+          state,
+          entry,
+          generation
+        )
+        if (securityIsCurrent && entry.snapshots.has("all")) {
+          entry.refreshErrors = [
+            {
+              provider: "model-catalog",
+              message: error instanceof Error ? error.message : String(error),
+            },
+          ]
+          return this.currentModelCatalogSnapshot(entry, "all")
+        }
+        if (error instanceof ModelCatalogReadInvalidatedError) {
+          throw new RuntimeRequestError(
+            "ModelCatalogChanged",
+            "Authentication, profile, or trust changed during model refresh. Retry the request."
+          )
+        }
+        throw error
+      }
+    })()
+    entry.refreshPromise = operation
+    try {
+      return this.projectModelSettings(await operation)
+    } finally {
+      if (entry.refreshPromise === operation) entry.refreshPromise = null
+    }
   }
 
   async setModelScope(
@@ -1517,59 +2679,68 @@ export class RuntimeSupervisor {
     enabledModelIds: string[] | null,
     expectedEnabledModelIds: string[]
   ) {
-    const settings = modelSettingsSchema.parse(
-      await this.resourceRequest(
-        {
-          type: "models.set-scope",
-          requestId: requestId(),
-          payload: {
-            cwd: target.cwd,
-            agentDir: getPiAgentDir(),
-            enabledModelIds,
-            expectedEnabledModelIds,
-          },
+    const settings = await this.resourceRequest(
+      {
+        type: "models.set-scope",
+        requestId: requestId(),
+        payload: {
+          cwd: target.cwd,
+          agentDir: getPiAgentDir(),
+          enabledModelIds,
+          expectedEnabledModelIds,
         },
-        REQUEST_TIMEOUT_MS,
-        target
-      )
+      },
+      REQUEST_TIMEOUT_MS,
+      target,
+      (data) =>
+        this.storeMutatedModelSettings(
+          target,
+          modelSettingsSnapshotSchema.parse(data)
+        )
     )
     await this.reloadModelSettings()
-    return settings
+    return settings as ModelSettings
   }
 
   async removeProvider(target: ModelSettingsRuntimeTarget, provider: string) {
-    const settings = modelSettingsSchema.parse(
-      await this.resourceRequest(
-        {
-          type: "providers.remove",
-          requestId: requestId(),
-          payload: { cwd: target.cwd, agentDir: getPiAgentDir(), provider },
-        },
-        REQUEST_TIMEOUT_MS,
-        target
-      )
+    const settings = await this.resourceRequest(
+      {
+        type: "providers.remove",
+        requestId: requestId(),
+        payload: { cwd: target.cwd, agentDir: getPiAgentDir(), provider },
+      },
+      REQUEST_TIMEOUT_MS,
+      target,
+      (data) =>
+        this.storeMutatedModelSettings(
+          target,
+          modelSettingsSnapshotSchema.parse(data)
+        )
     )
     await this.reloadModelSettings()
-    return settings
+    return settings as ModelSettings
   }
 
   async saveCustomProvider(
     target: ModelSettingsRuntimeTarget,
     input: ModelSettingsProviderInput
   ) {
-    const settings = modelSettingsSchema.parse(
-      await this.resourceRequest(
-        {
-          type: "providers.save",
-          requestId: requestId(),
-          payload: { cwd: target.cwd, agentDir: getPiAgentDir(), ...input },
-        },
-        REQUEST_TIMEOUT_MS,
-        target
-      )
+    const settings = await this.resourceRequest(
+      {
+        type: "providers.save",
+        requestId: requestId(),
+        payload: { cwd: target.cwd, agentDir: getPiAgentDir(), ...input },
+      },
+      REQUEST_TIMEOUT_MS,
+      target,
+      (data) =>
+        this.storeMutatedModelSettings(
+          target,
+          modelSettingsSnapshotSchema.parse(data)
+        )
     )
     await this.reloadModelSettings()
-    return settings
+    return settings as ModelSettings
   }
 
   async setResourceEnabled(
@@ -1666,12 +2837,16 @@ export class RuntimeSupervisor {
     })
   }
 
-  async stop(sessionId: string) {
+  async stop(
+    sessionId: string,
+    reason: "explicit" | "idle-budget" = "explicit"
+  ) {
     const activation = this.activations.get(sessionId)
     if (activation) await activation.catch(() => undefined)
 
     const runtime = this.runtimes.get(sessionId)
     if (!runtime || runtime.cleaned) return
+    runtime.stopReason = reason
     if (runtime.stopPromise) return runtime.stopPromise
 
     const operation = this.stopRuntime(runtime).finally(() => {
@@ -1687,7 +2862,7 @@ export class RuntimeSupervisor {
     this.eventHub.publish({
       type: "runtime.stopping",
       sessionId,
-      payload: {},
+      payload: { reason: runtime.stopReason ?? "explicit" },
     })
     try {
       await this.request(
@@ -2633,7 +3808,7 @@ export class RuntimeSupervisor {
         this.eventHub.publish({
           type: "runtime.stopped",
           sessionId: runtime.webSessionId,
-          payload: {},
+          payload: { reason: runtime.stopReason ?? "explicit" },
         })
       }
       this.rejectPending(
@@ -2971,15 +4146,110 @@ export class RuntimeSupervisor {
   private resourceRequest(
     message: ResourceRequestMessage,
     timeoutMs = REQUEST_TIMEOUT_MS,
-    runtimeTarget?: ModelSettingsRuntimeTarget
+    runtimeTarget?: ModelSettingsRuntimeTarget,
+    onSuccess?: (data: unknown) => unknown | Promise<unknown>
   ) {
     this.resourceOperationCount += 1
+    if (message.type === "models.catalog") {
+      const directRead = this.performResourceRequest(
+        message,
+        timeoutMs,
+        runtimeTarget
+      ).then((data) => (onSuccess ? onSuccess(data) : data))
+      return directRead.finally(() => {
+        this.resourceOperationCount -= 1
+      })
+    }
+
+    const scope = this.catalogWriteScope(message)
+    const queuedAt = Date.now()
+    const blockedWrites = scope
+      ? [...this.pendingCatalogWrites]
+          .filter((write) => this.catalogWriteScopesOverlap(scope, write.scope))
+          .map((write) => write.done)
+      : []
+    const blockedReads = scope
+      ? [...this.modelCatalogReads]
+          .filter((read) => {
+            const temporaryWrite: PendingCatalogWrite = {
+              scope,
+              done: Promise.resolve(),
+            }
+            return this.catalogWriteAffectsRead(temporaryWrite, read)
+          })
+          .map((read) => read.done)
+      : []
+    let finishWrite!: () => void
+    const pendingWrite = scope
+      ? {
+          scope,
+          done: new Promise<void>((resolve) => {
+            finishWrite = resolve
+          }),
+        }
+      : null
+    if (pendingWrite) this.pendingCatalogWrites.add(pendingWrite)
+    let workerFenceTransferred = false
+    let pendingWriteFinished = false
+    const finishPendingWrite = () => {
+      if (!pendingWrite || pendingWriteFinished) return
+      pendingWriteFinished = true
+      this.pendingCatalogWrites.delete(pendingWrite)
+      finishWrite()
+    }
+    const workerLifecycle: ResourceWorkerLifecycle | undefined = pendingWrite
+      ? {
+          onSpawn: () => {
+            workerFenceTransferred = true
+          },
+          onClose: finishPendingWrite,
+        }
+      : undefined
+
     const operation = this.resourceQueue
-      .then(() =>
-        this.performResourceRequest(message, timeoutMs, runtimeTarget)
-      )
+      .then(async () => {
+        const queueWaitMs = Date.now() - queuedAt
+        const readGateStartedAt = Date.now()
+        await this.waitForCatalogFences([...blockedReads, ...blockedWrites])
+        const readGateWaitMs = Date.now() - readGateStartedAt
+        let data: unknown
+        try {
+          data = await this.performResourceRequest(
+            message,
+            timeoutMs,
+            runtimeTarget,
+            { queueWaitMs, readGateWaitMs },
+            workerLifecycle
+          )
+        } catch (error) {
+          if (scope) {
+            const identities = await this.invalidateCatalogCachesForWrite(
+              scope,
+              message
+            )
+            this.publishResourceWriteInvalidations(message, identities)
+          }
+          throw error
+        }
+        if (!scope) return onSuccess ? onSuccess(data) : data
+
+        const invalidatedModelIdentities =
+          await this.invalidateCatalogCachesForWrite(scope, message)
+        let result: unknown
+        try {
+          result = onSuccess ? await onSuccess(data) : data
+        } finally {
+          this.publishResourceWriteInvalidations(
+            message,
+            invalidatedModelIdentities,
+            result
+          )
+        }
+        return result
+      })
       .finally(() => {
         this.resourceOperationCount -= 1
+        if (!workerFenceTransferred) finishPendingWrite()
       })
     this.resourceQueue = operation.then(
       () => undefined,
@@ -2991,23 +4261,30 @@ export class RuntimeSupervisor {
   private async performResourceRequest(
     message: ResourceRequestMessage,
     timeoutMs: number,
-    runtimeTarget?: ModelSettingsRuntimeTarget
+    runtimeTarget?: ModelSettingsRuntimeTarget,
+    metricContext: ResourceWorkerMetricContext = {},
+    lifecycle?: ResourceWorkerLifecycle
   ) {
+    const requestStartedAt = Date.now()
+    const credentialStartedAt = Date.now()
     const credentials = runtimeTarget
       ? await runtimeWorkerCredentials(runtimeTarget.runtimeProfileId)
       : { kind: "pi" as const }
+    const credentialResolveMs = Date.now() - credentialStartedAt
     if (runtimeTarget && credentials.kind !== runtimeTarget.runtimeKind) {
       throw new RuntimeRequestError(
         "RuntimeProfileMismatch",
         `Runtime profile ${runtimeTarget.runtimeProfileId} changed while handling a model resource request.`
       )
     }
+    const workerPathStartedAt = Date.now()
     const workerPath = await realpath(
       credentials.kind === "pi-client"
         ? getPiClientWorkerPath()
         : getPiWorkerPath()
     )
     await access(workerPath)
+    const workerPathResolveMs = Date.now() - workerPathStartedAt
     assertUpdateAllowed()
     const child = fork(workerPath, [], {
       cwd: message.payload.cwd,
@@ -3015,7 +4292,9 @@ export class RuntimeSupervisor {
       execArgv: [],
       stdio: ["ignore", "ignore", "pipe", "ipc"],
     })
+    const forkedAt = Date.now()
     this.resourceChildren.add(child)
+    lifecycle?.onSpawn()
     return new Promise<unknown>((resolve, reject) => {
       type ResourceOutcome =
         { kind: "success"; data: unknown } | { kind: "failure"; error: Error }
@@ -3025,6 +4304,11 @@ export class RuntimeSupervisor {
       let closed = false
       let terminationStarted = false
       let outcome: ResourceOutcome | null = null
+      let responseAt: number | null = null
+      let outcomeAt: number | null = null
+      let closeAt: number | null = null
+      let metricsEmitted = false
+      let workerMetrics: Record<string, number> | undefined
       let stderr = ""
       let timeout: NodeJS.Timeout | undefined
       let stopTimeout: NodeJS.Timeout | undefined
@@ -3057,12 +4341,45 @@ export class RuntimeSupervisor {
         child.off("close", onClose)
       }
 
+      const emitMetrics = () => {
+        if (metricsEmitted) return
+        metricsEmitted = true
+        emitCatalogMetric("resource-worker", {
+          requestType: message.type,
+          runtimeKind: credentials.kind,
+          outcome: outcome?.kind ?? "failure",
+          queueWaitMs: metricContext.queueWaitMs,
+          readGateWaitMs: metricContext.readGateWaitMs,
+          workerSlotWaitMs: metricContext.workerSlotWaitMs,
+          credentialResolveMs,
+          workerPathResolveMs,
+          forkToResponseMs: responseAt === null ? null : responseAt - forkedAt,
+          responseToCloseMs:
+            responseAt === null || closeAt === null
+              ? null
+              : closeAt - responseAt,
+          outcomeToCloseMs:
+            outcomeAt === null || closeAt === null ? null : closeAt - outcomeAt,
+          ...(workerMetrics ?? {}),
+          totalMs: (closeAt ?? Date.now()) - requestStartedAt,
+          activeWorkers: this.resourceChildren.size,
+          inFlightOperations: this.resourceOperationCount,
+        })
+      }
+
       const finishAfterExit = () => {
-        if (!closed || settled) return
+        if (!closed) return
+        if (settled) {
+          removeRequestListeners()
+          stopTracking()
+          emitMetrics()
+          return
+        }
         settled = true
         clearTimers()
         removeRequestListeners()
         stopTracking()
+        emitMetrics()
         if (outcome?.kind === "success") resolve(outcome.data)
         else {
           reject(
@@ -3130,6 +4447,7 @@ export class RuntimeSupervisor {
       const recordOutcome = (next: ResourceOutcome) => {
         if (outcome || settled) return
         outcome = next
+        outcomeAt = Date.now()
         if (timeout) clearTimeout(timeout)
         timeout = undefined
         if (closed) finishAfterExit()
@@ -3185,8 +4503,10 @@ export class RuntimeSupervisor {
 
       const onClose = (code: number | null, signal: NodeJS.Signals | null) => {
         closed = true
+        closeAt = Date.now()
         exited = true
         this.resourceChildren.delete(child)
+        lifecycle?.onClose()
         if (!outcome) {
           outcome = {
             kind: "failure",
@@ -3224,6 +4544,8 @@ export class RuntimeSupervisor {
         ) {
           return
         }
+        responseAt = Date.now()
+        workerMetrics = response.metrics
         if (response.success) {
           recordOutcome({ kind: "success", data: response.data })
         } else {
@@ -3274,7 +4596,7 @@ export class RuntimeSupervisor {
         projectTrusted: false,
       }
     }
-    const catalog = await this.resourceCatalog(cwd)
+    const catalog = await this.currentResourceCatalog(cwd)
     return {
       projectId,
       projectPath: cwd,
@@ -3375,8 +4697,14 @@ export class RuntimeSupervisor {
   }
 
   private async reloadResources(cwd: string, global: boolean) {
-    if (global) this.knownResources.clear()
-    else this.knownResources.delete(cwd)
+    if (global) {
+      this.knownResources.clear()
+      this.knownResourceFingerprints.clear()
+    } else {
+      const key = path.resolve(cwd)
+      this.knownResources.delete(key)
+      this.knownResourceFingerprints.delete(key)
+    }
     const reloads: Promise<RuntimeSnapshot>[] = []
     for (const runtime of this.runtimes.values()) {
       if (!global && path.resolve(runtime.cwd) !== path.resolve(cwd)) continue
@@ -3760,22 +5088,51 @@ export class RuntimeSupervisor {
   }
 
   private recycleIdleRuntimes() {
-    const threshold = Date.now() - IDLE_TIMEOUT_MS
+    const now = Date.now()
+    const threshold = now - IDLE_TIMEOUT_MS
     this.recycleRuntimeDrafts(threshold)
+    const idle: ManagedRuntime[] = []
     for (const runtime of this.runtimes.values()) {
       this.pruneRuntimeLeases(runtime)
       if (this.isUnclaimedDraftRuntime(runtime)) continue
       if (
         runtime.status !== "ready" ||
-        runtime.lastActivityAt >= threshold ||
-        this.runtimeLeaseMap(runtime).size > 0
+        this.runtimeLeaseMap(runtime).size > 0 ||
+        this.runtimeHasPendingUserWork(runtime)
       ) {
         continue
       }
-      void this.stop(runtime.webSessionId).catch((error) => {
-        console.error("Could not stop idle Pi runtime:", error)
+      idle.push(runtime)
+    }
+    const expired = idle.filter((runtime) => runtime.lastActivityAt < threshold)
+    const recent = idle
+      .filter((runtime) => runtime.lastActivityAt >= threshold)
+      .sort((left, right) => left.lastActivityAt - right.lastActivityAt)
+    const excess = Math.max(0, recent.length - MAX_IDLE_RUNTIMES)
+    const victims = [...expired, ...recent.slice(0, excess)]
+    for (const runtime of victims) {
+      void this.stop(runtime.webSessionId, "idle-budget").catch((error) => {
+        console.error("Could not evict idle Pi runtime:", error)
       })
     }
+  }
+
+  private runtimeHasPendingUserWork(runtime: ManagedRuntime) {
+    return (
+      (runtime.snapshot?.isStreaming ?? false) ||
+      (runtime.snapshot?.isCompacting ?? false) ||
+      (runtime.snapshot?.queuedPrompts.length ?? 0) > 0 ||
+      runtime.pending.size > 0 ||
+      (runtime.mcpCalls?.size ?? 0) > 0 ||
+      (runtime.extensionUiRequests?.size ?? 0) > 0 ||
+      runtime.pendingResourceReload ||
+      runtime.pendingModelReload ||
+      runtime.pendingMcpRestart ||
+      runtime.pendingWebUiRestart ||
+      runtime.resourceReloadPromise !== null ||
+      runtime.modelReloadPromise !== null ||
+      runtime.webUiRestartPromise !== null
+    )
   }
 
   private recycleRuntimeDrafts(threshold: number) {

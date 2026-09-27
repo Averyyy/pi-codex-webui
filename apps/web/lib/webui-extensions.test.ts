@@ -4,9 +4,15 @@ import { tmpdir } from "node:os"
 import path from "node:path"
 import test from "node:test"
 
-import { readWebUiAsset } from "./webui-extensions/asset-resolver.js"
+import {
+  registerWebUiAsset,
+  readWebUiAsset,
+  webUiAssetDigest,
+  WEBUI_ASSET_RETENTION,
+} from "./webui-extensions/asset-resolver.js"
 import { discoverWebUiExtensions } from "./webui-extensions/discovery.js"
 import { webUiExtensionContributionSchema } from "./webui-extensions/manifest.js"
+import { webUiExtensionCatalog } from "./webui-extensions/registry.js"
 
 async function writeAdapter(
   packageRoot: string,
@@ -156,6 +162,152 @@ test("registry discovery unifies built-in, external, development, and trusted pr
       )?.toString("utf8"),
       "export default () => {}\n"
     )
+    await writeFile(
+      path.join(builtinRoot, "builtin-adapter", "dist", "client.mjs"),
+      "export default () => { return 'v2' }\n"
+    )
+    assert.equal(
+      (
+        await readWebUiAsset(
+          "builtin",
+          builtin?.client.digest ?? "",
+          builtin?.client.file ?? ""
+        )
+      )?.toString("utf8"),
+      "export default () => {}\n",
+      "an active digest continues serving the exact bytes discovered for it"
+    )
+    assert.equal(WEBUI_ASSET_RETENTION.maxEntries, 4_096)
+    assert.equal(WEBUI_ASSET_RETENTION.maxBytes, 128 * 1024 * 1024)
+  } finally {
+    if (previous.builtin === undefined) {
+      delete process.env.PI_WEB_CODEX_BUILTIN_EXTENSION_ROOT
+    } else process.env.PI_WEB_CODEX_BUILTIN_EXTENSION_ROOT = previous.builtin
+    if (previous.config === undefined) {
+      delete process.env.PI_WEB_CODEX_CONFIG_DIR
+    } else process.env.PI_WEB_CODEX_CONFIG_DIR = previous.config
+    if (previous.development === undefined) {
+      delete process.env.PI_WEB_CODEX_WEBUI_EXTENSION_PATHS
+    } else {
+      process.env.PI_WEB_CODEX_WEBUI_EXTENSION_PATHS = previous.development
+    }
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test("shared-root refresh updates warm project catalogs and detaches response wrappers", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "pi-webui-registry-cache-"))
+  const previous = {
+    builtin: process.env.PI_WEB_CODEX_BUILTIN_EXTENSION_ROOT,
+    config: process.env.PI_WEB_CODEX_CONFIG_DIR,
+    development: process.env.PI_WEB_CODEX_WEBUI_EXTENSION_PATHS,
+  }
+  const builtinRoot = path.join(root, "builtin")
+  const configRoot = path.join(root, "config")
+  const developmentRoot = path.join(root, "development")
+  const projectRoot = path.join(root, "project")
+  try {
+    process.env.PI_WEB_CODEX_BUILTIN_EXTENSION_ROOT = builtinRoot
+    process.env.PI_WEB_CODEX_CONFIG_DIR = configRoot
+    process.env.PI_WEB_CODEX_WEBUI_EXTENSION_PATHS = developmentRoot
+    await writeAdapter(path.join(builtinRoot, "builtin-adapter"), {
+      name: "pi-builtin-webui",
+      extensionId: "builtin",
+    })
+
+    const projectContext = {
+      cwd: projectRoot,
+      projectId: "project-one",
+      projectTrusted: true,
+    }
+    const globalContext = { projectId: null, projectTrusted: false }
+    const before = await webUiExtensionCatalog(projectContext)
+    const previousDigest = before.groups[0]?.candidates[0]?.client.digest
+    assert(previousDigest)
+    before.statuses.push({
+      sessionId: "session-leak",
+      extensionId: "builtin",
+      status: "ready",
+    } as never)
+    before.groups[0]!.candidates[0]!.target.packageName = "mutated-wrapper"
+
+    await writeFile(
+      path.join(builtinRoot, "builtin-adapter", "dist", "client.mjs"),
+      "export default () => { return 'v2' }\n"
+    )
+    await webUiExtensionCatalog(globalContext, { refresh: true })
+    const after = await webUiExtensionCatalog(projectContext)
+    assert.notEqual(
+      after.groups[0]?.candidates[0]?.client.digest,
+      previousDigest
+    )
+    assert.equal(
+      after.groups[0]?.candidates[0]?.target.packageName,
+      "pi-target"
+    )
+    assert.deepEqual(after.statuses, [])
+
+    const next = await webUiExtensionCatalog(projectContext)
+    assert.equal(next.catalogIdentity, after.catalogIdentity)
+    assert.equal(next.catalogVersion, after.catalogVersion)
+
+    await writeFile(
+      path.join(builtinRoot, "builtin-adapter", "package.json"),
+      "{ malformed package manifest"
+    )
+    const failedRefresh = await webUiExtensionCatalog(projectContext, {
+      refresh: true,
+    })
+    assert.equal(failedRefresh.catalogVersion, next.catalogVersion)
+    assert.equal(
+      failedRefresh.groups[0]?.candidates[0]?.client.digest,
+      next.groups[0]?.candidates[0]?.client.digest
+    )
+    assert.match(
+      failedRefresh.refreshError ?? "",
+      /packages could not be refreshed/
+    )
+    assert.equal(failedRefresh.refreshDiagnostics?.length, 1)
+
+    const activeCandidate = next.groups[0]?.candidates[0]
+    assert(activeCandidate)
+    const originalNow = Date.now
+    let fakeNow = originalNow()
+    try {
+      Date.now = () => fakeNow
+      fakeNow += WEBUI_ASSET_RETENTION.maxAgeMs + 1
+      const churnBytes = Buffer.from("capacity churn")
+      const churnDigest = webUiAssetDigest(churnBytes)
+      for (
+        let index = 0;
+        index < WEBUI_ASSET_RETENTION.maxEntries;
+        index += 1
+      ) {
+        registerWebUiAsset(
+          `capacity-${index}`,
+          churnDigest,
+          "client.mjs",
+          "unused",
+          churnBytes
+        )
+      }
+      const stillAdvertised = await webUiExtensionCatalog(projectContext)
+      const stillActive = stillAdvertised.groups[0]?.candidates[0]?.client
+      assert.equal(stillActive?.digest, activeCandidate.client.digest)
+      assert.equal(
+        (
+          await readWebUiAsset(
+            "builtin",
+            stillActive?.digest ?? "",
+            stillActive?.file ?? ""
+          )
+        )?.toString("utf8"),
+        "export default () => { return 'v2' }\n",
+        "a cached catalog pins exact asset bytes through TTL and LRU capacity churn"
+      )
+    } finally {
+      Date.now = originalNow
+    }
   } finally {
     if (previous.builtin === undefined) {
       delete process.env.PI_WEB_CODEX_BUILTIN_EXTENSION_ROOT

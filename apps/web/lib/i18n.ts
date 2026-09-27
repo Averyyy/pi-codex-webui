@@ -24,6 +24,22 @@ const messages = {
     "zh-CN": "正在加载对话",
     "en-US": "Loading conversations",
   },
+  "session.project.checking": {
+    "zh-CN": "正在验证项目访问权限…",
+    "en-US": "Verifying project access…",
+  },
+  "session.project.retry": {
+    "zh-CN": "重试",
+    "en-US": "Retry",
+  },
+  "session.extension.catalogLoading": {
+    "zh-CN": "正在加载扩展目录…",
+    "en-US": "Loading extension catalog…",
+  },
+  "session.extension.adapterUnavailable": {
+    "zh-CN": "此扩展视图当前不可用。",
+    "en-US": "This extension view is currently unavailable.",
+  },
   "ui.close": { "zh-CN": "关闭", "en-US": "Close" },
   "ui.skipToMain": {
     "zh-CN": "跳到主要内容",
@@ -183,6 +199,14 @@ const messages = {
   "composer.model.unavailable": {
     "zh-CN": "选择的模型不再可用。",
     "en-US": "The selected model is no longer available.",
+  },
+  "composer.model.catalogLoading": {
+    "zh-CN": "正在检查当前模型目录…",
+    "en-US": "Checking available models…",
+  },
+  "composer.model.catalogError": {
+    "zh-CN": "模型目录当前不可用。请打开模型设置检查。",
+    "en-US": "Model choices are unavailable. Check model settings.",
   },
   "composer.model.ariaLabel": { "zh-CN": "模型", "en-US": "Model" },
   "composer.model.manage": {
@@ -368,6 +392,16 @@ const messages = {
     "zh-CN": "实时连接已断开；浏览器正在自动重连。",
     "en-US":
       "The live connection was interrupted; the browser is reconnecting automatically.",
+  },
+  "session.runtime.authorizationPending": {
+    "zh-CN": "正在验证会话和项目权限，验证完成前不能执行写入操作。",
+    "en-US":
+      "Session and project access are being verified; write actions are unavailable until verification completes.",
+  },
+  "session.extension.authorizationPending": {
+    "zh-CN": "正在验证会话权限，验证完成前不能执行扩展操作。",
+    "en-US":
+      "Session access is being verified; extension actions are unavailable until verification completes.",
   },
   "session.runtime.reloadSuccess": {
     "zh-CN": "已重新加载 Pi 扩展、技能、提示词和上下文文件。",
@@ -2725,6 +2759,47 @@ const messages = {
     "zh-CN": "环境变量",
     "en-US": "Environment variable",
   },
+  "settings.models.auth.kind.oauth": { "zh-CN": "OAuth", "en-US": "OAuth" },
+  "settings.models.auth.kind.api-key": {
+    "zh-CN": "API key",
+    "en-US": "API key",
+  },
+  "settings.models.auth.kind.environment": {
+    "zh-CN": "环境变量认证",
+    "en-US": "Environment authentication",
+  },
+  "settings.models.auth.kind.delegated": {
+    "zh-CN": "运行时托管认证",
+    "en-US": "Runtime-managed authentication",
+  },
+  "settings.models.auth.kind.none": {
+    "zh-CN": "无需认证",
+    "en-US": "No authentication",
+  },
+  "settings.models.auth.kind.unknown": {
+    "zh-CN": "认证方式未知",
+    "en-US": "Authentication method unknown",
+  },
+  "settings.models.auth.status.configured": {
+    "zh-CN": "已配置",
+    "en-US": "Configured",
+  },
+  "settings.models.auth.status.missing": {
+    "zh-CN": "缺少认证",
+    "en-US": "Authentication missing",
+  },
+  "settings.models.auth.status.expired": {
+    "zh-CN": "认证已过期",
+    "en-US": "Authentication expired",
+  },
+  "settings.models.auth.status.unknown": {
+    "zh-CN": "认证状态未知",
+    "en-US": "Authentication status unknown",
+  },
+  "settings.models.auth.status.not-required": {
+    "zh-CN": "无需认证",
+    "en-US": "No authentication required",
+  },
   "settings.models.availableModels": {
     "zh-CN": "{count} 个可用模型",
     "en-US": "{count} available models",
@@ -2778,13 +2853,29 @@ const messages = {
     "zh-CN": "添加自定义 provider",
     "en-US": "Add custom provider",
   },
+  "settings.models.showProvidersNeedingSetup": {
+    "zh-CN": "显示需要设置的 {count} 个 Provider",
+    "en-US": "Show {count} providers that need setup",
+  },
+  "settings.models.hideProvidersNeedingSetup": {
+    "zh-CN": "隐藏需要设置的 Provider",
+    "en-US": "Hide providers that need setup",
+  },
   "settings.models.refresh": {
-    "zh-CN": "刷新 Provider 和模型",
-    "en-US": "Refresh providers and models",
+    "zh-CN": "刷新模型和扩展目录",
+    "en-US": "Refresh models and extensions",
   },
   "settings.models.refreshSuccess": {
-    "zh-CN": "Provider 和模型列表已刷新。",
-    "en-US": "Provider and model lists refreshed.",
+    "zh-CN": "模型和扩展目录已刷新。",
+    "en-US": "Model and extension catalogs refreshed.",
+  },
+  "workspace.catalog.refreshModelsAndExtensions": {
+    "zh-CN": "刷新模型和扩展目录",
+    "en-US": "Refresh models and extensions",
+  },
+  "workspace.catalog.refreshSuccess": {
+    "zh-CN": "模型和扩展目录已刷新。",
+    "en-US": "Model and extension catalogs refreshed.",
   },
   "settings.models.enableProviderModels": {
     "zh-CN": "启用 {provider} 的所有模型",

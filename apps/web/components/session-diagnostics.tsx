@@ -15,9 +15,11 @@ import {
 } from "@workspace/ui/components/dialog"
 
 import { useI18n } from "@/components/i18n-provider"
+import { useSessionEvents } from "@/components/session-streaming-context"
 import { validatedResponseJson } from "@/lib/api-response"
 import type { Translator } from "@/lib/i18n"
 import {
+  DIAGNOSTIC_EVENT_TYPES,
   protocolEventSchema,
   runtimeDiagnosticsSchema,
   type ProtocolEvent,
@@ -94,6 +96,7 @@ function statusLabel(t: Translator, status: RuntimeDiagnostics["status"]) {
 
 export function SessionDiagnostics({ sessionId }: { sessionId: string }) {
   const { locale, t } = useI18n()
+  const events = useSessionEvents()
   const [open, setOpen] = useState(false)
   const [diagnostics, setDiagnostics] = useState<RuntimeDiagnostics | null>(
     null
@@ -123,36 +126,39 @@ export function SessionDiagnostics({ sessionId }: { sessionId: string }) {
       }
     )
 
-    const events = new EventSource(
-      `/api/v1/events?sessionId=${sessionId}&inspect=1`
-    )
-    events.addEventListener("protocol.event", (source) => {
-      let event: ProtocolEvent
-      try {
-        event = protocolEventSchema.parse(
-          JSON.parse((source as MessageEvent<string>).data)
+    const unsubscribeEvents = events.subscribe(
+      DIAGNOSTIC_EVENT_TYPES,
+      (source) => {
+        let event: ProtocolEvent
+        try {
+          event = protocolEventSchema.parse(
+            JSON.parse((source as MessageEvent<string>).data)
+          )
+        } catch {
+          setConnectionError(t("session.diagnostics.invalidEvent"))
+          return
+        }
+        setConnectionError(null)
+        if (!loaded) {
+          pendingEvents.push(event)
+          return
+        }
+        setDiagnostics((current) =>
+          current ? nextStatus(current, event) : current
         )
-      } catch {
-        setConnectionError(t("session.diagnostics.invalidEvent"))
-        return
       }
-      setConnectionError(null)
-      if (!loaded) {
-        pendingEvents.push(event)
-        return
-      }
-      setDiagnostics((current) =>
-        current ? nextStatus(current, event) : current
+    )
+    const unsubscribeConnection = events.subscribeConnection((state) => {
+      setConnectionError(
+        state === "error" ? t("session.diagnostics.connectionLost") : null
       )
     })
-    events.onerror = () =>
-      setConnectionError(t("session.diagnostics.connectionLost"))
-    events.onopen = () => setConnectionError(null)
     return () => {
       active = false
-      events.close()
+      unsubscribeEvents()
+      unsubscribeConnection()
     }
-  }, [open, sessionId, t])
+  }, [events, open, sessionId, t])
 
   const error = loadError ?? connectionError
 

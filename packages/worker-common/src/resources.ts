@@ -19,6 +19,9 @@ import {
 import { createSettingsManager } from "./settings.js"
 import type { CodingAgentModule, ModelThinkingModule } from "./coding-agent.js"
 import { handleModelSettingsMessage } from "./model-settings.js"
+import { projectTrustedForWeb } from "./project-trust.js"
+
+export { projectTrustedForWeb } from "./project-trust.js"
 
 type ResourceMessage = Extract<
   HostToWorkerMessage,
@@ -100,23 +103,6 @@ function packageView(
     installedPath,
     missing: installedPath === undefined,
   }
-}
-
-export function projectTrustedForWeb(
-  codingAgent: CodingAgentModule,
-  cwd: string,
-  agentDir: string
-) {
-  if (!codingAgent.hasTrustRequiringProjectResources(cwd)) return true
-  const stored = new codingAgent.ProjectTrustStore(agentDir).get(cwd)
-  if (stored !== null) return stored
-  const globalSettings = createSettingsManager(
-    codingAgent,
-    cwd,
-    agentDir,
-    false
-  )
-  return globalSettings.getDefaultProjectTrust() === "always"
 }
 
 async function resolveState(
@@ -477,7 +463,8 @@ async function mutatePackage(
 export async function handleResourceMessage(
   codingAgent: CodingAgentModule,
   modelThinking: ModelThinkingModule,
-  message: ResourceMessage
+  message: ResourceMessage,
+  metrics?: Record<string, number>
 ) {
   const { cwd, agentDir } = message.payload
   if (
@@ -487,7 +474,12 @@ export async function handleResourceMessage(
     message.type === "providers.remove" ||
     message.type === "providers.save"
   ) {
-    return handleModelSettingsMessage(codingAgent, modelThinking, message)
+    return handleModelSettingsMessage(
+      codingAgent,
+      modelThinking,
+      message,
+      metrics
+    )
   }
   if (message.type === "resources.catalog") {
     return (await resolveState(codingAgent, cwd, agentDir)).catalog

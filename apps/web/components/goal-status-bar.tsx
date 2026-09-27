@@ -1,6 +1,6 @@
 "use client"
 
-import { useContext, useEffect, useMemo, useState, type FormEvent } from "react"
+import { useEffect, useMemo, useState, type FormEvent } from "react"
 import {
   ChevronDownIcon,
   CirclePauseIcon,
@@ -14,7 +14,10 @@ import { Button } from "@workspace/ui/components/button"
 import { Input } from "@workspace/ui/components/input"
 import { Textarea } from "@workspace/ui/components/textarea"
 
-import { SessionExtensionContext } from "@/components/session-extension-provider"
+import {
+  useSessionExtensionRuntime,
+  useSessionExtensionViewById,
+} from "@/components/session-extension-provider"
 import { useI18n } from "@/components/i18n-provider"
 import type { Translator } from "@/lib/i18n"
 import {
@@ -86,12 +89,8 @@ export function GoalStatusBar({
   queueCommands?: boolean
 }) {
   const { t } = useI18n()
-  const extensions = useContext(SessionExtensionContext)
-  if (!extensions) {
-    throw new Error("GoalStatusBar requires SessionExtensionProvider.")
-  }
-  const extensionRuntime = extensions
-  const liveView = extensions.views.find((view) => view.viewId === "goal.card")
+  const extensionRuntime = useSessionExtensionRuntime()
+  const liveView = useSessionExtensionViewById("goal.card")
   const sourceState = useMemo(
     () => resolvePiGoalState(initialState, liveView),
     [initialState, liveView]

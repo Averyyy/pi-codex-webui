@@ -69,6 +69,14 @@ import {
 } from "@/lib/workspace-nav-order"
 import { SESSION_CATALOG_CHANGED } from "@/lib/session-catalog-events"
 import {
+  SESSION_NAVIGATION_CANCELLED,
+  SESSION_NAVIGATION_INTENT,
+  SESSION_ROUTE_REJECTED,
+  type SessionNavigationCancelledDetail,
+  type SessionNavigationIntentDetail,
+  type SessionRouteRejectedDetail,
+} from "@/lib/session-navigation-events"
+import {
   defaultWorkspaceNavState,
   readWorkspaceNavState,
   SIDEBAR_PAGE_SIZE,
@@ -159,6 +167,10 @@ export function WorkspaceNav({
   const [addingProject, setAddingProject] = useState(false)
   const [shortcutState, setShortcutState] =
     useState<ConversationShortcutState | null>(null)
+  const [pendingNavigationPath, setPendingNavigationPath] = useState<
+    string | null
+  >(null)
+  const committedPathnameRef = useRef(pathname)
   const pendingFocusRef = useRef<WorkspaceNavFocusTarget | null>(null)
   const [focusRevision, setFocusRevision] = useState(0)
   useEffect(() => {
@@ -194,6 +206,12 @@ export function WorkspaceNav({
   const { sessionId: activeSessionId = null } = useParams<{
     sessionId?: string
   }>()
+  const pendingSession = pendingNavigationPath
+    ? allSessions.find(
+        (session) => sessionHref(session) === pendingNavigationPath
+      )
+    : undefined
+  const selectedSessionId = pendingSession?.id ?? activeSessionId
   const { runningSessionIds, unreadSessionIds } = useSessionIndicators({
     sessions: allSessions,
     activeSessionId,
@@ -206,10 +224,46 @@ export function WorkspaceNav({
     navState.pinnedVisibleCount
   )
   const visibleTasks = unpinnedTasks.slice(0, navState.tasksVisibleCount)
-  const activeProject = projectList.find((project) =>
-    pathname.startsWith(`/projects/${project.id}`)
-  )
+  const activeProject = pendingSession
+    ? projectList.find((project) => project.id === pendingSession.projectId)
+    : projectList.find((project) =>
+        pathname.startsWith(`/projects/${project.id}`)
+      )
   const visibleProjects = projectList.slice(0, navState.projectsVisibleCount)
+
+  useEffect(() => {
+    const intent = (event: Event) => {
+      const detail = (event as CustomEvent<SessionNavigationIntentDetail>)
+        .detail
+      if (typeof detail?.pathname === "string") {
+        setPendingNavigationPath(detail.pathname)
+      }
+    }
+    const cancel = (event: Event) => {
+      const pathname = (
+        event as CustomEvent<
+          SessionNavigationCancelledDetail | SessionRouteRejectedDetail
+        >
+      ).detail?.pathname
+      setPendingNavigationPath((current) =>
+        pathname === undefined || pathname === current ? null : current
+      )
+    }
+    window.addEventListener(SESSION_NAVIGATION_INTENT, intent)
+    window.addEventListener(SESSION_NAVIGATION_CANCELLED, cancel)
+    window.addEventListener(SESSION_ROUTE_REJECTED, cancel)
+    return () => {
+      window.removeEventListener(SESSION_NAVIGATION_INTENT, intent)
+      window.removeEventListener(SESSION_NAVIGATION_CANCELLED, cancel)
+      window.removeEventListener(SESSION_ROUTE_REJECTED, cancel)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (committedPathnameRef.current === pathname) return
+    committedPathnameRef.current = pathname
+    setPendingNavigationPath(null)
+  }, [pathname])
 
   useEffect(() => {
     if (
@@ -570,9 +624,10 @@ export function WorkspaceNav({
                         mutationToken={mutationToken}
                         running={runningSessionIds.has(session.id)}
                         unread={
-                          session.id !== activeSessionId &&
+                          session.id !== selectedSessionId &&
                           unreadSessionIds.has(session.id)
                         }
+                        active={session.id === selectedSessionId}
                         shortcut={conversationShortcuts.get(
                           sessionHref(session)
                         )}
@@ -674,7 +729,7 @@ export function WorkspaceNav({
                       mutationToken={mutationToken}
                       runningSessionIds={runningSessionIds}
                       unreadSessionIds={unreadSessionIds}
-                      activeSessionId={activeSessionId}
+                      activeSessionId={selectedSessionId}
                       conversationShortcuts={conversationShortcuts}
                       open={
                         navState.projectOpen[project.id] ??
@@ -780,9 +835,10 @@ export function WorkspaceNav({
                             mutationToken={mutationToken}
                             running={runningSessionIds.has(task.id)}
                             unread={
-                              task.id !== activeSessionId &&
+                              task.id !== selectedSessionId &&
                               unreadSessionIds.has(task.id)
                             }
+                            active={task.id === selectedSessionId}
                             shortcut={conversationShortcuts.get(
                               `/tasks/${task.id}`
                             )}

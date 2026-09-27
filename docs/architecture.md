@@ -1141,6 +1141,39 @@ RuntimeSupervisor 负责：
 - graceful shutdown
 - configuration reload
 
+### Session viewport 与客户端生命周期
+
+Workspace Host 按 session ID、runtime profile/kind、实际 cwd 和 native session file
+组成的 identity key 保留最多 8 个客户端 controller 元数据，不缓存 RSC React 树。
+controller 持有 transcript、runtime presentation、lease 和 session SSE；冷加载先建立
+事件流并等待 replay checkpoint，再获取 `/view`。runtime lease acquisition 同时启动，
+不会等待 transcript、模型目录或扩展视图加载。
+
+HTTP `/view` cursor 只作为已接受 transcript/runtime/queue 快照的域内 fence；只有
+runtime generation 未变化、快照确实被接受时才推进 runtime fence。它不会推进 SSE
+transport cursor。transport cursor 只跟随已交付事件和 replay checkpoint；TUI surface、
+extension UI prompt 与 WebUI view 仍通过各自的事件缓冲及权威快照合并。
+
+离开 viewport 后 lease 最长保留 120 秒，并每 60 秒续租；显式 Stop 会暂停续租，
+tab focus、online 或 SSE 恢复不会重新启动已停止的 runtime。显式 Retry/Resume 才会
+重新获取 lease。后台最多保留一个闲置 session SSE；一个项目最多保留一个 Git SSE。
+终端开启时会暂停闲置 session SSE，给终端事件流留出连接位，后台 runtime worker
+继续运行并在返回时按 cursor 和快照对账。连接预算为 global、可见 session、Git 与
+终端合计不超过 4 条长连接。
+
+会话路由只对数据库选中的 native JSONL 文件读取 size/mtime 签名。签名变化时仅同步
+该选中文件并刷新对应 `/view`；未变化的热返回不解析 JSONL，列表和搜索也不扫描文件。
+
+模型和 WebUI 扩展目录使用服务端内存快照。模型目录按 runtime profile、runtime 类型、规范化工作目录、agent 目录和项目信任范围隔离；配置或认证文件版本变化会使对应快照失效。同一范围的冷读合并为一个 worker 请求，冷读 worker 最多并发 4 个，最多排队 32 个不同目录。`scope=enabled` 冷读仍只构建 composer 需要的数据。
+
+用户显式刷新模型时，服务端先保留上一份快照；刷新成功后整体替换，失败时保留旧模型并返回刷新错误。目录刷新不重启 session worker。用户选择的新模型若尚未进入该 session 的 runtime 快照，Supervisor 只对该 worker 发送 `runtime.reload-model-settings`，验证模型可用后再发送 `session.set-model`。空闲 session worker 最多保留 8 个未租用实例；忙碌、租用、排队或正在处理工具和扩展请求的 worker 不参与回收。15 分钟无活动的未租用 worker 仍会回收。
+
+扩展 discovery 按共享安装根、项目目录和信任范围缓存；明确刷新会失效共享安装根对应的项目快照。当前 discovery 快照引用的 client/style 资产会在快照缓存期间固定保留；未被当前快照引用的历史 digest 最近访问 6 小时内保留，并优先按 LRU 淘汰。总上限为 4,096 个资产或 128 MiB；如果活动快照本身超过上限，discovery 会显式失败或刷新保留上一份可用快照，不会发布指向已淘汰资产的新目录。
+
+需要排查目录延迟时，可将 `PI_WEB_CODEX_CATALOG_DIAGNOSTICS=1` 加入服务端进程环境。日志仅记录操作类型、缓存命中/合并情况、worker 数和耗时，不记录工作目录、provider 名称或凭据。模型 worker 记录 services 初始化、静态 registry 初始化、scope 解析、凭据枚举、projection 和 provider refresh 耗时；Host 记录 mutation 队列等待、读写屏障、目录 worker 等待、fork 到响应、响应到 close 和总耗时。`forkToResponseMs` 同时包含 worker 启动、SDK 初始化和本次查询，不能单独解释为 provider 网络耗时。
+
+浏览器性能面板可通过页面 URL 的 `?performance=1` 开启，`?performance=0` 关闭。`inputToFrame` 测量输入事件到下一次 `requestAnimationFrame` 回调的时间，并不表示浏览器已完成绘制或像素已呈现；React Profiler 指标只在开发构建中采集。
+
 ## 9.6 Session 写锁
 
 同一个 native session 只能由一个 writable worker 打开。

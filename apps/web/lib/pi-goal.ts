@@ -33,7 +33,7 @@ export type PiGoalStatus = z.infer<typeof goalStatusSchema>
 
 export function resolvePiGoalState(
   persistedState: PiGoalState | null,
-  liveView: { state: unknown } | undefined
+  liveView: { state: unknown } | null | undefined
 ) {
   return liveView ? piGoalStateSchema.parse(liveView.state) : persistedState
 }

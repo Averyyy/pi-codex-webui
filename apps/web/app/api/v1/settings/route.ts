@@ -8,6 +8,7 @@ import {
   patchConfig,
 } from "@/lib/config"
 import { configPatchSchema } from "@/lib/config-schema"
+import { getEventHub } from "@/lib/event-hub"
 import { getMutationToken, validateLocalMutation } from "@/lib/request-security"
 
 export const runtime = "nodejs"
@@ -55,9 +56,15 @@ export async function PATCH(request: Request) {
   }
 
   try {
-    return response(
-      await patchConfig(Number(revision), configPatchSchema.parse(body))
-    )
+    const patch = configPatchSchema.parse(body)
+    const updated = await patchConfig(Number(revision), patch)
+    if (patch.developer) {
+      getEventHub().publish({
+        type: "model.catalog.invalidated",
+        payload: { all: true, reason: "runtime-settings-updated" },
+      })
+    }
+    return response(updated)
   } catch (error) {
     if (error instanceof ManagedInstancePortError) {
       return Response.json(
