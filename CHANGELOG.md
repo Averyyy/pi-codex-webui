@@ -2,6 +2,15 @@
 
 All notable changes to `pi-web-codex` are documented here.
 
+## [0.1.24] - 2026-09-28
+
+### Changed
+
+- Retained scoped model and extension catalogs with bounded reads, explicit invalidation, and serialized shared-file updates.
+- Preserved session controllers, leases, event cursors, drafts, and extension state across navigation while bounding worker and connection lifetimes.
+- Unified project trust decisions, guarded against stale refresh responses and snapshot races, and kept Git status and diff queries read-only.
+- Added opt-in catalog and session diagnostics.
+
 ## [0.1.19] - 2026-09-22
 
 ### Added
