@@ -10,12 +10,14 @@ import {
 } from "./performance-diagnostics"
 import { SESSION_NAVIGATION_INTENT } from "./session-navigation-events"
 
-test("cached viewport and document navigation metrics survive commit timing", async () => {
+test("cached viewport and document navigation metrics survive commit timing", () => {
   const priorWindow = globalThis.window
   const priorDocument = globalThis.document
   const priorPerformance = globalThis.performance
   const priorObserver = globalThis.PerformanceObserver
   const priorAnimationFrame = globalThis.requestAnimationFrame
+  const priorSetTimeout = globalThis.setTimeout
+  const scheduledLoadMeasurements: Array<() => void> = []
   const realPerformance = priorPerformance
   const navigationEntry = { duration: 123, loadEventEnd: 0 }
   const fakePerformance = {
@@ -62,6 +64,13 @@ test("cached viewport and document navigation metrics survive commit timing", as
       return 1
     },
   })
+  Object.defineProperty(globalThis, "setTimeout", {
+    configurable: true,
+    value: (callback: () => void) => {
+      scheduledLoadMeasurements.push(callback)
+      return scheduledLoadMeasurements.length
+    },
+  })
 
   try {
     assert.equal(enablePerformanceDiagnosticsFromBrowser(), true)
@@ -85,7 +94,10 @@ test("cached viewport and document navigation metrics survive commit timing", as
 
     fakeWindow.dispatchEvent(new Event("load"))
     navigationEntry.loadEventEnd = 123
-    await new Promise<void>((resolve) => setImmediate(resolve))
+    assert.equal(scheduledLoadMeasurements.length, 1)
+    const loadMeasurement = scheduledLoadMeasurements.shift()
+    assert.ok(loadMeasurement)
+    loadMeasurement()
     const afterLoad = getPerformanceDiagnosticsReport()
     assert.equal(afterLoad.documentNavigation.count, 1)
     assert.equal(afterLoad.documentNavigation.maxMs, 123)
@@ -110,6 +122,10 @@ test("cached viewport and document navigation metrics survive commit timing", as
     Object.defineProperty(globalThis, "requestAnimationFrame", {
       configurable: true,
       value: priorAnimationFrame,
+    })
+    Object.defineProperty(globalThis, "setTimeout", {
+      configurable: true,
+      value: priorSetTimeout,
     })
   }
 })
