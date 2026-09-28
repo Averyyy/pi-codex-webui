@@ -2014,7 +2014,6 @@ export class RuntimeSupervisor {
               ),
             this.catalogFenceWaitTimeoutMs
           )
-          timeout.unref?.()
         }),
       ])
     } finally {

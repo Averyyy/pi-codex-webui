@@ -4,6 +4,10 @@ All notable changes to `pi-web-codex` are documented here.
 
 ## [0.1.24] - 2026-09-28
 
+### Fixed
+
+- Failed catalog-reader close waits now return a bounded, retryable error.
+
 ### Changed
 
 - Retained scoped model and extension catalogs with bounded reads, explicit invalidation, and serialized shared-file updates.
