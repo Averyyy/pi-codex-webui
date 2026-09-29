@@ -3,13 +3,16 @@ import test from "node:test"
 
 import {
   AppUpdateError,
+  APP_UPDATE_REQUEST_TIMEOUT_MS,
   canRecoverAppUpdate,
   fetchAppUpdateStatus,
   fetchHealthVersion,
   isUpdateReadyForReload,
+  operationForAppUpdateSnapshot,
   requestAppUpdate,
   updatePollDelay,
   type AppUpdateSnapshot,
+  type AppUpdateOperation,
 } from "./app-update-client"
 
 const snapshot: AppUpdateSnapshot = {
@@ -33,6 +36,81 @@ test("update status validates the complete server snapshot", async () => {
     (failure: unknown) =>
       failure instanceof AppUpdateError &&
       failure.message === "Update service returned an invalid status snapshot."
+  )
+})
+
+test("terminal update snapshots discard the operation shown as busy", () => {
+  const pending: AppUpdateOperation = {
+    operationId: "op-1",
+    targetVersion: "0.1.19",
+    startedAt: Date.now(),
+  }
+  assert.equal(
+    operationForAppUpdateSnapshot(
+      { ...snapshot, phase: "installing", operationId: "op-1" },
+      pending
+    ),
+    pending
+  )
+  assert.equal(
+    operationForAppUpdateSnapshot(
+      { ...snapshot, phase: "succeeded", operationId: "op-1" },
+      pending
+    ),
+    pending
+  )
+  assert.equal(
+    operationForAppUpdateSnapshot(
+      { ...snapshot, phase: "failed", error: "install failed" },
+      pending
+    ),
+    null
+  )
+  assert.equal(operationForAppUpdateSnapshot(snapshot, pending), null)
+})
+
+test("update request timeout includes reading the response body", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] })
+  try {
+    const response = Response.json(snapshot)
+    let readingBody = false
+    response.text = () => {
+      readingBody = true
+      return new Promise<string>(() => {})
+    }
+    const pending = fetchAppUpdateStatus(async () => response)
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    assert.equal(readingBody, true)
+    t.mock.timers.tick(APP_UPDATE_REQUEST_TIMEOUT_MS)
+    await assert.rejects(
+      pending,
+      (failure: unknown) =>
+        failure instanceof AppUpdateError &&
+        failure.message === "Update service request timed out."
+    )
+  } finally {
+    t.mock.timers.reset()
+  }
+})
+
+test("caller cancellation is not reported as a service timeout", async () => {
+  const controller = new AbortController()
+  const pending = fetchAppUpdateStatus(
+    async (_input, init) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => {
+          reject(new DOMException("Cancelled by caller.", "AbortError"))
+        })
+      }),
+    controller.signal
+  )
+  controller.abort()
+  await assert.rejects(
+    pending,
+    (failure: unknown) =>
+      failure instanceof DOMException &&
+      failure.name === "AbortError" &&
+      failure.message === "Cancelled by caller."
   )
 })
 

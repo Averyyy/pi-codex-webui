@@ -28,6 +28,15 @@ export interface AppUpdateOperation {
   startedAt: number
 }
 
+export function operationForAppUpdateSnapshot(
+  snapshot: AppUpdateSnapshot,
+  operation: AppUpdateOperation | null
+): AppUpdateOperation | null {
+  return snapshot.phase === "idle" || snapshot.phase === "failed"
+    ? null
+    : operation
+}
+
 export interface AppHealthSnapshot {
   status?: string
   name?: string
@@ -122,54 +131,78 @@ async function readResponse(response: Response): Promise<unknown> {
   return value
 }
 
-function requestWithTimeout(
+async function requestWithTimeout(
   fetcher: UpdateFetch,
   input: RequestInfo | URL,
   init: RequestInit | undefined,
   timeoutMs = APP_UPDATE_REQUEST_TIMEOUT_MS
 ) {
   const controller = new AbortController()
-  const timer = globalThis.setTimeout(() => controller.abort(), timeoutMs)
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = globalThis.setTimeout(() => {
+      controller.abort()
+      reject(
+        new AppUpdateError(
+          "Update service request timed out.",
+          undefined,
+          undefined,
+          true
+        )
+      )
+    }, timeoutMs)
+  })
   const signal = init?.signal
   const combinedSignal = signal
     ? AbortSignal.any([controller.signal, signal])
     : controller.signal
   const combinedInit: RequestInit = { ...init, signal: combinedSignal }
-  const request = fetcher(input, combinedInit).catch((failure: unknown) => {
-    if (failure instanceof DOMException && failure.name === "AbortError") {
-      throw new AppUpdateError(
-        "Update service request timed out.",
-        undefined,
-        undefined,
-        true
-      )
+  const request = (async () => {
+    let response: Response
+    try {
+      response = await fetcher(input, combinedInit)
+    } catch (failure) {
+      if (failure instanceof TypeError) {
+        throw new AppUpdateError(
+          "Could not reach the update service.",
+          undefined,
+          undefined,
+          true
+        )
+      }
+      throw failure
     }
-    if (failure instanceof TypeError) {
-      throw new AppUpdateError(
-        "Could not reach the update service.",
-        undefined,
-        undefined,
-        true
-      )
+    return readResponse(response)
+  })()
+  try {
+    return await Promise.race([request, timeout])
+  } catch (failure) {
+    if (failure instanceof DOMException && failure.name === "AbortError") {
+      if (controller.signal.aborted) {
+        throw new AppUpdateError(
+          "Update service request timed out.",
+          undefined,
+          undefined,
+          true
+        )
+      }
+      throw failure
     }
     throw failure
-  })
-  return request.finally(() => {
-    globalThis.clearTimeout(timer)
-  })
+  } finally {
+    if (timer !== undefined) globalThis.clearTimeout(timer)
+  }
 }
 
 export async function fetchAppUpdateStatus(
   fetcher: UpdateFetch = fetch,
   signal?: AbortSignal
 ): Promise<AppUpdateSnapshot> {
-  const value = await readResponse(
-    await requestWithTimeout(fetcher, APP_UPDATE_STATUS_PATH, {
-      method: "GET",
-      cache: "no-store",
-      signal,
-    })
-  )
+  const value = await requestWithTimeout(fetcher, APP_UPDATE_STATUS_PATH, {
+    method: "GET",
+    cache: "no-store",
+    signal,
+  })
   if (!isAppUpdateSnapshot(value)) {
     throw new AppUpdateError(
       "Update service returned an invalid status snapshot."
@@ -185,18 +218,16 @@ export async function requestAppUpdate(
   signal?: AbortSignal
 ): Promise<AppUpdateSnapshot> {
   if (!version) throw new AppUpdateError("An update version is required.")
-  const value = await readResponse(
-    await requestWithTimeout(fetcher, APP_UPDATE_STATUS_PATH, {
-      method: "POST",
-      cache: "no-store",
-      signal,
-      headers: {
-        "Content-Type": "application/json",
-        "X-Pi-Web-Codex-Mutation-Token": mutationToken,
-      },
-      body: JSON.stringify({ version }),
-    })
-  )
+  const value = await requestWithTimeout(fetcher, APP_UPDATE_STATUS_PATH, {
+    method: "POST",
+    cache: "no-store",
+    signal,
+    headers: {
+      "Content-Type": "application/json",
+      "X-Pi-Web-Codex-Mutation-Token": mutationToken,
+    },
+    body: JSON.stringify({ version }),
+  })
   if (!isAppUpdateSnapshot(value)) {
     throw new AppUpdateError(
       "Update service returned an invalid update snapshot."
@@ -210,13 +241,11 @@ export async function fetchHealthVersion(
   signal?: AbortSignal
 ): Promise<string | null> {
   try {
-    const value = await readResponse(
-      await requestWithTimeout(fetcher, APP_HEALTH_PATH, {
-        method: "GET",
-        cache: "no-store",
-        signal,
-      })
-    )
+    const value = await requestWithTimeout(fetcher, APP_HEALTH_PATH, {
+      method: "GET",
+      cache: "no-store",
+      signal,
+    })
     if (
       !isRecord(value) ||
       value.status !== "ok" ||

@@ -7,6 +7,7 @@ import {
   mkdtemp,
   readdir,
   readFile,
+  rename,
   rm,
   writeFile,
 } from "node:fs/promises"
@@ -119,7 +120,8 @@ async function killPidTree(pid) {
 
 async function createFixture() {
   const root = await mkdtemp(path.join(tmpdir(), "pi-web-codex-instances-"))
-  const bin = path.join(root, "bin")
+  const packageRoot = path.join(root, "package")
+  const bin = path.join(packageRoot, "bin")
   const appData = path.join(root, "appdata")
   const home = path.join(root, "home")
   const pidDirectory = path.join(root, "descendant-pids")
@@ -131,11 +133,11 @@ async function createFixture() {
     await copyFile(path.join(sourceBin, entry.name), path.join(bin, entry.name))
   }
 
-  await mkdir(path.join(root, "dist", "app", "apps", "web"), {
+  await mkdir(path.join(packageRoot, "dist", "app", "apps", "web"), {
     recursive: true,
   })
   await writeFile(
-    path.join(root, "package.json"),
+    path.join(packageRoot, "package.json"),
     JSON.stringify({
       name: "pi-web-codex",
       version: sourcePackage.version,
@@ -144,7 +146,7 @@ async function createFixture() {
     })
   )
   await writeFile(
-    path.join(root, "dist", "app", "apps", "web", "server.js"),
+    path.join(packageRoot, "dist", "app", "apps", "web", "server.js"),
     `import { spawn } from "node:child_process"
 import { createServer } from "node:http"
 import { mkdir, writeFile } from "node:fs/promises"
@@ -157,6 +159,9 @@ const port = Number(process.env.PORT)
 const instanceId = process.env.PI_WEB_CODEX_INSTANCE_ID ?? "unknown"
 const pidDirectory = process.env.PI_WEB_CODEX_TEST_CHILD_PID_DIR
 const delayMs = Math.max(0, Number(process.env.PI_WEB_CODEX_TEST_READY_DELAY_MS ?? "0"))
+if (process.env.PI_WEB_CODEX_TEST_MOVE_SERVER_CWD === "1") {
+  process.chdir(process.env.PI_WEB_CODEX_CONFIG_DIR)
+}
 
 const server = createServer((request, response) => {
   if (request.url !== "/api/v1/health") {
@@ -213,6 +218,7 @@ setTimeout(() => {
   }
   const fixture = {
     root,
+    packageRoot,
     cli: path.join(bin, "pi-web-codex.mjs"),
     env,
     registry: registryRoot(env),
@@ -602,3 +608,40 @@ test("daemon survives launcher exit during delayed startup", async () => {
     await cleanupFixture(fixture)
   }
 })
+
+test(
+  "running managed daemon does not lock its package directory on Windows",
+  { skip: process.platform !== "win32" },
+  async () => {
+    const fixture = await createFixture()
+    const movedPackage = `${fixture.packageRoot}-moved`
+    let moved = false
+    try {
+      const port = await freePort()
+      const launched = await runCli(
+        fixture,
+        ["--no-open", "--port", String(port)],
+        { PI_WEB_CODEX_TEST_MOVE_SERVER_CWD: "1" }
+      )
+      assert.equal(launched.code, 0, launched.output)
+      await waitFor(() => readHealth(port), "managed instance health")
+
+      // The runtime child uses the instance directory in this fixture. The
+      // package rename therefore detects a cwd lock held by the daemon itself.
+      await rename(fixture.packageRoot, movedPackage)
+      moved = true
+      assert.ok(
+        await readHealth(port),
+        "instance stays healthy while package is replaced"
+      )
+      await rename(movedPackage, fixture.packageRoot)
+      moved = false
+
+      const stopped = await runCli(fixture, ["stop", String(port)])
+      assert.equal(stopped.code, 0, stopped.output)
+    } finally {
+      if (moved) await rename(movedPackage, fixture.packageRoot)
+      await cleanupFixture(fixture)
+    }
+  }
+)

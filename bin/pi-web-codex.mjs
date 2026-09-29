@@ -811,7 +811,8 @@ async function startInstance(root, instance, { open = false } = {}) {
         "--no-open",
       ],
       {
-        cwd: packageRoot,
+        // npm must be able to replace the package while this daemon stays alive.
+        cwd: instance.configRoot,
         env: childEnv,
         detached: true,
         windowsHide: true,
@@ -985,6 +986,9 @@ async function runDaemon(options) {
     throw error
   }
   await access(runtime.serverPath, constants.R_OK)
+  await mkdir(configDir, { recursive: true, mode: 0o700 })
+  // Direct --daemon invocation must not pin the global package on Windows.
+  process.chdir(configDir)
   const lockPath = await acquireInstanceLock(configDir)
   const mutationToken = await createMutationToken(configDir)
   const supervisor = new UpdateSupervisor({

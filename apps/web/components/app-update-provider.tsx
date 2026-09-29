@@ -23,6 +23,7 @@ import {
   fetchHealthVersion,
   isAppUpdateSnapshot,
   isUpdateReadyForReload,
+  operationForAppUpdateSnapshot,
   parsePendingAppUpdateJson,
   requestAppUpdate,
   serializePendingAppUpdate,
@@ -184,7 +185,7 @@ export function AppUpdateProvider({
       const message: AppUpdateBroadcastMessage = {
         sourceId: sourceIdRef.current,
         snapshot: nextSnapshot,
-        operation: nextOperation,
+        operation: operationForAppUpdateSnapshot(nextSnapshot, nextOperation),
       }
       channelRef.current?.postMessage(message)
       try {
@@ -207,16 +208,12 @@ export function AppUpdateProvider({
     ) => {
       snapshotRef.current = nextSnapshot
       setSnapshot(nextSnapshot)
-      if (nextOperation) {
-        operationRef.current = nextOperation
-        setOperation(nextOperation)
-      } else if (
-        nextSnapshot.phase === "idle" ||
-        nextSnapshot.phase === "succeeded"
-      ) {
-        operationRef.current = null
-        setOperation(null)
-      }
+      const activeOperation = operationForAppUpdateSnapshot(
+        nextSnapshot,
+        nextOperation
+      )
+      operationRef.current = activeOperation
+      setOperation(activeOperation)
       if (draftHandoffError) {
         setError(draftHandoffError)
       } else if (
@@ -434,8 +431,8 @@ export function AppUpdateProvider({
           phase: "failed" as const,
           error: formatFailure(failure),
         }
-        applySnapshot(nextSnapshot, operationRef.current)
-        publish(nextSnapshot, operationRef.current)
+        applySnapshot(nextSnapshot, null)
+        publish(nextSnapshot, null)
       }
       try {
         clearPendingOperation()
