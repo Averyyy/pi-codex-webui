@@ -24,6 +24,7 @@ import type {
   Extension,
   ExtensionCommandContext,
   ExtensionContext,
+  ExtensionToolContext,
 } from "@earendil-works/pi-coding-agent"
 import type {
   WebUiAdapterDescriptor,
@@ -32,6 +33,42 @@ import type {
   WebUiViewSnapshot,
 } from "@workspace/runtime-protocol"
 import { satisfies, valid, validRange } from "semver"
+
+function isToolContext(
+  context: ExtensionContext
+): context is ExtensionToolContext {
+  return "executeTool" in context && typeof context.executeTool === "function"
+}
+
+function targetToolContext(
+  context: ExtensionContext,
+  toolCallId: string
+): ExtensionToolContext {
+  if (isToolContext(context)) return context
+  return Object.create(context, {
+    tools: { value: [] },
+    executeTool: {
+      value: async (name: string) => ({
+        toolCall: {
+          type: "toolCall",
+          id: `${toolCallId}/0`,
+          name,
+          arguments: {},
+        },
+        result: {
+          content: [
+            {
+              type: "text",
+              text: "Nested tool calls are not available in this context",
+            },
+          ],
+          details: {},
+        },
+        isError: true,
+      }),
+    },
+  }) as ExtensionToolContext
+}
 
 interface AdapterDefinition {
   commands: Map<string, CommandAdapterRegistration>
@@ -709,13 +746,14 @@ export class WebUiAdapterHost {
     const nested = new Set(active)
     nested.add(key)
     const prepared = tool.definition.prepareArguments?.(params) ?? params
+    const toolCallId = randomUUID()
     const result = await this.targetToolInvocations.run(nested, () =>
       tool.definition.execute(
-        randomUUID(),
+        toolCallId,
         prepared as never,
         extensionContext.signal,
         undefined,
-        extensionContext
+        targetToolContext(extensionContext, toolCallId)
       )
     )
     if (!isToolExecutionResult(result)) {

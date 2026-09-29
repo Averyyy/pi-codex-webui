@@ -7,7 +7,7 @@ import test from "node:test"
 import type {
   Extension,
   ExtensionCommandContext,
-  ExtensionContext,
+  ExtensionToolContext,
   LoadExtensionsResult,
 } from "@earendil-works/pi-coding-agent"
 import type {
@@ -124,7 +124,7 @@ function registerTool(
     params: unknown,
     signal: AbortSignal | undefined,
     onUpdate: unknown,
-    context: ExtensionContext
+    context: ExtensionToolContext
   ) => Promise<unknown>
 ) {
   target.tools.set(name, {
@@ -737,7 +737,7 @@ test("tool execution adapters can handle a target tool and emit target events", 
       { question: "Continue?" },
       new AbortController().signal,
       undefined,
-      {} as ExtensionContext
+      {} as ExtensionToolContext
     )
     assert.equal(originalCalls, 0)
     assert.deepEqual(result, {
@@ -811,7 +811,7 @@ test("tool execution adapters can rewrite params before the original tool", asyn
         { mode: "original" },
         undefined,
         undefined,
-        {} as ExtensionContext
+        {} as ExtensionToolContext
       )
     assert.deepEqual(originalParams, { mode: "rewritten" })
     assert.deepEqual(
@@ -873,7 +873,7 @@ test("invalid handled tool results fail the adapter and execute the original too
         {},
         undefined,
         undefined,
-        {} as ExtensionContext
+        {} as ExtensionToolContext
       )
     assert.equal(originalCalls, 1)
     assert.deepEqual(result, {
@@ -989,7 +989,7 @@ test("tool adapter errors after context side effects do not execute the original
             {},
             undefined,
             undefined,
-            {} as ExtensionContext
+            {} as ExtensionToolContext
           )
 
         assert.equal(originalCalls, 0)
@@ -1046,7 +1046,7 @@ test("view actions retain the opening target context for restricted tool invocat
     }
   `)
   const target = extension(files.targetPath, () => {})
-  let receivedContext: ExtensionContext | undefined
+  let receivedContext: ExtensionToolContext | undefined
   let receivedParams: unknown
   registerTool(
     target,
@@ -1097,7 +1097,12 @@ test("view actions retain the opening target context for restricted tool invocat
     assert.deepEqual(result, {
       content: [{ type: "text", text: "done" }],
     })
-    assert.equal(receivedContext, openingContext)
+    assert.ok(receivedContext)
+    assert.equal(Object.getPrototypeOf(receivedContext), openingContext)
+    assert.deepEqual(receivedContext.tools, [])
+    const nested = await receivedContext.executeTool("other_tool", {})
+    assert.equal(nested.isError, true)
+    assert.equal(nested.toolCall.name, "other_tool")
     assert.deepEqual(receivedParams, { answer: 42 })
     assert.deepEqual(targetEvents, [
       {
