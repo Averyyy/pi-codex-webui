@@ -10,10 +10,7 @@ import type { DatabaseSync } from "node:sqlite"
 
 import { getPiSessionsRoot } from "@/lib/app-paths"
 import { getDatabase, inTransaction } from "@/lib/database"
-import {
-  isForeignPiSessionLine,
-  parsePiSessionHeader,
-} from "@/lib/pi-session"
+import { isForeignPiSessionLine, parsePiSessionHeader } from "@/lib/pi-session"
 import {
   scanSessionIndex,
   type ScannedSessionIndex,
@@ -54,6 +51,10 @@ interface SessionFileProbe {
 
 const sessionTitleSearchEntryType = "session_title"
 const sessionIndexLocks = new Map<string, Promise<void>>()
+const projectSessionSyncFlights = new Map<
+  string,
+  Promise<{ failures: { file: string; message: string }[] }>
+>()
 
 function isPiSessionFileName(name: string) {
   return name.endsWith(".jsonl") && !name.includes(".jsonl.")
@@ -90,16 +91,27 @@ async function discoverSessionFiles(root: string) {
   return files.sort()
 }
 
-async function discoverProjectSessionCandidates(root: string) {
+async function discoverProjectSessionCandidates(
+  root: string,
+  allowMissingRoot: boolean
+) {
   const files: string[] = []
+  let rootMissing = false
 
   async function visit(directory: string) {
     let entries: Dirent[]
     try {
-      entries = await readDirectoryEntries(directory)
+      entries = await readdir(directory, { withFileTypes: true })
     } catch (error) {
-      logSkippedSessionFile(directory, error)
-      return
+      if (
+        directory === root &&
+        allowMissingRoot &&
+        (error as NodeJS.ErrnoException).code === "ENOENT"
+      ) {
+        rootMissing = true
+        return
+      }
+      throw error
     }
     for (const entry of entries) {
       const target = path.join(directory, entry.name)
@@ -114,7 +126,7 @@ async function discoverProjectSessionCandidates(root: string) {
   }
 
   await visit(root)
-  return files.sort()
+  return { files: files.sort(), rootMissing }
 }
 
 function indexedSession(database: DatabaseSync, file: string) {
@@ -506,6 +518,19 @@ export function syncPiSessionIndex() {
 }
 
 export async function syncPiProjectSessions(projectId: string) {
+  const pending = projectSessionSyncFlights.get(projectId)
+  if (pending) return pending
+  const operation = performProjectSessionSync(projectId)
+  projectSessionSyncFlights.set(projectId, operation)
+  try {
+    return await operation
+  } finally {
+    if (projectSessionSyncFlights.get(projectId) === operation)
+      projectSessionSyncFlights.delete(projectId)
+  }
+}
+
+async function performProjectSessionSync(projectId: string) {
   const database = await getDatabase()
   const project = database
     .prepare(
@@ -516,7 +541,6 @@ export async function syncPiProjectSessions(projectId: string) {
     .get(projectId) as { canonical_path: string } | undefined
   if (!project) throw new Error(`Project not found: ${projectId}`)
 
-  const files = await discoverProjectSessionCandidates(getPiSessionsRoot())
   const probes = new Map(
     (
       database
@@ -534,7 +558,18 @@ export async function syncPiProjectSessions(projectId: string) {
         .all() as { native_session_file: string; cwd: string }[]
     ).map(({ native_session_file, cwd }) => [native_session_file, cwd])
   )
+  const projectHasIndexedSession =
+    database
+      .prepare("SELECT 1 FROM sessions WHERE project_id = ? LIMIT 1")
+      .get(projectId) !== undefined
+  const discovery = await discoverProjectSessionCandidates(
+    getPiSessionsRoot(),
+    !projectHasIndexedSession
+  )
+  if (discovery.rootMissing) return { failures: [] }
+  const files = discovery.files
   const discoveredProbes = new Map<string, SessionFileProbe>()
+  const failures: { file: string; message: string }[] = []
   const canonicalCwds = new Map<string, Promise<string>>()
   const canonicalizeForSync = (cwd: string) => {
     let result = canonicalCwds.get(cwd)
@@ -558,11 +593,7 @@ export async function syncPiProjectSessions(projectId: string) {
       const mtimeNs = fileStats.mtimeNs.toString()
       const size = Number(fileStats.size)
       const probe = probes.get(file)
-      if (
-        probe &&
-        probe.file_mtime_ns === mtimeNs &&
-        probe.size === size
-      ) {
+      if (probe && probe.file_mtime_ns === mtimeNs && probe.size === size) {
         if (probe.kind === "session" && probe.cwd === project.canonical_path)
           await indexSessionFile(database, file)
         return
@@ -589,10 +620,13 @@ export async function syncPiProjectSessions(projectId: string) {
         kind: "session",
         cwd,
       })
-      if (cwd === project.canonical_path)
-        await indexSessionFile(database, file)
+      if (cwd === project.canonical_path) await indexSessionFile(database, file)
     } catch (error) {
       logSkippedSessionFile(file, error)
+      failures.push({
+        file,
+        message: error instanceof Error ? error.message : String(error),
+      })
     }
   })
 
@@ -616,11 +650,46 @@ export async function syncPiProjectSessions(projectId: string) {
         probe.cwd
       )
     }
-    for (const file of probes.keys()) {
-      if (!discoveredFiles.has(file))
-        database.prepare("DELETE FROM session_file_probes WHERE file = ?").run(file)
+    if (failures.length === 0) {
+      const missingSessions = database
+        .prepare(
+          "SELECT id, native_session_file FROM sessions WHERE project_id = ?"
+        )
+        .all(projectId) as { id: string; native_session_file: string }[]
+      let removedSessions = 0
+      for (const session of missingSessions) {
+        if (discoveredFiles.has(session.native_session_file)) continue
+        database
+          .prepare("DELETE FROM session_search WHERE session_id = ?")
+          .run(session.id)
+        database.prepare("DELETE FROM sessions WHERE id = ?").run(session.id)
+        removedSessions += 1
+      }
+      if (removedSessions > 0) {
+        database
+          .prepare(
+            `UPDATE projects SET
+               created_at = coalesce(
+                 (SELECT min(created_at) FROM sessions WHERE project_id = ?),
+                 created_at
+               ),
+               updated_at = coalesce(
+                 (SELECT max(updated_at) FROM sessions WHERE project_id = ?),
+                 updated_at
+               )
+             WHERE id = ?`
+          )
+          .run(projectId, projectId, projectId)
+      }
+      for (const file of probes.keys()) {
+        if (discoveredFiles.has(file)) continue
+        database
+          .prepare("DELETE FROM session_file_probes WHERE file = ?")
+          .run(file)
+      }
     }
   })
+  return { failures }
 }
 
 export async function resolvePiSessionFile(file: string) {

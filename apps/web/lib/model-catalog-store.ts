@@ -27,6 +27,11 @@ export interface ModelCatalogState {
 }
 
 export interface ModelCatalogStore {
+  bindVerifiedIdentity(
+    target: ModelCatalogTarget,
+    scope: ModelCatalogScope,
+    binding: { catalogIdentity: string; catalogVersion: string }
+  ): boolean
   getState(
     target: ModelCatalogTarget,
     scope: ModelCatalogScope
@@ -588,6 +593,32 @@ export function createModelCatalogStore(): ModelCatalogStore {
   }
 
   const thisStore: ModelCatalogStore = {
+    bindVerifiedIdentity(target, scope, binding) {
+      const key = requestKey(target, scope)
+      const current = byRequest.get(key)
+      if (current?.inFlight || current?.refreshFlight) return false
+      const entry = byIdentity.get(
+        JSON.stringify([scope, binding.catalogIdentity])
+      )
+      if (
+        !entry?.state.snapshot ||
+        entry.state.snapshot.catalogVersion !== binding.catalogVersion ||
+        entry.expectedVersion !== null ||
+        entry.pendingMutations.size > 0 ||
+        entry.state.status !== "ready"
+      ) {
+        return false
+      }
+      if (current === entry) return true
+      if (current) detachAlias(key, current)
+      entry.aliases.add(key)
+      byRequest.set(key, entry)
+      targets.set(key, { target: { ...target }, scope })
+      touch(entry)
+      notify(entry)
+      pruneIdle()
+      return true
+    },
     getState(target, scope) {
       return (
         byRequest.get(requestKey(target, scope))?.state ??
@@ -858,4 +889,37 @@ export function createModelCatalogStore(): ModelCatalogStore {
     },
   }
   return thisStore
+}
+
+export function prepareSessionModelCatalog(
+  store: ModelCatalogStore,
+  sessionId: string,
+  checked: boolean,
+  binding: { catalogIdentity: string; catalogVersion: string } | null
+) {
+  const target = { sessionId }
+  if (!checked) {
+    if (store.getState(target, "enabled").snapshot !== null) {
+      store.invalidate(target, "enabled")
+      void store.load(target, "enabled").catch(() => undefined)
+    }
+    return
+  }
+  if (binding && store.bindVerifiedIdentity(target, "enabled", binding)) {
+    return
+  }
+  const current = store.getState(target, "enabled")
+  const continuingCurrentRead =
+    current.status === "loading" && current.snapshot === null
+  const continuingVersionRefresh =
+    current.status === "refreshing" &&
+    binding !== null &&
+    current.snapshot?.catalogIdentity === binding.catalogIdentity &&
+    current.snapshot.catalogVersion === binding.catalogVersion
+  if (!continuingCurrentRead && !continuingVersionRefresh) {
+    store.invalidate(target, "enabled")
+  }
+  if (!continuingVersionRefresh) {
+    void store.load(target, "enabled").catch(() => undefined)
+  }
 }

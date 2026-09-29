@@ -12,6 +12,8 @@ import type {
 } from "@workspace/runtime-protocol"
 
 import { EventHub } from "./event-hub"
+import { DEFAULT_CONFIG } from "./config-schema"
+import { readProjectCatalogState } from "./project-catalog-state"
 import {
   RuntimeSupervisor,
   type ModelSettingsRuntimeTarget,
@@ -52,6 +54,8 @@ interface RuntimeSupervisorInternals {
   runtimes: Map<string, FakeRuntime>
   activations: Map<string, Promise<FakeRuntime>>
   sessionClosures: Map<string, Promise<unknown>>
+  knownResources: Map<string, ResourceCatalog>
+  knownResourceFingerprints: Map<string, string>
   activate(sessionId: string): Promise<FakeRuntime>
   request(runtime: FakeRuntime, message: { type: string }): Promise<unknown>
   startRuntime(sessionId: string): Promise<FakeRuntime>
@@ -111,6 +115,11 @@ interface RuntimeSupervisorInternals {
     dataVersion: string
     securityVersion: string
   }>
+  modelCatalogStateFromSources(
+    target: ModelSettingsRuntimeTarget,
+    profile: (typeof DEFAULT_CONFIG)["developer"]["runtime"]["profiles"][string],
+    projectState: Awaited<ReturnType<typeof readProjectCatalogState>>
+  ): Awaited<ReturnType<RuntimeSupervisorInternals["modelCatalogTargetState"]>>
   knownResourceCatalogIfCurrent(cwd: string): Promise<ResourceCatalog | null>
   resourceQueue: Promise<void>
   modelCatalogWorkersActive: number
@@ -600,6 +609,115 @@ test("same-scope cold model reads share one worker and cache version", async () 
     left.catalogVersion
   )
   assert.equal(calls, 1)
+})
+
+test("session route reuses the resource freshness read for exact model binding", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "pi-model-route-binding-"))
+  const cwd = path.join(root, "workspace")
+  const agentDir = path.join(root, "agent")
+  await Promise.all([
+    mkdir(cwd, { recursive: true }),
+    mkdir(agentDir, { recursive: true }),
+  ])
+  const previousAgentDir = process.env.PI_CODING_AGENT_DIR
+  process.env.PI_CODING_AGENT_DIR = agentDir
+  try {
+    const supervisor = new RuntimeSupervisor(new EventHub())
+    const state = internals(supervisor)
+    const config = structuredClone(DEFAULT_CONFIG)
+    const target: ModelSettingsRuntimeTarget = {
+      cwd,
+      runtimeProfileId: "pi",
+      runtimeKind: "pi",
+    }
+    const cold = await supervisor.knownSessionCatalogsIfCurrent(target, config)
+    assert.equal(cold.modelCatalogChecked, true)
+    assert.equal(cold.modelCatalogBinding, null)
+
+    state.resourceRequest = async () => ({
+      cwd,
+      projectTrusted: false,
+      trustRequired: false,
+      resources: [],
+      packages: [],
+    })
+    await supervisor.resourceCatalog(cwd)
+    state.modelCatalogTargetState = async () =>
+      state.modelCatalogStateFromSources(
+        target,
+        config.developer.runtime.profiles.pi!,
+        await readProjectCatalogState(cwd, agentDir)
+      )
+    let reads = 0
+    state.performResourceRequest = async () => {
+      reads += 1
+      return modelSettingsSnapshot(["model-a"])
+    }
+    const catalog = await supervisor.modelSettings(target, "enabled")
+    const warm = await supervisor.knownSessionCatalogsIfCurrent(target, config)
+    assert.equal(warm.modelCatalogChecked, true)
+    assert.deepEqual(warm.modelCatalogBinding, {
+      catalogIdentity: catalog.catalogIdentity,
+      catalogVersion: catalog.catalogVersion,
+    })
+    assert.equal(reads, 1)
+
+    state.knownResources.delete(path.resolve(cwd))
+    state.knownResourceFingerprints.delete(path.resolve(cwd))
+    const resourceCacheEvicted =
+      await supervisor.knownSessionCatalogsIfCurrent(target, config)
+    assert.equal(resourceCacheEvicted.modelCatalogChecked, true)
+    assert.deepEqual(resourceCacheEvicted.modelCatalogBinding, {
+      catalogIdentity: catalog.catalogIdentity,
+      catalogVersion: catalog.catalogVersion,
+    })
+    await writeFile(path.join(agentDir, "auth.json"), '{"fixture":"changed"}')
+    const authChanged = await supervisor.knownSessionCatalogsIfCurrent(
+      target,
+      config
+    )
+    assert.equal(authChanged.modelCatalogBinding, null)
+    assert.equal(authChanged.modelCatalogChecked, true)
+
+    await rm(path.join(agentDir, "auth.json"))
+    await supervisor.resourceCatalog(cwd)
+    const authRestored = await supervisor.knownSessionCatalogsIfCurrent(
+      target,
+      config
+    )
+    assert.deepEqual(authRestored.modelCatalogBinding, warm.modelCatalogBinding)
+
+    const invalidConfig = structuredClone(config)
+    invalidConfig.developer.runtime.profiles.pi!.enabled = false
+    const invalidProfile = await supervisor.knownSessionCatalogsIfCurrent(
+      target,
+      invalidConfig
+    )
+    assert.equal(invalidProfile.modelCatalogBinding, null)
+    assert.equal(invalidProfile.modelCatalogChecked, true)
+
+    const trustPath = path.join(agentDir, "trust.json")
+    await writeFile(trustPath, JSON.stringify({ [cwd]: true }))
+    const trustChanged = await supervisor.knownSessionCatalogsIfCurrent(
+      target,
+      config
+    )
+    assert.equal(trustChanged.modelCatalogBinding, null)
+    assert.equal(trustChanged.modelCatalogChecked, true)
+    await rm(trustPath)
+    await supervisor.resourceCatalog(cwd)
+
+    await mkdir(path.join(cwd, ".pi"))
+    await writeFile(path.join(cwd, ".pi", "settings.json"), "{}")
+    const projectSettingsChanged =
+      await supervisor.knownSessionCatalogsIfCurrent(target, config)
+    assert.equal(projectSettingsChanged.modelCatalogBinding, null)
+    assert.equal(projectSettingsChanged.modelCatalogChecked, true)
+  } finally {
+    if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR
+    else process.env.PI_CODING_AGENT_DIR = previousAgentDir
+    await rm(root, { recursive: true, force: true })
+  }
 })
 
 test("cold model catalog workers are bounded across distinct targets", async () => {

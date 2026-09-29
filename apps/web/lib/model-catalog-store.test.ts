@@ -4,6 +4,7 @@ import test from "node:test"
 import type { ModelSettingsModel } from "@workspace/runtime-protocol"
 import {
   createModelCatalogStore,
+  prepareSessionModelCatalog,
   type ModelCatalogSnapshot,
   type ModelCatalogTarget,
 } from "@/lib/model-catalog-store"
@@ -139,6 +140,128 @@ test("identity changes rebind only the request target whose response changed", a
     assert.equal(
       store.getState(targetB, "all").snapshot?.catalogIdentity,
       "directory-old"
+    )
+  } finally {
+    restoreFetch()
+  }
+})
+
+test("a verified warm session binds without a GET and repeated registration stays stable", async () => {
+  let reads = 0
+  const restoreFetch = setFetch(async () => {
+    reads += 1
+    return response(snapshot("directory-a", "v1", [model("model-a", true)]))
+  })
+  try {
+    const store = createModelCatalogStore()
+    await store.load({ sessionId: "session-a" }, "enabled")
+    prepareSessionModelCatalog(store, "session-b", true, {
+      catalogIdentity: "directory-a",
+      catalogVersion: "v1",
+    })
+    prepareSessionModelCatalog(store, "session-b", true, {
+      catalogIdentity: "directory-a",
+      catalogVersion: "v1",
+    })
+    assert.equal(reads, 1)
+    assert.deepEqual(
+      store
+        .getState({ sessionId: "session-b" }, "enabled")
+        .snapshot?.models.map(({ id }) => id),
+      ["model-a"]
+    )
+  } finally {
+    restoreFetch()
+  }
+})
+
+test("a checked stale binding invalidates and starts a fresh read", async () => {
+  let reads = 0
+  const pending = deferred<Response>()
+  const restoreFetch = setFetch(async () => {
+    reads += 1
+    return pending.promise
+  })
+  try {
+    const store = createModelCatalogStore()
+    const target = { sessionId: "session-a" }
+    store.publish(target, "enabled", snapshot("directory-a", "v1"))
+    prepareSessionModelCatalog(store, "session-a", true, null)
+    assert.equal(reads, 1)
+    assert.equal(store.getState(target, "enabled").snapshot, null)
+    pending.resolve(response(snapshot("directory-a", "v2")))
+    await store.load(target, "enabled")
+    assert.equal(
+      store.getState(target, "enabled").snapshot?.catalogVersion,
+      "v2"
+    )
+  } finally {
+    restoreFetch()
+  }
+})
+
+test("a checked security change fences an in-flight read with an old snapshot", async () => {
+  const oldRead = deferred<Response>()
+  const newRead = deferred<Response>()
+  let reads = 0
+  const restoreFetch = setFetch(async () => {
+    reads += 1
+    return reads === 1 ? oldRead.promise : newRead.promise
+  })
+  try {
+    const store = createModelCatalogStore()
+    const target = { sessionId: "session-a" }
+    store.publish(target, "enabled", snapshot("directory-a", "v1"))
+    const stale = store.load(target, "enabled", { force: true })
+    prepareSessionModelCatalog(store, "session-a", true, null)
+    assert.equal(reads, 2)
+    newRead.resolve(response(snapshot("directory-a", "v2")))
+    await store.load(target, "enabled")
+    oldRead.resolve(response(snapshot("directory-a", "v1")))
+    assert.equal((await stale).catalogVersion, "v2")
+    assert.equal(
+      store.getState(target, "enabled").snapshot?.catalogVersion,
+      "v2"
+    )
+  } finally {
+    restoreFetch()
+  }
+})
+
+test("a cold route makes no early catalog read", () => {
+  let reads = 0
+  const restoreFetch = setFetch(async () => {
+    reads += 1
+    return response(snapshot("directory-a", "v1"))
+  })
+  try {
+    const store = createModelCatalogStore()
+    prepareSessionModelCatalog(store, "session-a", false, null)
+    assert.equal(reads, 0)
+  } finally {
+    restoreFetch()
+  }
+})
+
+test("an unchecked route refreshes a cached session catalog", async () => {
+  let reads = 0
+  const pending = deferred<Response>()
+  const restoreFetch = setFetch(async () => {
+    reads += 1
+    return pending.promise
+  })
+  try {
+    const store = createModelCatalogStore()
+    const target = { sessionId: "session-a" }
+    store.publish(target, "enabled", snapshot("directory-a", "v1"))
+    prepareSessionModelCatalog(store, "session-a", false, null)
+    assert.equal(reads, 1)
+    assert.equal(store.getState(target, "enabled").snapshot, null)
+    pending.resolve(response(snapshot("directory-a", "v2")))
+    await store.load(target, "enabled")
+    assert.equal(
+      store.getState(target, "enabled").snapshot?.catalogVersion,
+      "v2"
     )
   } finally {
     restoreFetch()

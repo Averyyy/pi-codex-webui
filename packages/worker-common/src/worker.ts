@@ -1153,15 +1153,22 @@ async function replacePromptQueue(
   return emitPromptQueueUpdate(session)
 }
 
-async function reloadModelSettings(session: AgentSession) {
-  const services = currentRuntime().services
+export async function reloadModelSettings(
+  session: AgentSession,
+  services: Pick<
+    AgentSessionRuntime["services"],
+    "settingsManager" | "modelRuntime"
+  >,
+  agent: CodingAgentModule
+) {
   await services.settingsManager.reload()
   await services.modelRuntime.refresh({
     force: true,
+    allowNetwork: false,
   })
   session.setScopedModels(
     await resolveConfiguredScopedModels(
-      codingAgent,
+      agent,
       services.settingsManager,
       services.modelRuntime
     )
@@ -1228,7 +1235,7 @@ async function dispatch(message: HostToWorkerMessage) {
   assertSession(message)
   const session = currentRuntime().session
   if (message.type === "runtime.reload-model-settings") {
-    await reloadModelSettings(session)
+    await reloadModelSettings(session, currentRuntime().services, codingAgent)
     respond(message.requestId, { success: true, data: snapshot(session) })
   } else if (message.type === "runtime.reload-resources") {
     currentRuntime().services.settingsManager.setProjectTrusted(

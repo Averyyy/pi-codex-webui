@@ -68,9 +68,13 @@ import {
 } from "@/lib/catalog"
 import { getEventHub, type EventHub } from "@/lib/event-hub"
 import { loadConfig } from "@/lib/config"
+import type { AppConfig } from "@/lib/config-schema"
 import { emitCatalogMetric } from "@/lib/catalog-metrics"
 import { getMcpService } from "@/lib/mcp-service"
-import { readProjectCatalogState } from "@/lib/project-catalog-state"
+import {
+  readProjectCatalogState,
+  type ProjectCatalogState,
+} from "@/lib/project-catalog-state"
 import type { PromptImage } from "@/lib/prompt-images"
 import { syncPiSessionFile } from "@/lib/session-index"
 import { RuntimeLiveState } from "@/lib/runtime-live"
@@ -449,12 +453,14 @@ export class RuntimeSupervisor {
     return this.knownResources.get(path.resolve(cwd)) ?? null
   }
 
-  async knownResourceCatalogIfCurrent(cwd: string) {
+  private knownResourceCatalogFromState(
+    cwd: string,
+    state: ProjectCatalogState
+  ) {
     const key = path.resolve(cwd)
     const catalog = this.knownResources.get(key)
     const fingerprint = this.knownResourceFingerprints.get(key)
     if (!catalog || !fingerprint) return null
-    const state = await readProjectCatalogState(cwd, getPiAgentDir())
     if (state.resourceFingerprint === fingerprint) {
       this.knownResources.delete(key)
       this.knownResources.set(key, catalog)
@@ -463,6 +469,67 @@ export class RuntimeSupervisor {
     this.knownResources.delete(key)
     this.knownResourceFingerprints.delete(key)
     return null
+  }
+
+  async knownResourceCatalogIfCurrent(cwd: string) {
+    const key = path.resolve(cwd)
+    if (
+      !this.knownResources.has(key) ||
+      !this.knownResourceFingerprints.has(key)
+    ) {
+      return null
+    }
+    const state = await readProjectCatalogState(cwd, getPiAgentDir())
+    return this.knownResourceCatalogFromState(cwd, state)
+  }
+
+  async knownSessionCatalogsIfCurrent(
+    target: ModelSettingsRuntimeTarget,
+    config: AppConfig
+  ) {
+    const key = path.resolve(target.cwd)
+    const projectState = await readProjectCatalogState(
+      target.cwd,
+      getPiAgentDir()
+    )
+    const hasResourceCatalog =
+      this.knownResources.has(key) &&
+      this.knownResourceFingerprints.has(key)
+    const resourceCatalog = hasResourceCatalog
+      ? this.knownResourceCatalogFromState(target.cwd, projectState)
+      : null
+    const profile = config.developer.runtime.profiles[target.runtimeProfileId]
+    if (!profile?.enabled || profile.kind !== target.runtimeKind) {
+      return {
+        resourceCatalog,
+        modelCatalogBinding: null,
+        modelCatalogChecked: true,
+      }
+    }
+    const state = this.modelCatalogStateFromSources(
+      target,
+      profile,
+      projectState
+    )
+    const entry = this.modelCatalogs.get(state.identityKey)
+    const valid =
+      entry?.dataVersion === state.dataVersion &&
+      entry.securityVersion === state.securityVersion &&
+      entry.snapshots.has("enabled") &&
+      entry.snapshotCatalogVersion !== null &&
+      ![...this.pendingCatalogWrites].some((write) =>
+        this.catalogWriteAffectsTarget(write, state)
+      )
+    return {
+      resourceCatalog,
+      modelCatalogBinding: valid
+        ? {
+            catalogIdentity: entry.catalogIdentity,
+            catalogVersion: entry.snapshotCatalogVersion!,
+          }
+        : null,
+      modelCatalogChecked: true,
+    }
   }
 
   async currentResourceCatalog(cwd: string) {
@@ -1766,6 +1833,14 @@ export class RuntimeSupervisor {
     }
     const agentDir = getPiAgentDir()
     const projectState = await readProjectCatalogState(target.cwd, agentDir)
+    return this.modelCatalogStateFromSources(target, profile, projectState)
+  }
+
+  private modelCatalogStateFromSources(
+    target: ModelSettingsRuntimeTarget,
+    profile: AppConfig["developer"]["runtime"]["profiles"][string],
+    projectState: ProjectCatalogState
+  ): ModelCatalogTargetState {
     const identityKey = JSON.stringify({
       runtimeProfileId: target.runtimeProfileId,
       runtimeKind: target.runtimeKind,

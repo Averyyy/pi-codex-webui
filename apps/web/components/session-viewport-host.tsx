@@ -14,6 +14,8 @@ import {
 import { usePathname } from "next/navigation"
 
 import { SessionClientViewport } from "@/components/session-client-viewport"
+import { useModelCatalogStore } from "@/components/model-catalog-provider"
+import { prepareSessionModelCatalog } from "@/lib/model-catalog-store"
 import { SessionStreamingProvider } from "@/components/session-streaming-context"
 import { useI18n } from "@/components/i18n-provider"
 import { cancelPendingNavigationMeasurement } from "@/lib/performance-diagnostics"
@@ -139,6 +141,7 @@ export function SessionRouteRejected() {
 export function SessionViewportHost({ children }: { children: ReactNode }) {
   const pathname = usePathname()
   const { t } = useI18n()
+  const modelCatalogStore = useModelCatalogStore()
   const [navigationState, setNavigationState] = useState(() => ({
     pathname,
     pendingPath: null as string | null,
@@ -175,24 +178,35 @@ export function SessionViewportHost({ children }: { children: ReactNode }) {
     })
   }, [])
 
-  const register = useCallback((route: SessionRouteClientData) => {
-    const target = routeTarget(route)
-    if (currentTargetRef.current?.key !== target.key) return
+  const register = useCallback(
+    (route: SessionRouteClientData) => {
+      const target = routeTarget(route)
+      if (currentTargetRef.current?.key !== target.key) return
+      prepareSessionModelCatalog(
+        modelCatalogStore,
+        route.session.id,
+        route.modelCatalogChecked,
+        route.modelCatalogBinding
+      )
 
-    setRoutes((current) => {
-      const next = new Map(current)
-      next.set(route.session.id, { route, lastUsed: Date.now() })
-      if (next.size > MAX_REMEMBERED_SESSIONS) {
-        const leastRecentlyUsed = [...next.entries()]
-          .filter(([sessionId]) => sessionId !== target.sessionId)
-          .sort(([, left], [, right]) => left.lastUsed - right.lastUsed)[0]
-        if (leastRecentlyUsed) next.delete(leastRecentlyUsed[0])
-      }
-      return next
-    })
-    setConfirmedTargetKey(target.key)
-    setRejectedTargetKey((current) => (current === target.key ? null : current))
-  }, [])
+      setRoutes((current) => {
+        const next = new Map(current)
+        next.set(route.session.id, { route, lastUsed: Date.now() })
+        if (next.size > MAX_REMEMBERED_SESSIONS) {
+          const leastRecentlyUsed = [...next.entries()]
+            .filter(([sessionId]) => sessionId !== target.sessionId)
+            .sort(([, left], [, right]) => left.lastUsed - right.lastUsed)[0]
+          if (leastRecentlyUsed) next.delete(leastRecentlyUsed[0])
+        }
+        return next
+      })
+      setConfirmedTargetKey(target.key)
+      setRejectedTargetKey((current) =>
+        current === target.key ? null : current
+      )
+    },
+    [modelCatalogStore]
+  )
 
   const reject = useCallback((target: SessionRouteTarget) => {
     setRoutes((current) => {

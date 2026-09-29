@@ -16,6 +16,7 @@ import path from "node:path"
 import test, { mock } from "node:test"
 
 import { GET as getProjectRoute } from "../app/api/v1/projects/[projectId]/route"
+import { POST as refreshProjectSessionsRoute } from "../app/api/v1/projects/[projectId]/sessions/refresh/route"
 import {
   addWorkspaceProject,
   archiveProjectSessions,
@@ -44,9 +45,14 @@ import {
   setSessionPinned,
 } from "./catalog"
 import { getDatabase } from "./database"
-import { syncPiSessionFile, syncPiSessionIndex } from "./session-index"
+import {
+  syncPiProjectSessions,
+  syncPiSessionFile,
+  syncPiSessionIndex,
+} from "./session-index"
 import { getSessionRouteIdentity } from "./session-route-identity"
 import { GET as getSessionCatalog } from "../app/api/v1/session-catalog/route"
+import { getMutationToken } from "./request-security"
 
 test("project availability treats missing and invalidated paths as unavailable", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "pi-web-codex-availability-"))
@@ -1300,6 +1306,197 @@ test("project session discovery reuses cached probes", async () => {
         assert.equal(openMock.mock.callCount(), 1)
       } finally {
         openMock.mock.restore()
+        syncBuiltinESMExports()
+      }
+    }
+  )
+})
+
+test("explicit project refresh discovers external sessions without indexing another project", async () => {
+  await withSessionIndexHarness(
+    "pi-web-codex-project-refresh-",
+    async ({ root, sessionRoot, projectCwd }) => {
+      const otherCwd = path.join(root, "other-project")
+      await mkdir(otherCwd)
+      const project = await addWorkspaceProject(projectCwd)
+      const other = await addWorkspaceProject(otherCwd)
+      const projectFile = path.join(sessionRoot, "new-project.jsonl")
+      const otherFile = path.join(sessionRoot, "new-other.jsonl")
+      await Promise.all([
+        writeFile(
+          projectFile,
+          sessionJsonl(
+            "native-refreshed",
+            projectCwd,
+            "external project message"
+          )
+        ),
+        writeFile(
+          otherFile,
+          sessionJsonl("native-other", otherCwd, "other project message")
+        ),
+      ])
+      const url = `http://127.0.0.1:1816/api/v1/projects/${project.id}/sessions/refresh`
+      const context = { params: Promise.resolve({ projectId: project.id }) }
+      const unauthorized = await refreshProjectSessionsRoute(
+        new Request(url, {
+          method: "POST",
+          headers: { host: "127.0.0.1:1816" },
+        }),
+        context
+      )
+      assert.equal(unauthorized.status, 403)
+      assert.deepEqual(await indexedSessionFiles(), [])
+
+      const request = () =>
+        new Request(url, {
+          method: "POST",
+          headers: {
+            host: "127.0.0.1:1816",
+            origin: "http://127.0.0.1:1816",
+            "x-pi-web-codex-mutation-token": getMutationToken(),
+          },
+        })
+      const missing = await refreshProjectSessionsRoute(request(), {
+        params: Promise.resolve({ projectId: "missing-project" }),
+      })
+      assert.equal(missing.status, 404)
+      assert.deepEqual(await indexedSessionFiles(), [])
+      const response = await refreshProjectSessionsRoute(request(), context)
+      assert.equal(response.status, 200)
+      assert.deepEqual(await response.json(), {
+        projectId: project.id,
+        failures: [],
+      })
+      assert.equal((await getProject(project.id))?.sessionCount, 1)
+      assert.deepEqual(
+        (await listProjectSessions(project.id)).map(
+          (session) => session.nativeSessionId
+        ),
+        ["native-refreshed"]
+      )
+      assert.deepEqual(await listProjectSessions(other.id), [])
+      assert.deepEqual(await indexedSessionFiles(), [projectFile])
+
+      const openMock = mock.method(fsPromises, "open")
+      syncBuiltinESMExports()
+      try {
+        const unchanged = await refreshProjectSessionsRoute(request(), context)
+        assert.equal(unchanged.status, 200)
+        assert.equal(openMock.mock.callCount(), 0)
+      } finally {
+        openMock.mock.restore()
+        syncBuiltinESMExports()
+      }
+    }
+  )
+})
+
+test("project refresh removes only missing project sessions after a complete scan", async () => {
+  await withSessionIndexHarness(
+    "pi-web-codex-project-refresh-deleted-",
+    async ({ root, sessionRoot, projectCwd }) => {
+      const otherCwd = path.join(root, "other-project")
+      await mkdir(otherCwd)
+      const projectFile = path.join(sessionRoot, "project.jsonl")
+      const otherFile = path.join(sessionRoot, "other.jsonl")
+      await Promise.all([
+        writeFile(
+          projectFile,
+          sessionJsonl("native-project", projectCwd, "project message")
+        ),
+        writeFile(
+          otherFile,
+          sessionJsonl("native-other", otherCwd, "other message")
+        ),
+      ])
+      const project = await addWorkspaceProject(projectCwd)
+      const other = await addWorkspaceProject(otherCwd)
+      assert.deepEqual(
+        new Set(await indexedSessionFiles()),
+        new Set([projectFile, otherFile])
+      )
+
+      await rm(projectFile)
+      const brokenFile = path.join(sessionRoot, "broken.jsonl")
+      await writeFile(brokenFile, "{invalid json}\n")
+      const errorMock = mock.method(console, "error")
+      try {
+        const partial = await syncPiProjectSessions(project.id)
+        assert.equal(partial.failures.length, 1)
+        assert.equal(partial.failures[0]?.file, brokenFile)
+        assert.deepEqual(
+          new Set(await indexedSessionFiles()),
+          new Set([projectFile, otherFile])
+        )
+      } finally {
+        errorMock.mock.restore()
+      }
+
+      await rm(brokenFile)
+      assert.deepEqual(await syncPiProjectSessions(project.id), {
+        failures: [],
+      })
+      assert.deepEqual(await indexedSessionFiles(), [otherFile])
+      assert.deepEqual(await listProjectSessions(project.id), [])
+      assert.equal((await getProject(project.id))?.sessionCount, 0)
+      assert.equal((await getProject(other.id))?.sessionCount, 1)
+    }
+  )
+})
+
+test("explicit project refresh reports partial file failures and discovery errors", async () => {
+  await withSessionIndexHarness(
+    "pi-web-codex-project-refresh-errors-",
+    async ({ sessionRoot, projectCwd }) => {
+      const project = await addWorkspaceProject(projectCwd)
+      const brokenFile = path.join(sessionRoot, "broken.jsonl")
+      await writeFile(
+        brokenFile,
+        `${JSON.stringify({
+          type: "session",
+          version: 3,
+          id: "native-broken",
+          timestamp: "2026-07-14T00:00:00.000Z",
+          cwd: projectCwd,
+        })}\n{invalid json}\n`
+      )
+      const url = `http://127.0.0.1:1816/api/v1/projects/${project.id}/sessions/refresh`
+      const context = { params: Promise.resolve({ projectId: project.id }) }
+      const request = () =>
+        new Request(url, {
+          method: "POST",
+          headers: {
+            host: "127.0.0.1:1816",
+            origin: "http://127.0.0.1:1816",
+            "x-pi-web-codex-mutation-token": getMutationToken(),
+          },
+        })
+      const errorMock = mock.method(console, "error")
+      try {
+        const partial = await refreshProjectSessionsRoute(request(), context)
+        assert.equal(partial.status, 200)
+        const result = await partial.json()
+        assert.equal(result.failures.length, 1)
+        assert.equal(result.failures[0].file, brokenFile)
+        assert.match(result.failures[0].message, /Expected property name/)
+        assert.deepEqual(await indexedSessionFiles(), [])
+      } finally {
+        errorMock.mock.restore()
+      }
+
+      const readdirMock = mock.method(fsPromises, "readdir", async () => {
+        throw Object.assign(new Error("Access denied to session directory"), {
+          code: "EACCES",
+        })
+      })
+      syncBuiltinESMExports()
+      try {
+        const failure = await refreshProjectSessionsRoute(request(), context)
+        assert.equal(failure.status, 500)
+        assert.match((await failure.json()).error, /Access denied/)
+      } finally {
+        readdirMock.mock.restore()
         syncBuiltinESMExports()
       }
     }

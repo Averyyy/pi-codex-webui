@@ -23,6 +23,7 @@ import {
   MoreHorizontalIcon,
   PencilIcon,
   PinIcon,
+  RefreshCwIcon,
   SquarePenIcon,
   Trash2Icon,
   type LucideIcon,
@@ -85,6 +86,7 @@ import { responseJson } from "@/lib/api-response"
 import { WorkspaceNavSession } from "@/components/workspace-nav-session"
 import { useI18n } from "@/components/i18n-provider"
 import { SESSION_CATALOG_CHANGED } from "@/lib/session-catalog-events"
+import { refreshProjectSessions } from "@/lib/project-session-refresh"
 import {
   clearWorkspaceNavDragSource,
   getWorkspaceNavDragSource,
@@ -99,7 +101,7 @@ const pendingProjectMutations = new Set<string>()
 type DialogKind = "archive" | "rename" | "worktree" | "remove"
 
 interface MenuAction {
-  kind: "pin" | "reveal" | "moveUp" | "moveDown" | DialogKind
+  kind: "pin" | "reveal" | "refresh" | "moveUp" | "moveDown" | DialogKind
   label: string
   icon: LucideIcon
   disabled?: boolean
@@ -295,6 +297,32 @@ export function WorkspaceNavProject({
     }
   }
 
+  async function refreshSessions() {
+    if (pendingProjectMutations.has(project.id)) return
+    pendingProjectMutations.add(project.id)
+    setWorking(true)
+    try {
+      const result = await refreshProjectSessions(project.id, mutationToken)
+      router.refresh()
+      if (result.failures.length > 0) {
+        const first = result.failures[0]!
+        toast.error(
+          t("project.sessions.refreshPartial", {
+            count: result.failures.length,
+            message: `${first.file}: ${first.message}`,
+          })
+        )
+      } else {
+        toast.success(t("project.sessions.refreshSuccess"))
+      }
+    } catch (failure) {
+      toast.error(failure instanceof Error ? failure.message : String(failure))
+    } finally {
+      pendingProjectMutations.delete(project.id)
+      setWorking(false)
+    }
+  }
+
   const actions: MenuAction[] = [
     {
       kind: "pin",
@@ -307,6 +335,11 @@ export function WorkspaceNavProject({
       kind: "reveal",
       label: t("workspace.project.reveal"),
       icon: FolderOpenIcon,
+    },
+    {
+      kind: "refresh",
+      label: t("project.sessions.refresh"),
+      icon: RefreshCwIcon,
     },
     {
       kind: "moveUp",
@@ -360,6 +393,10 @@ export function WorkspaceNavProject({
     }
     if (kind === "reveal") {
       void mutate(`/api/v1/projects/${project.id}/reveal`)
+      return
+    }
+    if (kind === "refresh") {
+      void refreshSessions()
       return
     }
     setError(null)

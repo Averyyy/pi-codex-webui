@@ -27,9 +27,21 @@ export async function SessionScreen({
 
   const supervisor = getRuntimeSupervisor()
   const workspaceAvailable = await isProjectDirectoryAvailable(session.cwd)
-  const knownResources = workspaceAvailable
-    ? await supervisor.knownResourceCatalogIfCurrent(session.cwd)
-    : null
+  const knownCatalogs = workspaceAvailable
+    ? await supervisor.knownSessionCatalogsIfCurrent(
+        {
+          cwd: session.cwd,
+          runtimeProfileId: session.runtimeProfileId,
+          runtimeKind: session.runtimeKind,
+        },
+        config
+      )
+    : {
+        resourceCatalog: null,
+        modelCatalogBinding: null,
+        modelCatalogChecked: false,
+      }
+  const knownResources = knownCatalogs.resourceCatalog
   const runtimeStatus = supervisor.state(sessionId).status
   const fileManager = projectFileManager(process.platform)
   const identityKey = JSON.stringify([
@@ -43,6 +55,8 @@ export async function SessionScreen({
   ])
   const route: SessionRouteClientData = {
     session,
+    modelCatalogBinding: knownCatalogs.modelCatalogBinding,
+    modelCatalogChecked: knownCatalogs.modelCatalogChecked,
     nativeFileChanged: routeIdentity.nativeFileChanged,
     nativeFileRevision: routeIdentity.nativeFileRevision,
     identityKey,

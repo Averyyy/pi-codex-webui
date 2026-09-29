@@ -6,6 +6,7 @@ import { ProjectSessionList } from "@/components/project-session-list"
 import { getProject, listSessionPage } from "@/lib/catalog"
 import { getLocalizedConfig } from "@/lib/i18n-server"
 import { readProjectGitStatus } from "@/lib/project-git"
+import { getMutationToken } from "@/lib/request-security"
 
 export default async function ProjectPage({
   params,
@@ -31,7 +32,11 @@ export default async function ProjectPage({
           locale={config.appearance.language}
         />
       </ProjectHeader>
-      <ProjectSessionList projectId={projectId} initialPage={page} />
+      <ProjectSessionList
+        projectId={projectId}
+        initialPage={page}
+        mutationToken={getMutationToken()}
+      />
     </div>
   )
 }

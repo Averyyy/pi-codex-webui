@@ -1,9 +1,13 @@
 "use client"
 
+import { useRef, useState } from "react"
 import Link from "next/link"
-import { MessageSquareTextIcon } from "lucide-react"
+import { useRouter } from "next/navigation"
+import { MessageSquareTextIcon, RefreshCwIcon } from "lucide-react"
+import { toast } from "sonner"
 
 import { Badge } from "@workspace/ui/components/badge"
+import { Button } from "@workspace/ui/components/button"
 import {
   Card,
   CardDescription,
@@ -21,26 +25,88 @@ import { useI18n } from "@/components/i18n-provider"
 import { SessionPageSentinel } from "@/components/session-page-sentinel"
 import { useSessionPage } from "@/hooks/use-session-page"
 import { displaySessionTitle, formatTimestamp } from "@/lib/session-display"
+import { refreshProjectSessions } from "@/lib/project-session-refresh"
 import type { SessionPage } from "@/lib/session-types"
 
 export function ProjectSessionList({
   projectId,
   initialPage,
+  mutationToken,
 }: {
   projectId: string
   initialPage: SessionPage
+  mutationToken: string
 }) {
+  const router = useRouter()
   const { locale, t } = useI18n()
   const page = useSessionPage({ scope: "project", projectId, initialPage })
+  const refreshingRef = useRef(false)
+  const [refreshing, setRefreshing] = useState(false)
+  const [refreshError, setRefreshError] = useState<string | null>(null)
   const fallback = {
     task: t("workspace.nav.newTask"),
     conversation: t("workspace.nav.unnamedConversation"),
+  }
+  async function refresh() {
+    if (refreshingRef.current) return
+    refreshingRef.current = true
+    setRefreshing(true)
+    setRefreshError(null)
+    try {
+      const result = await refreshProjectSessions(projectId, mutationToken)
+      router.refresh()
+      if (result.failures.length > 0) {
+        const first = result.failures[0]!
+        setRefreshError(
+          t("project.sessions.refreshPartial", {
+            count: result.failures.length,
+            message: `${first.file}: ${first.message}`,
+          })
+        )
+      } else {
+        toast.success(t("project.sessions.refreshSuccess"))
+      }
+    } catch (failure) {
+      setRefreshError(
+        failure instanceof Error ? failure.message : String(failure)
+      )
+    } finally {
+      refreshingRef.current = false
+      setRefreshing(false)
+    }
   }
   return (
     <section
       className="grid gap-3"
       aria-label={t("project.sessions.ariaLabel")}
     >
+      <div className="flex justify-end">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={refreshing}
+          aria-busy={refreshing}
+          onClick={() => void refresh()}
+        >
+          <RefreshCwIcon
+            data-icon="inline-start"
+            className={
+              refreshing ? "animate-spin motion-reduce:animate-none" : undefined
+            }
+          />
+          {t(
+            refreshing
+              ? "project.sessions.refreshing"
+              : "project.sessions.refresh"
+          )}
+        </Button>
+      </div>
+      {refreshError ? (
+        <p role="alert" className="min-w-0 text-sm break-all text-destructive">
+          {refreshError}
+        </p>
+      ) : null}
       {page.sessions.map((session) => (
         <Link
           key={session.id}

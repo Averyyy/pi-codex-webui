@@ -1523,6 +1523,23 @@ const messages = {
     "en-US": "Project conversations",
   },
   "project.sessions.new": { "zh-CN": "新对话", "en-US": "New conversation" },
+  "project.sessions.refresh": {
+    "zh-CN": "刷新对话",
+    "en-US": "Refresh conversations",
+  },
+  "project.sessions.refreshing": {
+    "zh-CN": "刷新中…",
+    "en-US": "Refreshing…",
+  },
+  "project.sessions.refreshSuccess": {
+    "zh-CN": "项目对话已刷新。",
+    "en-US": "Project conversations refreshed.",
+  },
+  "project.sessions.refreshPartial": {
+    "zh-CN": "已刷新项目对话，但有 {count} 个文件无法读取。首个错误：{message}",
+    "en-US":
+      "Project conversations refreshed, but {count} files could not be read. First error: {message}",
+  },
   "project.sessions.messageCount": {
     "zh-CN": "{count} 条消息",
     "en-US": "{count} messages",

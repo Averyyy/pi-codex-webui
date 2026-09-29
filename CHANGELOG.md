@@ -2,6 +2,21 @@
 
 All notable changes to `pi-web-codex` are documented here.
 
+## [0.1.26] - 2026-09-29
+
+### Added
+
+- Added explicit project conversation refresh for sessions written outside the WebUI, with visible partial-scan errors.
+
+### Fixed
+
+- Removed deleted project conversations only after a complete scan and kept other projects' sessions untouched.
+- Revalidated session model catalogs against current project and authentication state, including after resource-cache eviction.
+
+### Changed
+
+- Reloaded local model settings without triggering provider discovery.
+
 ## [0.1.24] - 2026-09-28
 
 ### Fixed

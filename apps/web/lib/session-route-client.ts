@@ -6,6 +6,11 @@ import type { SessionSnapshot } from "@/lib/session-types"
 
 export interface SessionRouteClientData {
   session: SessionSnapshot["session"]
+  modelCatalogBinding: {
+    catalogIdentity: string
+    catalogVersion: string
+  } | null
+  modelCatalogChecked: boolean
   nativeFileChanged: boolean
   nativeFileRevision: string
   identityKey: string
