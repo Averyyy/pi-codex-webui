@@ -20,12 +20,30 @@ function hasActiveOutput(live: LiveState) {
   )
 }
 
+function liveBoundaryChanged(before: LiveState, after: LiveState) {
+  return (
+    before?.instance !== after?.instance ||
+    before?.baseLeafId !== after?.baseLeafId ||
+    hasActiveOutput(before) !== hasActiveOutput(after)
+  )
+}
+
+function selectedFileConflict() {
+  return new RuntimeRequestError(
+    "SessionFileChanged",
+    "The native session file changed while the runtime had active output. Reload the selected session after the current turn ends."
+  )
+}
+
 export async function getSessionView(
   sessionId: string,
   previousLeaf?: string | null,
   syncSelectedFile = false
 ): Promise<SessionView | null> {
   const supervisor = getRuntimeSupervisor()
+  let guardedInstance: object | undefined
+  let guardedBaseLeaf: string | null | undefined
+  let guardedGeneration: number | undefined
   for (;;) {
     const live = supervisor.liveState(sessionId)
     const runtimeBefore = supervisor.state(sessionId)
@@ -38,26 +56,106 @@ export async function getSessionView(
     let sync =
       !active &&
       (syncSelectedFile || live === null || live.state.messages.length === 0)
-    if (live?.baseLeafId) {
-      const database = await getDatabase()
-      if (
-        !database
-          .prepare(
-            "SELECT 1 FROM session_entries WHERE session_id = ? AND entry_id = ? AND byte_offset IS NOT NULL"
-          )
-          .get(sessionId, live.baseLeafId)
+    const database =
+      live !== null || active ? await getDatabase() : null
+    const generationBefore =
+      active && database
+        ? (
+            database
+              .prepare("SELECT index_generation FROM sessions WHERE id = ?")
+              .get(sessionId) as { index_generation: number } | undefined
+          )?.index_generation
+        : undefined
+    const liveBaseIndexed =
+      live?.baseLeafId === null ||
+      Boolean(
+        live?.baseLeafId &&
+          database
+            ?.prepare(
+              "SELECT 1 FROM session_entries WHERE session_id = ? AND entry_id = ? AND byte_offset IS NOT NULL"
+            )
+            .get(sessionId, live.baseLeafId)
       )
-        sync = true
+    if (live && !liveBaseIndexed) sync = true
+    const checkpointAdvanced =
+      live !== null &&
+      live.instance === guardedInstance &&
+      guardedBaseLeaf !== undefined &&
+      live.baseLeafId !== guardedBaseLeaf &&
+      !hasActiveOutput(live)
+    if (
+      active &&
+      live?.instance &&
+      (guardedInstance !== live.instance || checkpointAdvanced)
+    ) {
+      guardedInstance = live.instance
+      guardedBaseLeaf = live.baseLeafId
+      guardedGeneration =
+        liveBaseIndexed && !sync ? generationBefore : undefined
     }
-    let snapshot = await getSessionTranscriptPage(sessionId, {
-      sync,
-      ...(live && (!syncSelectedFile || selectedFileSyncDeferred)
-        ? { leafId: live.baseLeafId }
-        : {}),
-      previousLeaf,
-    })
+    let snapshot
+    try {
+      snapshot = await getSessionTranscriptPage(sessionId, {
+        sync,
+        ...(live && (!syncSelectedFile || selectedFileSyncDeferred)
+          ? { leafId: live.baseLeafId }
+          : {}),
+        previousLeaf,
+      })
+    } catch (error) {
+      // Retry only if another runtime or checkpoint superseded this read.
+      const current = supervisor.liveState(sessionId)
+      if (!liveBoundaryChanged(live, current)) throw error
+      const checkpointAdvancedDuringRead =
+        live !== null &&
+        live.instance === current?.instance &&
+        live.baseLeafId !== current?.baseLeafId &&
+        !hasActiveOutput(current)
+      const generationAfter = database
+        ? (
+            database
+              .prepare("SELECT index_generation FROM sessions WHERE id = ?")
+              .get(sessionId) as { index_generation: number } | undefined
+          )?.index_generation
+        : undefined
+      if (
+        active &&
+        live?.instance === current?.instance &&
+        guardedGeneration !== undefined &&
+        !checkpointAdvancedDuringRead &&
+        generationAfter !== guardedGeneration
+      )
+        throw selectedFileConflict()
+      continue
+    }
     if (!snapshot) return null
-    let current = supervisor.liveState(sessionId)
+    const current = supervisor.liveState(sessionId)
+    if (live?.instance !== current?.instance) continue
+    const generationAfter = database
+      ? (
+          database
+            .prepare("SELECT index_generation FROM sessions WHERE id = ?")
+            .get(sessionId) as { index_generation: number } | undefined
+        )?.index_generation
+      : undefined
+    const checkpointAdvancedAfterRead =
+      live !== null &&
+      live.instance === current?.instance &&
+      live.baseLeafId !== current?.baseLeafId &&
+      !hasActiveOutput(current)
+    if (active && live?.instance === guardedInstance) {
+      if (guardedGeneration === undefined && snapshot.history)
+        guardedGeneration = snapshot.history.generation
+      if (
+        guardedGeneration !== undefined &&
+        !checkpointAdvancedAfterRead &&
+        (snapshot.history?.generation !== guardedGeneration ||
+          generationAfter !== guardedGeneration)
+      )
+        throw selectedFileConflict()
+    }
+    if (liveBoundaryChanged(live, current)) continue
+
     let allowExternalIdle = false
     if (
       current &&
@@ -93,12 +191,12 @@ export async function getSessionView(
         const stable = supervisor.liveState(sessionId)
         if (
           !stable ||
+          stable.instance !== current.instance ||
           stable.revision !== capturedRevision ||
           stable.baseLeafId !== capturedBaseLeaf
         )
           continue
         snapshot = baseSnapshot
-        current = stable
         selectedFileSync = "deferred"
       }
     }

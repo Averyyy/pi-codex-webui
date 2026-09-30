@@ -1595,11 +1595,13 @@ test("selected-file sync defers own active Pi Client append until runtime is idl
       let overlayCleared = false
       let settlementPending = true
       const supervisor = getRuntimeSupervisor()
+      const liveInstance = {}
       const liveMock = mock.method(
         supervisor,
         "liveState",
         () =>
           ({
+            instance: liveInstance,
             baseLeafId,
             revision: 1,
             state: {

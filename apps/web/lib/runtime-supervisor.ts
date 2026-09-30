@@ -448,7 +448,12 @@ export class RuntimeSupervisor {
 
   liveState(sessionId: string) {
     const runtime = this.runtimes.get(sessionId)
-    return runtime?.live?.capture(runtime.status) ?? null
+    return runtime?.live
+      ? {
+          ...runtime.live.capture(runtime.status),
+          instance: runtime.live as object,
+        }
+      : null
   }
 
   settlementPending(sessionId: string) {
