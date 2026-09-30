@@ -266,3 +266,12 @@ export function canCollapseConversation(
     !active && hasResponse && outcome !== "stopped" && outcome !== "pending"
   )
 }
+
+export function persistedRoundIsActive(
+  outcome: ConversationOutcome,
+  hasResponse: boolean,
+  runtimeActive: boolean,
+  isLatestRound: boolean
+) {
+  return runtimeActive && isLatestRound && !hasResponse && outcome === "pending"
+}

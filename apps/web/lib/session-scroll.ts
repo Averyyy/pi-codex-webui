@@ -44,9 +44,13 @@ export function restoreSessionScroll(
     return
   }
   const anchor = position.anchorId
-    ? document.getElementById(position.anchorId)
+    ? [
+        ...container.querySelectorAll<HTMLElement>(
+          '[id^="entry-"], [id^="live-message-"]'
+        ),
+      ].find((element) => element.id === position.anchorId)
     : null
-  if (anchor && container.contains(anchor)) {
+  if (anchor) {
     container.scrollTop +=
       anchor.getBoundingClientRect().top -
       container.getBoundingClientRect().top -

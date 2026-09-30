@@ -5,7 +5,6 @@ import {
   useCallback,
   useContext,
   useEffect,
-  useState,
   useSyncExternalStore,
   type ReactNode,
 } from "react"
@@ -14,58 +13,22 @@ import type { SessionView } from "@/lib/session-view-types"
 import type { SessionSnapshot } from "@/lib/session-types"
 
 const Context = createContext<SessionViewController | null>(null)
-const cachedSessions = new Map<string, SessionViewController>()
 const EMPTY_METADATA = { loadingEarlier: false, error: null as string | null }
 const EMPTY_MESSAGES: ReturnType<
   SessionViewController["store"]["getMessages"]
 > = []
 
-function acquire(
-  cacheKey: string,
-  sessionId: string,
-  view: SessionView | null
-) {
-  if (typeof window === "undefined")
-    return new SessionViewController(sessionId, view)
-  const previous = cachedSessions.get(cacheKey)
-  if (previous) return previous
-  const controller = new SessionViewController(sessionId, view)
-  cachedSessions.set(cacheKey, controller)
-  const idle = [...cachedSessions.values()]
-    .filter(
-      (entry) => entry.lastUsed > 0 && !entry.users && entry !== controller
-    )
-    .sort((a, b) => a.lastUsed - b.lastUsed)
-  while (cachedSessions.size > 8 && idle.length) {
-    const oldest = idle.shift()!
-    oldest.dispose()
-    for (const [key, value] of cachedSessions) {
-      if (value === oldest) {
-        cachedSessions.delete(key)
-        break
-      }
-    }
-  }
-  return controller
-}
-
 export function SessionStreamingProvider({
-  sessionId,
-  identityKey,
+  controller,
   selectedNativeFileRevision,
   initialView,
   children,
 }: {
-  sessionId: string
-  identityKey?: string
+  controller: SessionViewController
   selectedNativeFileRevision?: string
   initialView?: SessionView | null
   children: ReactNode
 }) {
-  const cacheKey = identityKey ?? sessionId
-  const [controller] = useState(() =>
-    acquire(cacheKey, sessionId, initialView ?? null)
-  )
   useEffect(() => {
     controller.retain(undefined, selectedNativeFileRevision)
     return () => controller.release()

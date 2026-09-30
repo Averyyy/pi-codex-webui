@@ -1,6 +1,7 @@
 import type { ComposerImage } from "@/lib/prompt-images"
 
 export const NEW_CONVERSATION_DRAFT_ID = "new-conversation"
+export const SESSION_DRAFT_STORAGE_PREFIX = "pi-web-codex:session-draft.v1:"
 export const UPDATE_DRAFT_HANDOFF_STORAGE_KEY =
   "pi-web-codex:update-draft-handoff.v1"
 export const UPDATE_DRAFT_HANDOFF_VERSION = 1 as const
@@ -28,19 +29,143 @@ export function draftAfterAcceptedSend(current: string, submitted: string) {
 
 export class SessionComposerDraftStore {
   private readonly drafts = new Map<string, SessionComposerDraft>()
+  private readonly loaded = new Set<string>()
+  private readonly storageErrorListeners = new Set<() => void>()
+  private readonly storageErrors = new Map<string, string>()
+  private storageErrorNotificationScheduled = false
+
+  constructor(
+    private readonly storage: Pick<
+      Storage,
+      "getItem" | "setItem" | "removeItem"
+    > | null = null
+  ) {}
+
+  subscribeStorageError(listener: () => void) {
+    this.storageErrorListeners.add(listener)
+    return () => {
+      this.storageErrorListeners.delete(listener)
+    }
+  }
+
+  getStorageError() {
+    return this.storageErrors.values().next().value ?? null
+  }
+
+  private notifyStorageErrorListeners() {
+    if (this.storageErrorNotificationScheduled) return
+    this.storageErrorNotificationScheduled = true
+    queueMicrotask(() => {
+      this.storageErrorNotificationScheduled = false
+      for (const listener of this.storageErrorListeners) listener()
+    })
+  }
+
+  private reportStorageError(key: string, action: string, failure: unknown) {
+    this.storageErrors.set(
+      key,
+      `Could not ${action} the composer draft in this tab: ${
+        failure instanceof Error ? failure.message : String(failure)
+      }`
+    )
+    this.notifyStorageErrorListeners()
+  }
+
+  private clearStorageError(key: string) {
+    if (!this.storageErrors.delete(key)) return
+    this.notifyStorageErrorListeners()
+  }
+
+  private storageKey(sessionId: string, field: "text" | "images") {
+    return `${SESSION_DRAFT_STORAGE_PREFIX}${encodeURIComponent(sessionId)}:${field}`
+  }
 
   read(sessionId: string): SessionComposerDraft {
+    if (!this.loaded.has(sessionId)) {
+      this.loaded.add(sessionId)
+      if (this.storage) {
+        let text: string | null = null
+        let images: ComposerImage[] = []
+        const textKey = this.storageKey(sessionId, "text")
+        const imagesKey = this.storageKey(sessionId, "images")
+        try {
+          text = this.storage.getItem(textKey)
+          this.clearStorageError(textKey)
+        } catch (failure) {
+          this.reportStorageError(textKey, "read", failure)
+        }
+        try {
+          const rawImages = this.storage.getItem(imagesKey)
+          if (rawImages !== null) {
+            const parsed: unknown = JSON.parse(rawImages)
+            if (!Array.isArray(parsed) || !parsed.every(isComposerImage)) {
+              throw new DraftHandoffError("Saved composer images are invalid.")
+            }
+            images = parsed.map((image) => ({ ...image }))
+          }
+          this.clearStorageError(imagesKey)
+        } catch (failure) {
+          this.reportStorageError(imagesKey, "read", failure)
+        }
+        if (text || images.length > 0) {
+          this.drafts.set(sessionId, { text: text ?? "", images })
+        }
+      }
+    }
     return this.drafts.get(sessionId) ?? { text: "", images: [] }
   }
 
   setText(sessionId: string, text: string) {
     const current = this.read(sessionId)
     this.write(sessionId, { ...current, text })
+    if (!this.storage) return
+    const key = this.storageKey(sessionId, "text")
+    try {
+      if (text) this.storage.setItem(key, text)
+      else this.storage.removeItem(key)
+      this.clearStorageError(key)
+    } catch (failure) {
+      this.reportStorageError(key, "save", failure)
+    }
   }
 
   setImages(sessionId: string, images: ComposerImage[]) {
     const current = this.read(sessionId)
     this.write(sessionId, { ...current, images })
+    if (!this.storage) return
+    const key = this.storageKey(sessionId, "images")
+    try {
+      if (images.length > 0) this.storage.setItem(key, JSON.stringify(images))
+      else this.storage.removeItem(key)
+      this.clearStorageError(key)
+    } catch (failure) {
+      this.reportStorageError(key, "save", failure)
+    }
+  }
+
+  isPersistedIn(storage: Pick<Storage, "getItem">) {
+    this.clearStorageError("verification")
+    if (storage !== this.storage || this.storageErrors.size > 0) return false
+    try {
+      for (const sessionId of this.loaded) {
+        const draft = this.read(sessionId)
+        const savedText = storage.getItem(this.storageKey(sessionId, "text"))
+        const savedImages = storage.getItem(
+          this.storageKey(sessionId, "images")
+        )
+        if (
+          savedText !== (draft.text || null) ||
+          savedImages !==
+            (draft.images.length > 0 ? JSON.stringify(draft.images) : null)
+        ) {
+          return false
+        }
+      }
+      return true
+    } catch (failure) {
+      this.reportStorageError("verification", "verify", failure)
+      return false
+    }
   }
 
   toUpdateHandoff(): SessionComposerDraftHandoff {
@@ -60,10 +185,11 @@ export class SessionComposerDraftStore {
 
   restoreUpdateHandoff(handoff: SessionComposerDraftHandoff) {
     for (const [sessionId, draft] of Object.entries(handoff.drafts)) {
-      this.write(sessionId, {
-        text: draft.text,
-        images: draft.images.map((image) => ({ ...image })),
-      })
+      this.setText(sessionId, draft.text)
+      this.setImages(
+        sessionId,
+        draft.images.map((image) => ({ ...image }))
+      )
     }
   }
 
@@ -142,8 +268,23 @@ export function parseUpdateDraftHandoff(
 
 export function writeUpdateDraftHandoff(
   store: SessionComposerDraftStore,
-  storage: Pick<Storage, "setItem" | "removeItem"> = window.sessionStorage
+  storage: Pick<
+    Storage,
+    "getItem" | "setItem" | "removeItem"
+  > = window.sessionStorage
 ) {
+  if (store.isPersistedIn(storage)) {
+    try {
+      storage.removeItem(UPDATE_DRAFT_HANDOFF_STORAGE_KEY)
+    } catch (failure) {
+      throw new DraftHandoffError(
+        `Could not clear the composer draft handoff: ${
+          failure instanceof Error ? failure.message : String(failure)
+        }`
+      )
+    }
+    return
+  }
   const handoff = store.toUpdateHandoff()
   if (Object.keys(handoff.drafts).length === 0) {
     try {

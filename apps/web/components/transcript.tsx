@@ -35,6 +35,7 @@ import {
   conversationActivityBlocks,
   conversationActivityCommandCount,
   conversationActivityDisplayId,
+  persistedRoundIsActive,
   conversationRounds,
   partitionConversationRound,
   type ConversationActivityBlock,
@@ -456,11 +457,14 @@ export function SessionTranscript({
         } = partitionConversationRound(round)
         if (round.every(isSettingEvent)) return null
         const runtimeStatus = liveRuntimeStatus ?? initialRuntimeStatus
-        const active =
-          (runtimeStatus === "starting" ||
+        const active = persistedRoundIsActive(
+          outcome,
+          Boolean(finalEntry),
+          runtimeStatus === "starting" ||
             runtimeStatus === "busy" ||
-            runtimeStatus === "stopping") &&
+            runtimeStatus === "stopping",
           roundIndex === rounds.length - 1
+        )
         const processEntriesForRender = processEntries.filter(
           (entry) =>
             !(

@@ -1,4 +1,4 @@
-import { responseJson } from "./api-response"
+import { ApiError, responseJson } from "./api-response"
 import { compactionEndOutcome } from "./compaction-events"
 import {
   SessionRuntimeController,
@@ -24,6 +24,7 @@ export interface SessionScrollPosition {
 }
 
 export interface SessionViewControllerOptions {
+  onViewUnavailable?: (message: string) => void
   idleGraceMs?: number
   setTimer?: (
     callback: () => void,
@@ -93,6 +94,8 @@ export class SessionViewController {
   captureAnchor: (() => SessionScrollPosition) | null = null
   users = 0
   lastUsed = 0
+  private disposed = false
+  private viewUnavailable = false
   followedRequest = 0
   revealedHash: string | null = null
   private cursor: string | null
@@ -103,6 +106,8 @@ export class SessionViewController {
   private historyRequest: Promise<void> | null = null
   private dropHistory = false
   private forceFollow = false
+  private navigationGeneration = 0
+  private userNavigationGeneration = 0
   private metadata = { loadingEarlier: false, error: null as string | null }
   private readonly listeners = new Set<() => void>()
   private idleTimer: ReturnType<typeof setTimeout> | null = null
@@ -125,7 +130,7 @@ export class SessionViewController {
       globalThis.fetch(...args),
     factory?: ConstructorParameters<typeof SessionEventStream>[2],
     scheduler?: FrameScheduler,
-    options: SessionViewControllerOptions = {}
+    private readonly options: SessionViewControllerOptions = {}
   ) {
     this.currentView = initial
     this.cursor = initial?.eventCursor ?? null
@@ -156,7 +161,10 @@ export class SessionViewController {
           this.cursor = event.id
           if (this.replay) coalesce(this.replay, event)
           applySessionLiveEvent(this.store, event)
-          if (event.type === "session.leaf.changed") this.dropHistory = true
+          if (event.type === "session.leaf.changed") {
+            this.navigationGeneration++
+            this.dropHistory = true
+          }
           const shouldRefresh =
             [
               "session.completed",
@@ -183,7 +191,6 @@ export class SessionViewController {
         this.setError(error)
       }
     })
-    sessionControllers.add(this)
   }
 
   subscribe = (listener: () => void) => {
@@ -205,6 +212,7 @@ export class SessionViewController {
       >
     >
   ) {
+    if (this.disposed) return
     const revision = ++this.sessionSummaryRevision
     if (summary.title !== undefined) {
       this.pendingSessionSummary.title = summary.title
@@ -231,6 +239,7 @@ export class SessionViewController {
   }
   getMetadata = () => this.metadata
   private setError(error: unknown) {
+    if (this.disposed) return
     this.metadata = {
       ...this.metadata,
       error: error instanceof Error ? error.message : String(error),
@@ -239,6 +248,10 @@ export class SessionViewController {
   }
 
   retain(initial = this.initialView, selectedNativeFileRevision?: string) {
+    if (this.disposed) {
+      throw new Error("A disposed session view cannot be retained.")
+    }
+    sessionControllers.add(this)
     const needsSelectedFileSync =
       selectedNativeFileRevision !== undefined &&
       selectedNativeFileRevision !== this.syncedNativeFileRevision &&
@@ -269,6 +282,7 @@ export class SessionViewController {
   }
 
   acceptInitial(initial: SessionView) {
+    if (this.disposed) return
     if (!this.currentView) {
       void this.refresh().catch(() => undefined)
       return
@@ -290,6 +304,7 @@ export class SessionViewController {
   }
 
   release() {
+    if (this.disposed) return
     this.users = Math.max(0, this.users - 1)
     this.lastUsed = Date.now()
     this.updateConnectionRetention()
@@ -301,6 +316,9 @@ export class SessionViewController {
     )
   }
   dispose() {
+    if (this.disposed) return
+    this.disposed = true
+    this.users = 0
     this.cancelIdlePause()
     this.events.close()
     this.store.dispose()
@@ -319,6 +337,14 @@ export class SessionViewController {
   }
 
   refresh = (eventCursor?: string) => {
+    if (this.disposed)
+      return Promise.reject(
+        new Error("A disposed session view cannot refresh.")
+      )
+    if (this.viewUnavailable)
+      return Promise.reject(
+        new ApiError("Session not found.", "SessionNotFound")
+      )
     if (this.refreshRequest) {
       if (eventCursor === undefined) {
         this.refreshAgain = true
@@ -333,6 +359,7 @@ export class SessionViewController {
       return this.refreshRequest
     }
     this.refreshRequest = this.refreshNow().finally(() => {
+      if (this.disposed) return
       const forceRefreshAgain = this.refreshAgain
       const requestedCursor = this.refreshAgainCursor
       this.refreshRequest = null
@@ -352,6 +379,10 @@ export class SessionViewController {
   }
 
   refreshSelectedFile = (nativeFileRevision: string) => {
+    if (this.disposed)
+      return Promise.reject(
+        new Error("A disposed session view cannot refresh.")
+      )
     if (
       nativeFileRevision === this.syncedNativeFileRevision ||
       nativeFileRevision === this.inFlightNativeFileRevision
@@ -378,20 +409,44 @@ export class SessionViewController {
     try {
       if (this.historyRequest) await this.historyRequest
       const runtimeGeneration = this.runtime.getGeneration()
-      const previous = this.store.getTranscript()
-      const previousLeaf = previous?.history?.leafId ?? null
+      const previousLeaf = this.store.getTranscript()?.history?.leafId ?? null
       const query = new URLSearchParams({ previousLeaf: previousLeaf ?? "" })
       if (nativeFileRevision !== null) query.set("syncSelectedFile", "1")
-      const view = await responseJson<SessionView>(
-        await this.request(`/api/v1/sessions/${this.sessionId}/view?${query}`, {
-          cache: "no-store",
-        })
-      )
+      let view: SessionView
+      try {
+        view = await responseJson<SessionView>(
+          await this.request(
+            `/api/v1/sessions/${this.sessionId}/view?${query}`,
+            {
+              cache: "no-store",
+            }
+          )
+        )
+      } catch (error) {
+        if (
+          !this.disposed &&
+          !this.viewUnavailable &&
+          error instanceof ApiError &&
+          error.code === "SessionNotFound"
+        ) {
+          this.viewUnavailable = true
+          this.options.onViewUnavailable?.(error.message)
+        }
+        throw error
+      }
+      if (this.disposed) return
+      const previous = this.store.getTranscript()
       let transcript = view.snapshot
+      if (
+        transcript.history?.leafId !== previousLeaf &&
+        transcript.history?.extendsLeaf === false
+      )
+        this.navigationGeneration++
       if (
         previous &&
         !this.dropHistory &&
         previous.history?.atLatest === false &&
+        previous.history.leafId === previousLeaf &&
         transcript.history?.extendsLeaf &&
         transcript.history.generation === previous.history.generation
       ) {
@@ -414,6 +469,7 @@ export class SessionViewController {
       } else if (
         previous &&
         !this.dropHistory &&
+        previous.history?.leafId === previousLeaf &&
         transcript.history?.extendsLeaf &&
         transcript.history.generation === previous.history?.generation
       ) {
@@ -445,6 +501,7 @@ export class SessionViewController {
           },
         }
       }
+      if (this.disposed) return
       this.pendingAnchor = this.captureAnchor?.() ?? null
       if (this.forceFollow) {
         this.pendingAnchor = {
@@ -509,8 +566,13 @@ export class SessionViewController {
           status: this.store.getRuntimeStatus() ?? view.runtime.status,
         },
       }
-      if (nativeFileRevision !== null)
-        this.syncedNativeFileRevision = nativeFileRevision
+      if (nativeFileRevision !== null) {
+        if (view.selectedFileSync === "deferred") {
+          this.pendingNativeFileRevision ??= nativeFileRevision
+        } else {
+          this.syncedNativeFileRevision = nativeFileRevision
+        }
+      }
       this.metadata = { ...this.metadata, error: null }
       for (const listener of this.listeners) listener()
     } catch (error) {
@@ -533,6 +595,7 @@ export class SessionViewController {
   }
 
   private pauseIfIdle() {
+    if (this.disposed) return
     this.idleGeneration++
     idleSessionStreams.delete(this)
     if (this.idleTimer !== null) this.clearTimer(this.idleTimer)
@@ -550,6 +613,7 @@ export class SessionViewController {
   }
 
   private updateConnectionRetention() {
+    if (this.disposed) return
     if (this.users > 0) {
       this.cancelIdlePause()
       return
@@ -574,24 +638,33 @@ export class SessionViewController {
   }
 
   pauseIdleTransport() {
+    if (this.disposed) return
     this.pauseIfIdle()
   }
 
   retainIdleTransport() {
+    if (this.disposed) return
     if (this.users === 0) this.updateConnectionRetention()
   }
 
   loadEarlier = (reveal = false) => {
+    if (this.disposed) return Promise.resolve()
     if (this.historyRequest) return this.historyRequest
     const cursor = this.store.getTranscript()?.history?.nextCursor
     if (!cursor) return Promise.resolve()
+    const navigationGeneration = this.navigationGeneration
     this.metadata = { loadingEarlier: true, error: null }
     for (const listener of this.listeners) listener()
     this.historyRequest = (async () => {
       try {
         const page = await this.page(cursor)
+        if (this.disposed) return
         const current = this.store.getTranscript()!
-        if (current.history?.nextCursor !== cursor) return
+        if (
+          this.navigationGeneration !== navigationGeneration ||
+          current.history?.nextCursor !== cursor
+        )
+          return
         this.pendingAnchor = this.captureAnchor?.() ?? null
         if (reveal && page.entries[0])
           this.pendingAnchor = {
@@ -612,7 +685,8 @@ export class SessionViewController {
           },
         })
       } catch (error) {
-        this.setError(error)
+        if (this.navigationGeneration === navigationGeneration)
+          this.setError(error)
       } finally {
         this.historyRequest = null
         this.metadata = { ...this.metadata, loadingEarlier: false }
@@ -623,6 +697,8 @@ export class SessionViewController {
   }
 
   async loadEntry(entryId: string) {
+    if (this.disposed) return
+    const navigationGeneration = this.navigationGeneration
     try {
       const current = this.store.getTranscript()!
       const cursor = current.history?.leafId
@@ -636,8 +712,13 @@ export class SessionViewController {
           { cache: "no-store" }
         )
       )
+      if (this.disposed) return
       const latest = this.store.getTranscript()!
-      if (latest.history?.leafId !== cursor) return
+      if (
+        this.navigationGeneration !== navigationGeneration ||
+        latest.history?.leafId !== cursor
+      )
+        return
       this.pendingAnchor = this.captureAnchor?.() ?? null
       this.store.setTranscript({
         ...latest,
@@ -646,13 +727,30 @@ export class SessionViewController {
         ),
       })
     } catch (error) {
-      this.setError(error)
+      if (this.navigationGeneration === navigationGeneration)
+        this.setError(error)
     }
   }
 
   async revealEntry(entryId: string) {
+    if (this.disposed) return false
+    this.userNavigationGeneration++
+    const navigationGeneration = ++this.navigationGeneration
+    this.dropHistory = false
+    this.forceFollow = false
     try {
-      const current = this.store.getTranscript()!
+      let current = this.store.getTranscript()
+      if (!current) {
+        await this.events.waitForCheckpoint()
+        if (this.disposed || this.navigationGeneration !== navigationGeneration)
+          return false
+        await this.ensureInitialView()
+        if (this.disposed || this.navigationGeneration !== navigationGeneration)
+          return false
+        current = this.store.getTranscript()
+        if (!current)
+          throw new Error("The initial session transcript is unavailable.")
+      }
       if (!current.entries.some((entry) => entry.id === entryId)) {
         const params = new URLSearchParams({ focusId: entryId })
         if (current.history?.anchorCursor)
@@ -663,6 +761,8 @@ export class SessionViewController {
             { cache: "no-store" }
           )
         )
+        if (this.disposed || this.navigationGeneration !== navigationGeneration)
+          return false
         this.pendingAnchor = {
           top: 0,
           following: false,
@@ -679,8 +779,11 @@ export class SessionViewController {
         }
         this.store.setTranscript({ ...current })
       }
+      return true
     } catch (error) {
-      this.setError(error)
+      if (this.navigationGeneration === navigationGeneration)
+        this.setError(error)
+      return false
     }
   }
 
@@ -688,19 +791,28 @@ export class SessionViewController {
     if (!hash.startsWith("#entry-") || this.revealedHash === hash) return
     try {
       const id = decodeURIComponent(hash.slice("#entry-".length))
-      this.revealedHash = hash
-      await this.revealEntry(id)
+      const revealed = this.revealEntry(id)
+      const userNavigationGeneration = this.userNavigationGeneration
+      if (
+        (await revealed) &&
+        !this.disposed &&
+        this.userNavigationGeneration === userNavigationGeneration
+      )
+        this.revealedHash = hash
     } catch (error) {
       this.setError(error)
     }
   }
 
   showLatest = async () => {
+    const userNavigationGeneration = ++this.userNavigationGeneration
+    this.navigationGeneration++
     this.dropHistory = true
     this.forceFollow = true
     this.revealedHash = null
     await this.refresh()
-    this.store.requestFollow()
+    if (this.userNavigationGeneration === userNavigationGeneration)
+      this.store.requestFollow()
   }
 }
 

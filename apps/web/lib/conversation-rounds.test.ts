@@ -8,6 +8,7 @@ import {
   conversationActivityDisplayId,
   conversationRounds,
   partitionConversationRound,
+  persistedRoundIsActive,
 } from "./conversation-rounds"
 import type { TranscriptEntry, TranscriptPart } from "./session-types"
 
@@ -286,5 +287,53 @@ test("activity running state follows the source tail and explicit tool ids", () 
     parallel &&
       conversationActivityBlockIsRunning(parallel, new Set(["tool-1"]), false),
     false
+  )
+})
+
+test("a completed persisted round stays complete while a newer live turn runs", () => {
+  const completed = partitionConversationRound([
+    assistant("old-tool", [tool], "toolUse"),
+    assistant(
+      "old-answer",
+      [{ type: "text", text: "RELOAD_RECOVERY_OK" }],
+      "stop"
+    ),
+  ])
+  assert.equal(completed.outcome, "complete")
+  assert.ok(completed.response)
+  assert.equal(
+    persistedRoundIsActive(
+      completed.outcome,
+      Boolean(completed.response),
+      true,
+      true
+    ),
+    false
+  )
+  assert.equal(
+    canCollapseConversation(
+      Boolean(completed.response),
+      completed.outcome,
+      persistedRoundIsActive(
+        completed.outcome,
+        Boolean(completed.response),
+        true,
+        true
+      )
+    ),
+    true
+  )
+
+  const pending = partitionConversationRound([
+    assistant("new-tool", [tool], "toolUse"),
+  ])
+  assert.equal(
+    persistedRoundIsActive(
+      pending.outcome,
+      Boolean(pending.response),
+      true,
+      true
+    ),
+    true
   )
 })

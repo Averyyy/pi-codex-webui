@@ -42,7 +42,10 @@ import {
   nextThinkingLevel,
 } from "@/components/conversation-composer"
 import { CatalogRefreshAction } from "@/components/catalog-refresh-action"
-import { useSessionComposerDraftStore } from "@/components/session-composer-draft-context"
+import {
+  useSessionComposerDraftError,
+  useSessionComposerDraftStore,
+} from "@/components/session-composer-draft-context"
 import { ApiError, responseJson } from "@/lib/api-response"
 import { useI18n } from "@/components/i18n-provider"
 import type { ComposerImage } from "@/lib/prompt-images"
@@ -131,6 +134,7 @@ export function NewConversation({
   const router = useRouter()
   const { t } = useI18n()
   const composerDraftStore = useSessionComposerDraftStore()
+  const composerDraftError = useSessionComposerDraftError()
   const projectId = initialProjectId
   const models = useMemo(
     () => (initialModelSettings?.models ?? []).filter((model) => model.enabled),
@@ -721,14 +725,15 @@ export function NewConversation({
             ))}
           </ul>
         ) : null}
-        {error || draftError ? (
+        {error || draftError || composerDraftError ? (
           <div
             role="alert"
             className="flex items-start gap-3 rounded-xl border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive"
           >
             <CircleAlertIcon className="mt-0.5 size-4 shrink-0" />
             <p className="min-w-0 flex-1 break-words">
-              {draftError ??
+              {composerDraftError ??
+                draftError ??
                 (modelUnavailable
                   ? t("home.modelUnavailable")
                   : error?.message)}

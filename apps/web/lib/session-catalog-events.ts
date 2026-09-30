@@ -12,6 +12,28 @@ export interface SessionEntityUpdatedDetail {
   hasUnreadCompletion?: boolean
 }
 
+export function sessionNameEntityUpdate(
+  sessionId: string,
+  payload: unknown
+): SessionEntityUpdatedDetail {
+  if (
+    !payload ||
+    typeof payload !== "object" ||
+    !("type" in payload) ||
+    payload.type !== "session_info_changed" ||
+    ("name" in payload &&
+      payload.name !== undefined &&
+      typeof payload.name !== "string")
+  ) {
+    throw new Error("Invalid Pi session name change event.")
+  }
+  const name = "name" in payload ? payload.name : undefined
+  return {
+    sessionId,
+    title: typeof name === "string" ? name : null,
+  }
+}
+
 export interface SessionPageEntityCollection<T extends { id: string }> {
   sessions: T[]
   nextCursor: string | null

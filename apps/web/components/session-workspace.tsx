@@ -76,6 +76,7 @@ import {
   shouldScrollToSessionTail,
 } from "@/lib/session-scroll"
 import {
+  useSessionTranscript,
   useSessionViewController,
   useStreamingFollowRequest,
 } from "@/components/session-streaming-context"
@@ -246,12 +247,18 @@ function PanelTabs({
   availableTabs: WorkspaceTab[]
   onSelect: (tab: WorkspaceTab) => void
   onAdd: (tab: WorkspaceTab) => void
-  onCloseTab: (tab: WorkspaceTab) => void
+  onCloseTab: (tab: WorkspaceTab, tabsRoot: HTMLDivElement) => void
   onClosePanel: () => void
 }) {
   const { t } = useI18n()
+  const tabsRootRef = useRef<HTMLDivElement>(null)
+  const [menuOpen, setMenuOpen] = useState(false)
+  useLayoutEffect(() => () => setMenuOpen(false), [])
   return (
-    <div className="flex min-h-11 shrink-0 items-center gap-1 border-b px-2">
+    <div
+      ref={tabsRootRef}
+      className="flex min-h-11 shrink-0 items-center gap-1 border-b px-2"
+    >
       {tabs.length && activeTab ? (
         <div className="flex h-9 min-w-0 flex-1 items-center gap-0 overflow-x-auto">
           {tabs.map((tab) => {
@@ -283,7 +290,7 @@ function PanelTabs({
                   size="icon-xs"
                   className="-ml-1 opacity-0 transition-opacity group-focus-within/tab:opacity-100 group-hover/tab:opacity-100 [@media(hover:none)]:opacity-100"
                   aria-label={t("session.workspace.closeTab", { name: label })}
-                  onClick={() => onCloseTab(tab)}
+                  onClick={() => onCloseTab(tab, tabsRootRef.current!)}
                 >
                   <XIcon />
                 </Button>
@@ -297,7 +304,7 @@ function PanelTabs({
         </span>
       )}
 
-      <DropdownMenu>
+      <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
         <DropdownMenuTrigger asChild>
           <Button
             variant="ghost"
@@ -352,6 +359,7 @@ export function SessionWorkspace({
   runtimeLabel,
   workspaceAvailable,
   canMutate,
+  active,
   subagentsInstalled,
   initialGit,
   fileManagerLabel,
@@ -373,6 +381,7 @@ export function SessionWorkspace({
   runtimeLabel: string
   workspaceAvailable: boolean
   canMutate: boolean
+  active: boolean
   subagentsInstalled: boolean
   initialGit: ProjectGitStatus | null
   fileManagerLabel: string | null
@@ -389,6 +398,7 @@ export function SessionWorkspace({
   const conversationScrollRef = useRef<HTMLDivElement>(null)
   const conversationContentRef = useRef<HTMLDivElement>(null)
   const viewController = useSessionViewController()
+  const transcript = useSessionTranscript(null)
   const { snapshot: projectGitSnapshot } = useProjectGitStatus(
     projectId,
     initialGit
@@ -403,6 +413,7 @@ export function SessionWorkspace({
   const [isDesktop, setIsDesktop] = useState(false)
   const [sideOpen, setSideOpen] = useState(false)
   const [mobileSideOpen, setMobileSideOpen] = useState(false)
+  useLayoutEffect(() => () => setMobileSideOpen(false), [])
   const [bottomOpen, setBottomOpen] = useState(false)
   const [horizontalDragging, setHorizontalDragging] = useState(false)
   const [verticalDragging, setVerticalDragging] = useState(false)
@@ -526,7 +537,7 @@ export function SessionWorkspace({
       container.scrollTop = container.scrollHeight
       viewController.scroll = captureSessionScroll(container, true)
     }
-  }, [followRequest, viewController])
+  }, [followRequest, transcript, viewController])
 
   useLayoutEffect(() => {
     const element = workspaceElementRef.current
@@ -600,7 +611,7 @@ export function SessionWorkspace({
     showSidebar()
   }
 
-  function closeTab(tab: WorkspaceTab) {
+  function closeTab(tab: WorkspaceTab, tabsRoot: HTMLDivElement) {
     const index = tabs.indexOf(tab)
     const remaining = tabs.filter((candidate) => candidate !== tab)
     const nextActive =
@@ -617,10 +628,10 @@ export function SessionWorkspace({
     }
     requestAnimationFrame(() => {
       const target = nextActive
-        ? document.querySelector<HTMLButtonElement>(
+        ? tabsRoot.querySelector<HTMLButtonElement>(
             `[data-workspace-tab="${nextActive}"]`
           )
-        : document.querySelector<HTMLButtonElement>("[data-workspace-add-tab]")
+        : tabsRoot.querySelector<HTMLButtonElement>("[data-workspace-add-tab]")
       target?.focus()
     })
   }
@@ -1018,7 +1029,7 @@ export function SessionWorkspace({
       </ResizablePanelGroup>
 
       <Sheet
-        open={!isDesktop && mobileSideOpen}
+        open={active && !isDesktop && mobileSideOpen}
         onOpenChange={(open) => {
           setMobileSideOpen(open)
           setSideOpen(open)

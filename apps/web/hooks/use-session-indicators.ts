@@ -14,7 +14,10 @@ import { z } from "zod"
 import { useI18n } from "@/components/i18n-provider"
 import { ApiError, validatedResponseJson } from "@/lib/api-response"
 import type { SessionSummary } from "@/lib/session-types"
-import { dispatchSessionEntityUpdated } from "@/lib/session-catalog-events"
+import {
+  dispatchSessionEntityUpdated,
+  sessionNameEntityUpdate,
+} from "@/lib/session-catalog-events"
 import { SESSION_CATALOG_CHANGED } from "@/lib/session-catalog-events"
 import { dispatchModelCatalogInvalidated } from "@/lib/model-catalog-events"
 import { dispatchWebUiExtensionCatalogInvalidated } from "@/lib/webui-extension-events"
@@ -236,6 +239,16 @@ export function useSessionIndicators({
     }
     if (!event.sessionId) return
     const sessionId = event.sessionId
+    if (event.type === "session.name.changed") {
+      try {
+        dispatchSessionEntityUpdated(
+          sessionNameEntityUpdate(sessionId, event.payload)
+        )
+      } catch (failure) {
+        console.error("Invalid session name change event.", failure)
+      }
+      return
+    }
     if (!sessionIdSet.has(sessionId)) return
 
     if (RUNNING_EVENT_TYPES.has(event.type)) {
@@ -267,6 +280,7 @@ export function useSessionIndicators({
       ...RUNNING_EVENT_TYPES,
       ...STOPPED_EVENT_TYPES,
       "session.completed",
+      "session.name.changed",
       "resync.required",
       "model.catalog.invalidated",
       "webui.extension.catalog.invalidated",

@@ -1012,12 +1012,14 @@ async function replaceSession(
     let result: { cancelled: boolean }
     if (message.type === "session.new") {
       result = await currentRuntime().newSession()
-      const session = currentRuntime().session
-      if (!session.sessionFile) {
-        throw new Error("Pi did not assign a file to the new session.")
+      if (!result.cancelled) {
+        const session = currentRuntime().session
+        if (!session.sessionFile) {
+          throw new Error("Pi did not assign a file to the new session.")
+        }
+        session.exportToJsonl(session.sessionFile)
+        session.sessionManager.setSessionFile(session.sessionFile)
       }
-      session.exportToJsonl(session.sessionFile)
-      session.sessionManager.setSessionFile(session.sessionFile)
     } else if (message.type === "session.clone") {
       const leafId = currentRuntime().session.sessionManager.getLeafId()
       if (!leafId)

@@ -88,7 +88,10 @@ import {
   nextThinkingLevel,
 } from "@/components/conversation-composer"
 import { SessionTreeViewer } from "@/components/session-tree-viewer"
-import { useSessionComposerDraftStore } from "@/components/session-composer-draft-context"
+import {
+  useSessionComposerDraftError,
+  useSessionComposerDraftStore,
+} from "@/components/session-composer-draft-context"
 import {
   SessionStreamingToolStatus,
   useSessionEvents,
@@ -205,6 +208,7 @@ export function SessionRuntime({
   initialGoalState,
   canConnect = true,
   canSend = true,
+  active = true,
 }: {
   sessionId: string
   mutationToken: string
@@ -213,6 +217,7 @@ export function SessionRuntime({
   initialGoalState: PiGoalState | null
   canConnect?: boolean
   canSend?: boolean
+  active?: boolean
 }) {
   const { t } = useI18n()
   const sessionEvents = useSessionEvents()
@@ -220,6 +225,7 @@ export function SessionRuntime({
   const runtimeController = sessionController.runtime
   const stream = useSessionStreaming()
   const composerDraftStore = useSessionComposerDraftStore()
+  const composerDraftError = useSessionComposerDraftError()
   const runtimePresentation = useSyncExternalStore(
     runtimeController.subscribe,
     runtimeController.getSnapshot,
@@ -310,6 +316,13 @@ export function SessionRuntime({
   )
   const [treeOpen, setTreeOpen] = useState(false)
   const [goalDialogOpen, setGoalDialogOpen] = useState(false)
+  useLayoutEffect(
+    () => () => {
+      setGoalDialogOpen(false)
+      goalReturnFocusRef.current = null
+    },
+    []
+  )
   const [goalObjective, setGoalObjective] = useState("")
   const [goalTokenBudget, setGoalTokenBudget] = useState("")
   const [error, setError] = useState<string | null>(null)
@@ -1408,6 +1421,11 @@ export function SessionRuntime({
     <div className="z-10 shrink-0 border-t bg-background/95 px-4 py-3 backdrop-blur sm:px-6 sm:py-4">
       <div className="mx-auto flex w-full max-w-[52rem] min-w-0 flex-col gap-3">
         <div className="grid max-h-[18svh] min-h-0 gap-3 overflow-y-auto overscroll-contain empty:hidden">
+          {composerDraftError ? (
+            <p role="alert" className="text-sm text-destructive">
+              {composerDraftError}
+            </p>
+          ) : null}
           {inlineSurfaces("header").map(renderTuiSurface)}
           {compactionNotice ? (
             <ConversationCompactionStatus state={compactionNotice} />
@@ -1813,10 +1831,11 @@ export function SessionRuntime({
         </div>
       </div>
 
-      <Dialog open={goalDialogOpen} onOpenChange={setGoalDialogOpen}>
+      <Dialog open={active && goalDialogOpen} onOpenChange={setGoalDialogOpen}>
         <DialogContent
           onCloseAutoFocus={(event) => {
             event.preventDefault()
+            if (!active) return
             const focusTarget =
               goalReturnFocusRef.current ?? composerTextareaRef.current
             focusTarget?.focus()
@@ -1867,7 +1886,7 @@ export function SessionRuntime({
       </Dialog>
 
       <Dialog
-        open={extensionRequest !== null}
+        open={active && extensionRequest !== null}
         onOpenChange={(open) => {
           if (!open && extensionRequest) {
             void respondToExtensionUI({ cancelled: true })
@@ -1878,7 +1897,7 @@ export function SessionRuntime({
           showCloseButton={false}
           onCloseAutoFocus={(event) => {
             event.preventDefault()
-            composerTextareaRef.current?.focus()
+            if (active) composerTextareaRef.current?.focus()
           }}
         >
           {extensionRequest ? (
@@ -1978,7 +1997,7 @@ export function SessionRuntime({
       </Dialog>
 
       <Dialog
-        open={modalSurface !== undefined}
+        open={active && modalSurface !== undefined}
         onOpenChange={(open) => {
           if (!open && modalSurface) {
             void closeTuiSurface(modalSurface.surfaceId)
@@ -1990,7 +2009,7 @@ export function SessionRuntime({
           onOpenAutoFocus={(event) => event.preventDefault()}
           onCloseAutoFocus={(event) => {
             event.preventDefault()
-            composerTextareaRef.current?.focus()
+            if (active) composerTextareaRef.current?.focus()
           }}
         >
           {modalSurface ? (

@@ -1,6 +1,6 @@
 "use client"
 
-import { useRef, useState } from "react"
+import { memo, useRef, useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { MessageSquareTextIcon, RefreshCwIcon } from "lucide-react"
@@ -26,7 +26,69 @@ import { SessionPageSentinel } from "@/components/session-page-sentinel"
 import { useSessionPage } from "@/hooks/use-session-page"
 import { displaySessionTitle, formatTimestamp } from "@/lib/session-display"
 import { refreshProjectSessions } from "@/lib/project-session-refresh"
-import type { SessionPage } from "@/lib/session-types"
+import type { SessionPage, SessionSummary } from "@/lib/session-types"
+
+const ProjectSessionRow = memo(function ProjectSessionRow({
+  session,
+  projectId,
+  locale,
+  t,
+  fallbackTask,
+  fallbackConversation,
+}: {
+  session: SessionSummary
+  projectId: string
+  locale: ReturnType<typeof useI18n>["locale"]
+  t: ReturnType<typeof useI18n>["t"]
+  fallbackTask: string
+  fallbackConversation: string
+}) {
+  const count = session.messageCount.toLocaleString(locale)
+  return (
+    <Link
+      href={`/projects/${projectId}/sessions/${session.id}`}
+      prefetch={false}
+      className="group rounded-xl focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+      style={{
+        contentVisibility: "auto",
+        containIntrinsicSize: "auto 98px",
+      }}
+    >
+      <Card className="gap-3 transition-colors group-hover:bg-muted/50">
+        <CardHeader>
+          <div className="flex min-w-0 items-start justify-between gap-4">
+            <div className="min-w-0 flex-1">
+              <CardTitle className="truncate">
+                {displaySessionTitle(session, {
+                  task: fallbackTask,
+                  conversation: fallbackConversation,
+                })}
+              </CardTitle>
+              <CardDescription className="mt-1">
+                <time dateTime={session.updatedAt}>
+                  {formatTimestamp(session.updatedAt, locale)}
+                </time>
+              </CardDescription>
+            </div>
+            <Badge
+              variant="secondary"
+              className="shrink-0"
+              aria-label={t(
+                session.messageCount === 1
+                  ? "project.sessions.messageCountOne"
+                  : "project.sessions.messageCount",
+                { count }
+              )}
+            >
+              <MessageSquareTextIcon />
+              {count}
+            </Badge>
+          </div>
+        </CardHeader>
+      </Card>
+    </Link>
+  )
+})
 
 export function ProjectSessionList({
   projectId,
@@ -43,10 +105,8 @@ export function ProjectSessionList({
   const refreshingRef = useRef(false)
   const [refreshing, setRefreshing] = useState(false)
   const [refreshError, setRefreshError] = useState<string | null>(null)
-  const fallback = {
-    task: t("workspace.nav.newTask"),
-    conversation: t("workspace.nav.unnamedConversation"),
-  }
+  const fallbackTask = t("workspace.nav.newTask")
+  const fallbackConversation = t("workspace.nav.unnamedConversation")
   async function refresh() {
     if (refreshingRef.current) return
     refreshingRef.current = true
@@ -108,46 +168,15 @@ export function ProjectSessionList({
         </p>
       ) : null}
       {page.sessions.map((session) => (
-        <Link
+        <ProjectSessionRow
           key={session.id}
-          href={`/projects/${projectId}/sessions/${session.id}`}
-          prefetch={false}
-          className="group rounded-xl focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-          style={{
-            contentVisibility: "auto",
-            containIntrinsicSize: "auto 98px",
-          }}
-        >
-          <Card className="gap-3 transition-colors group-hover:bg-muted/50">
-            <CardHeader>
-              <div className="flex min-w-0 items-start justify-between gap-4">
-                <div className="min-w-0 flex-1">
-                  <CardTitle className="truncate">
-                    {displaySessionTitle(session, fallback)}
-                  </CardTitle>
-                  <CardDescription className="mt-1">
-                    <time dateTime={session.updatedAt}>
-                      {formatTimestamp(session.updatedAt, locale)}
-                    </time>
-                  </CardDescription>
-                </div>
-                <Badge
-                  variant="secondary"
-                  className="shrink-0"
-                  aria-label={t(
-                    session.messageCount === 1
-                      ? "project.sessions.messageCountOne"
-                      : "project.sessions.messageCount",
-                    { count: session.messageCount.toLocaleString(locale) }
-                  )}
-                >
-                  <MessageSquareTextIcon />
-                  {session.messageCount.toLocaleString(locale)}
-                </Badge>
-              </div>
-            </CardHeader>
-          </Card>
-        </Link>
+          session={session}
+          projectId={projectId}
+          locale={locale}
+          t={t}
+          fallbackTask={fallbackTask}
+          fallbackConversation={fallbackConversation}
+        />
       ))}
       <SessionPageSentinel {...page} />
       {page.sessions.length === 0 ? (

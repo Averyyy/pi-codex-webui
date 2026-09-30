@@ -43,15 +43,18 @@ import type { SessionRouteClientData } from "@/lib/session-route-client"
 export function SessionClientViewport({
   route,
   identityVerified,
+  active,
 }: {
   route: SessionRouteClientData
   identityVerified: boolean
+  active: boolean
 }) {
   const { locale, t } = useI18n()
   const controller = useSessionViewController()
   const view = useSessionView()
   const historyMetadata = useSessionHistoryMetadata()
   const [cachedViewAtMount] = useState(() => controller.getView() !== null)
+  const previouslyShownLoadedRef = useRef(false)
   const cachedViewDiagnosticsRef = useRef<HTMLOutputElement>(null)
   const viewportPath =
     route.projectId === null
@@ -80,23 +83,27 @@ export function SessionClientViewport({
   const [resourceRequest, setResourceRequest] = useState(0)
 
   useLayoutEffect(() => {
+    if (!active) return
     const stateBefore = getCachedViewportMeasurementState()
+    const cachedViewReady =
+      cachedViewAtMount || previouslyShownLoadedRef.current
     let recorded = false
-    if (cachedViewAtMount && view) {
+    if (cachedViewReady && view) {
       recorded = recordCachedViewportReady(viewportPath)
-    } else if (!cachedViewAtMount) {
+    } else if (!cachedViewReady) {
       cancelCachedViewportMeasurement(viewportPath)
     }
+    if (view) previouslyShownLoadedRef.current = true
     const output = cachedViewDiagnosticsRef.current
     if (!output || !isPerformanceDiagnosticsEnabled()) return
     const stateAfter = getCachedViewportMeasurementState()
-    output.dataset.cachedAtMount = String(cachedViewAtMount)
+    output.dataset.cachedAtMount = String(cachedViewReady)
     output.dataset.readyPath = view ? viewportPath : ""
     output.dataset.pendingPath = stateBefore.destinationPathname ?? ""
     output.dataset.pendingBefore = String(stateBefore.pending)
     output.dataset.pending = String(stateAfter.pending)
     output.dataset.recorded = String(recorded)
-  }, [cachedViewAtMount, view, viewportPath])
+  }, [active, cachedViewAtMount, view, viewportPath])
 
   const resourceState =
     resources.identityKey === resourceIdentity &&
@@ -234,6 +241,7 @@ export function SessionClientViewport({
           initialGoalState={view?.snapshot.goalState ?? null}
           canConnect={canMutate}
           canSend={canMutate}
+          active={active}
         />
       </PerformanceProbe>
     </>
@@ -278,6 +286,7 @@ export function SessionClientViewport({
             runtimeLabel={session.runtimeKind === "pi" ? "Pi" : "Pi Client"}
             workspaceAvailable={route.workspaceAvailable}
             canMutate={canMutate}
+            active={active}
             subagentsInstalled={subagentsInstalled === true}
             initialGit={null}
             fileManagerLabel={fileManagerLabel}
@@ -369,7 +378,7 @@ export function SessionClientViewport({
             composer={composer}
           />
         </PerformanceProbe>
-        <ExtensionOverlayHosts />
+        {active ? <ExtensionOverlayHosts /> : null}
         <output
           ref={cachedViewDiagnosticsRef}
           data-performance-cached-view-diagnostics

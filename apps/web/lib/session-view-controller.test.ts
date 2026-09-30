@@ -38,6 +38,7 @@ function view(
 ): SessionView {
   return {
     eventCursor: cursor(sequence),
+    selectedFileSync: "complete",
     runtime: { status, snapshot: null },
     live: {
       messages: [],
@@ -94,6 +95,76 @@ const scheduler = {
   request: () => 1,
   cancel: () => {},
 }
+
+test("evicting a hidden viewport does not restore transport after a pending view read", async () => {
+  let finishRequest!: (response: Response) => void
+  const request = (async () =>
+    new Promise<Response>((resolve) => {
+      finishRequest = resolve
+    })) as typeof fetch
+  const source = new Source()
+  let timers = 0
+  let latestTimer: () => void = () => {
+    throw new Error("No idle timer was scheduled.")
+  }
+  const controller = new SessionViewController(
+    "evicted",
+    view("evicted"),
+    request,
+    () => source,
+    scheduler,
+    {
+      setTimer: (callback) => {
+        timers += 1
+        latestTimer = callback
+        return timers as unknown as ReturnType<typeof setTimeout>
+      },
+      clearTimer: () => {},
+    }
+  )
+  controller.retain()
+  const pending = controller.refresh()
+  controller.release()
+  assert.equal(timers, 1)
+  controller.dispose()
+  finishRequest(Response.json(view("evicted", 1, "ready")))
+  await pending
+  latestTimer()
+  assert.equal(source.closed, true)
+  assert.equal(timers, 1)
+  assert.throws(() => controller.retain(), /disposed session view/)
+})
+
+test("only a typed view 404 marks the cached session unavailable", async () => {
+  const unavailable: string[] = []
+  const request = (async (url: string) => {
+    if (url.includes("/view?")) {
+      return Response.json(
+        { error: "Session not found.", code: "SessionNotFound" },
+        { status: 404 }
+      )
+    }
+    return Response.json(
+      { error: "History entry not found.", code: "SessionNotFound" },
+      { status: 404 }
+    )
+  }) as typeof fetch
+  const controller = new SessionViewController(
+    "deleted",
+    view("deleted"),
+    request,
+    undefined,
+    scheduler,
+    { onViewUnavailable: (message) => unavailable.push(message) }
+  )
+  await controller.loadEntry("missing-history-entry")
+  assert.deepEqual(unavailable, [])
+  await assert.rejects(controller.refresh(), /Session not found/)
+  assert.deepEqual(unavailable, ["Session not found."])
+  await assert.rejects(controller.refresh(), /Session not found/)
+  assert.deepEqual(unavailable, ["Session not found."])
+  controller.dispose()
+})
 
 test("switching away keeps streaming without a raw event backlog or cross-session state", () => {
   const sources: Source[] = []
@@ -305,6 +376,34 @@ test("a selected native file revision forces one authoritative view sync", async
   assert.equal(urls.length, 1)
   assert.ok(urls[0]?.includes("syncSelectedFile=1"))
   assert.equal(controller.getView()?.snapshot.session.title, "external append")
+  controller.dispose()
+})
+
+test("an active selected-file revision remains pending until an idle view sync", async () => {
+  const urls: string[] = []
+  const deferred = view("active", 1, "busy")
+  deferred.selectedFileSync = "deferred"
+  const completed = view("active", 2, "ready")
+  const controller = new SessionViewController(
+    "active",
+    view("active", 0),
+    (async (input) => {
+      urls.push(String(input))
+      return new Response(
+        JSON.stringify(urls.length === 1 ? deferred : completed)
+      )
+    }) as typeof fetch,
+    () => new Source(),
+    scheduler
+  )
+
+  await controller.refreshSelectedFile("active-file-revision")
+  assert.equal(controller.getView()?.selectedFileSync, "deferred")
+  await controller.refresh()
+  assert.equal(controller.getView()?.selectedFileSync, "complete")
+  await controller.refreshSelectedFile("active-file-revision")
+  assert.equal(urls.length, 2)
+  assert.ok(urls.every((url) => url.includes("syncSelectedFile=1")))
   controller.dispose()
 })
 
@@ -753,4 +852,363 @@ test("a settled checkpoint cannot erase a newer live run", () => {
   assert.equal(live.checkpoint(live.revision, "two-durable"), true)
   assert.equal(live.baseLeafId, "two-durable")
   assert.equal(live.capture("ready").state.messages.length, 0)
+})
+
+test("a delayed focus response cannot undo show latest or a newer focus", async () => {
+  const focused = (id: string) => {
+    const snapshot = structuredClone(view("A").snapshot)
+    snapshot.entries = [
+      {
+        kind: "message",
+        id,
+        timestamp: "2026-09-12T00:00:00.000Z",
+        role: "assistant",
+        parts: [{ type: "text", text: id }],
+      },
+    ]
+    snapshot.history = {
+      ...snapshot.history!,
+      leafId: id,
+      entryIds: [id],
+      sourceHash: id,
+      atLatest: false,
+    }
+    return snapshot
+  }
+  const latest = view("A", 1, "ready")
+  latest.snapshot = focused("latest")
+  latest.snapshot.history!.atLatest = true
+
+  const pending = new Map<string, (response: Response) => void>()
+  const controller = new SessionViewController(
+    "A",
+    view("A"),
+    (async (input) => {
+      const url = new URL(String(input), "http://localhost")
+      if (url.pathname.endsWith("/view"))
+        return new Response(JSON.stringify(latest))
+      const focusId = url.searchParams.get("focusId")
+      assert.ok(focusId)
+      return new Promise<Response>((resolve) => pending.set(focusId, resolve))
+    }) as typeof fetch,
+    () => new Source(),
+    scheduler
+  )
+
+  const oldFocus = controller.revealEntry("old")
+  assert.ok(pending.has("old"))
+  await controller.showLatest()
+  pending.get("old")!(new Response(JSON.stringify(focused("old"))))
+  await oldFocus
+  assert.equal(controller.store.getTranscript()?.history?.leafId, "latest")
+  assert.equal(controller.store.getTranscript()?.history?.atLatest, true)
+
+  const firstFocus = controller.revealEntry("first")
+  const secondFocus = controller.revealEntry("second")
+  pending.get("second")!(new Response(JSON.stringify(focused("second"))))
+  await secondFocus
+  pending.get("first")!(new Response(JSON.stringify(focused("first"))))
+  await firstFocus
+  assert.equal(controller.store.getTranscript()?.history?.leafId, "second")
+  controller.dispose()
+})
+
+test("an in-flight background refresh preserves a newer focused history page", async () => {
+  const initial = view("A")
+  initial.snapshot.history = {
+    ...initial.snapshot.history!,
+    leafId: "latest",
+    entryIds: ["latest"],
+    sourceHash: "same-file",
+  }
+  const refreshed = structuredClone(initial)
+  refreshed.snapshot.history!.extendsLeaf = true
+  const focused = structuredClone(initial.snapshot)
+  focused.entries = [
+    {
+      kind: "message",
+      id: "old",
+      timestamp: "2026-09-12T00:00:00.000Z",
+      role: "user",
+      parts: [{ type: "text", text: "old" }],
+    },
+  ]
+  focused.history = {
+    ...focused.history!,
+    entryIds: ["old"],
+    atLatest: false,
+  }
+  let resolveView!: (response: Response) => void
+  const controller = new SessionViewController(
+    "A",
+    initial,
+    (async (input) =>
+      String(input).includes("/view?")
+        ? new Promise<Response>((resolve) => {
+            resolveView = resolve
+          })
+        : new Response(JSON.stringify(focused))) as typeof fetch,
+    () => new Source(),
+    scheduler
+  )
+
+  const background = controller.refresh()
+  await controller.revealEntry("old")
+  assert.equal(controller.store.getTranscript()?.history?.atLatest, false)
+  resolveView(new Response(JSON.stringify(refreshed)))
+  await background
+  assert.equal(controller.store.getTranscript()?.history?.atLatest, false)
+  assert.deepEqual(
+    controller.store.getTranscript()?.entries.map((entry) => entry.id),
+    ["old"]
+  )
+  controller.dispose()
+})
+
+test("stale focus failures and earlier pages cannot disturb newer navigation", async () => {
+  const initial = view("A")
+  initial.snapshot.history!.leafId = "latest"
+  initial.snapshot.history!.nextCursor = "older-page"
+  let rejectOldFocus!: (error: Error) => void
+  let resolveEarlier!: (response: Response) => void
+  const focused = structuredClone(initial.snapshot)
+  focused.history!.atLatest = false
+  focused.entries = [
+    {
+      kind: "message",
+      id: "new-focus",
+      timestamp: "2026-09-12T00:00:00.000Z",
+      role: "user",
+      parts: [{ type: "text", text: "focused" }],
+    },
+  ]
+  const controller = new SessionViewController(
+    "A",
+    initial,
+    (async (input) => {
+      const url = new URL(String(input), "http://localhost")
+      if (url.searchParams.get("focusId") === "old-focus")
+        return new Promise<Response>((_, reject) => {
+          rejectOldFocus = reject
+        })
+      if (url.searchParams.get("focusId") === "new-focus")
+        return new Response(JSON.stringify(focused))
+      return new Promise<Response>((resolve) => {
+        resolveEarlier = resolve
+      })
+    }) as typeof fetch,
+    () => new Source(),
+    scheduler
+  )
+
+  const earlier = controller.loadEarlier()
+  const oldFocus = controller.revealEntry("old-focus")
+  await controller.revealEntry("new-focus")
+  rejectOldFocus(new Error("stale focus failure"))
+  await oldFocus
+  resolveEarlier(new Response(JSON.stringify(initial.snapshot)))
+  await earlier
+  assert.equal(controller.getMetadata().error, null)
+  assert.equal(controller.store.getTranscript()?.history?.atLatest, false)
+  assert.deepEqual(
+    controller.store.getTranscript()?.entries.map((entry) => entry.id),
+    ["new-focus"]
+  )
+  controller.dispose()
+})
+
+test("an ordinary append does not cancel an earlier requested focus", async () => {
+  const initial = view("A")
+  initial.snapshot.history = {
+    ...initial.snapshot.history!,
+    leafId: "before",
+    entryIds: ["before"],
+    sourceHash: "before-hash",
+  }
+  const appended = structuredClone(initial)
+  appended.snapshot.history = {
+    ...appended.snapshot.history!,
+    leafId: "after",
+    entryIds: ["before", "after"],
+    sourceHash: "after-hash",
+    extendsLeaf: true,
+  }
+  const focused = structuredClone(initial.snapshot)
+  focused.history!.atLatest = false
+  focused.entries = [
+    {
+      kind: "message",
+      id: "requested-focus",
+      timestamp: "2026-09-12T00:00:00.000Z",
+      role: "user",
+      parts: [{ type: "text", text: "requested focus" }],
+    },
+  ]
+  let resolveFocus!: (response: Response) => void
+  const controller = new SessionViewController(
+    "A",
+    initial,
+    (async (input) =>
+      String(input).includes("focusId=")
+        ? new Promise<Response>((resolve) => {
+            resolveFocus = resolve
+          })
+        : new Response(JSON.stringify(appended))) as typeof fetch,
+    () => new Source(),
+    scheduler
+  )
+
+  const focus = controller.revealEntry("requested-focus")
+  await controller.refresh()
+  resolveFocus(new Response(JSON.stringify(focused)))
+  await focus
+  assert.deepEqual(
+    controller.store.getTranscript()?.entries.map((entry) => entry.id),
+    ["requested-focus"]
+  )
+  controller.dispose()
+})
+
+test("a newer focus supersedes an in-flight show latest request", async () => {
+  const initial = view("A")
+  initial.snapshot.history = {
+    ...initial.snapshot.history!,
+    leafId: "latest",
+    entryIds: ["latest"],
+    sourceHash: "same-file",
+    atLatest: false,
+  }
+  const latest = structuredClone(initial)
+  latest.snapshot.history = {
+    ...latest.snapshot.history!,
+    extendsLeaf: true,
+    atLatest: true,
+  }
+  const focused = structuredClone(initial.snapshot)
+  focused.entries = [
+    {
+      kind: "message",
+      id: "focus-target",
+      timestamp: "2026-09-12T00:00:00.000Z",
+      role: "user",
+      parts: [{ type: "text", text: "focused" }],
+    },
+  ]
+  let resolveLatest!: (response: Response) => void
+  const controller = new SessionViewController(
+    "A",
+    initial,
+    (async (input) =>
+      String(input).includes("/view?")
+        ? new Promise<Response>((resolve) => {
+            resolveLatest = resolve
+          })
+        : new Response(JSON.stringify(focused))) as typeof fetch,
+    () => new Source(),
+    scheduler
+  )
+
+  const showLatest = controller.showLatest()
+  await controller.revealEntry("focus-target")
+  resolveLatest(new Response(JSON.stringify(latest)))
+  await showLatest
+  assert.equal(controller.store.getTranscript()?.history?.atLatest, false)
+  assert.deepEqual(
+    controller.store.getTranscript()?.entries.map((entry) => entry.id),
+    ["focus-target"]
+  )
+  assert.equal(controller.store.getFollowRequest(), 0)
+  controller.dispose()
+})
+
+test("a cold entry hash waits for the event checkpoint and initial transcript", async () => {
+  const source = new Source()
+  const urls: string[] = []
+  const initial = view("cold-hash", 1, "ready")
+  initial.snapshot.history!.leafId = "latest"
+  initial.snapshot.history!.entryIds = ["latest"]
+  const focused = structuredClone(initial.snapshot)
+  focused.history!.atLatest = false
+  focused.entries = [
+    {
+      kind: "message",
+      id: "older-entry",
+      timestamp: "2026-09-12T00:00:00.000Z",
+      role: "user",
+      parts: [{ type: "text", text: "older" }],
+    },
+  ]
+  const controller = new SessionViewController(
+    "cold-hash",
+    null,
+    (async (input) => {
+      urls.push(String(input))
+      return new Response(
+        JSON.stringify(String(input).includes("/view?") ? initial : focused)
+      )
+    }) as typeof fetch,
+    () => source,
+    scheduler
+  )
+
+  const reveal = controller.revealHash("#entry-older-entry")
+  assert.equal(urls.length, 0)
+  controller.retain()
+  source.emit(1, "stream.checkpoint", { cursor: cursor(1) })
+  await reveal
+  assert.equal(urls.length, 2)
+  assert.ok(urls[0]?.includes("/view?"))
+  assert.ok(urls[1]?.includes("focusId=older-entry"))
+  assert.equal(controller.store.getTranscript()?.entries[0]?.id, "older-entry")
+  assert.equal(controller.revealedHash, "#entry-older-entry")
+  assert.equal(controller.getMetadata().error, null)
+  controller.dispose()
+})
+
+test("show latest supersedes a cold hash before its initial checkpoint", async () => {
+  const source = new Source()
+  const latest = view("cold-latest", 1, "ready")
+  let historyRequests = 0
+  const controller = new SessionViewController(
+    "cold-latest",
+    null,
+    (async (input) => {
+      if (String(input).includes("/history?")) historyRequests++
+      return new Response(JSON.stringify(latest))
+    }) as typeof fetch,
+    () => source,
+    scheduler
+  )
+
+  const oldReveal = controller.revealHash("#entry-stale")
+  controller.retain()
+  await controller.showLatest()
+  source.emit(1, "stream.checkpoint", { cursor: cursor(1) })
+  await oldReveal
+  assert.equal(historyRequests, 0)
+  assert.equal(controller.revealedHash, null)
+  assert.equal(controller.store.getTranscript()?.history?.atLatest, true)
+  assert.equal(controller.getMetadata().error, null)
+  controller.dispose()
+})
+
+test("disposing a cold hash owner cancels its pending reveal", async () => {
+  let requests = 0
+  const controller = new SessionViewController(
+    "cold-disposed",
+    null,
+    (async () => {
+      requests++
+      throw new Error("Disposed hash must not request history")
+    }) as typeof fetch,
+    () => new Source(),
+    scheduler
+  )
+
+  const reveal = controller.revealHash("#entry-unmounted")
+  controller.dispose()
+  await reveal
+  assert.equal(requests, 0)
+  assert.equal(controller.revealedHash, null)
+  assert.equal(controller.getMetadata().error, null)
 })

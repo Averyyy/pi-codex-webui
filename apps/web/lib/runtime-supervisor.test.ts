@@ -12,6 +12,7 @@ import type {
 } from "@workspace/runtime-protocol"
 
 import { EventHub } from "./event-hub"
+import { RuntimeLiveState } from "./runtime-live"
 import { DEFAULT_CONFIG } from "./config-schema"
 import { readProjectCatalogState } from "./project-catalog-state"
 import {
@@ -21,6 +22,7 @@ import {
 } from "./runtime-supervisor"
 
 interface FakeRuntime {
+  live?: RuntimeLiveState
   webSessionId: string
   cwd: string
   runtimeProfileId: string
@@ -137,6 +139,7 @@ interface RuntimeSupervisorInternals {
   ): Promise<unknown>
   catalogFenceWaitTimeoutMs: number
   refreshSettledRuntimeSnapshot(runtime: FakeRuntime): Promise<void>
+  handleWorkerMessage(runtime: FakeRuntime, message: unknown): void
   waitForExit(runtime: FakeRuntime["child"], timeoutMs: number): Promise<void>
 }
 
@@ -194,6 +197,78 @@ function runtime(
 function internals(supervisor: RuntimeSupervisor) {
   return supervisor as unknown as RuntimeSupervisorInternals
 }
+
+test("an older settlement cannot clear a newer completed run", async () => {
+  const supervisor = new RuntimeSupervisor(new EventHub())
+  const state = internals(supervisor)
+  const managed = runtime("two-turns", "ready", snapshot("two-turns", "A"))
+  const live = new RuntimeLiveState("before-A")
+  live.revision = 1
+  live.store.restore({
+    messages: [{ id: 1, role: "assistant", parts: [], complete: true }],
+    tools: [],
+    activeMessageIds: [],
+    nextMessageId: 2,
+    runtimeStatus: "ready",
+  })
+  managed.live = live
+  state.runtimes.set(managed.webSessionId, managed)
+  let releaseA!: () => void
+  let releaseB!: () => void
+  let calls = 0
+  let failures = 0
+  const refresh = state.refreshSettledRuntimeSnapshot
+  const failRuntime = (state as unknown as { failRuntime: unknown }).failRuntime
+  state.refreshSettledRuntimeSnapshot = async (target) => {
+    const call = ++calls
+    await new Promise<void>((resolve) => {
+      if (call === 1) releaseA = resolve
+      else releaseB = resolve
+    })
+    target.snapshot = snapshot(target.webSessionId, call === 1 ? "A" : "B")
+  }
+  ;(
+    state as unknown as {
+      failRuntime: (runtime: FakeRuntime, error: Error) => void
+    }
+  ).failRuntime = () => {
+    failures++
+  }
+  const event = (seq: number, eventType: string) => ({
+    type: "session.event",
+    sessionId: managed.webSessionId,
+    seq,
+    eventType,
+    payload: {},
+  })
+  try {
+    state.handleWorkerMessage(managed, event(1, "agent_settled"))
+    state.handleWorkerMessage(managed, event(2, "agent_start"))
+    live.store.restore({
+      messages: [{ id: 2, role: "assistant", parts: [], complete: true }],
+      tools: [],
+      activeMessageIds: [],
+      nextMessageId: 3,
+      runtimeStatus: "ready",
+    })
+    state.handleWorkerMessage(managed, event(3, "agent_settled"))
+    releaseA()
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    assert.equal(live.baseLeafId, "before-A")
+    assert.deepEqual(
+      live.capture("ready").state.messages.map((message) => message.id),
+      [2]
+    )
+    assert.equal(failures, 0)
+  } finally {
+    managed.cleaned = true
+    releaseB()
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    state.runtimes.delete(managed.webSessionId)
+    state.refreshSettledRuntimeSnapshot = refresh
+    ;(state as unknown as { failRuntime: unknown }).failRuntime = failRuntime
+  }
+})
 
 function modelSettingsSnapshot(ids: string[] = []): ModelSettingsSnapshot {
   return {
@@ -664,8 +739,10 @@ test("session route reuses the resource freshness read for exact model binding",
 
     state.knownResources.delete(path.resolve(cwd))
     state.knownResourceFingerprints.delete(path.resolve(cwd))
-    const resourceCacheEvicted =
-      await supervisor.knownSessionCatalogsIfCurrent(target, config)
+    const resourceCacheEvicted = await supervisor.knownSessionCatalogsIfCurrent(
+      target,
+      config
+    )
     assert.equal(resourceCacheEvicted.modelCatalogChecked, true)
     assert.deepEqual(resourceCacheEvicted.modelCatalogBinding, {
       catalogIdentity: catalog.catalogIdentity,
@@ -1827,4 +1904,46 @@ test("hot reload reuse initializes state added to an existing supervisor", () =>
   assert.ok(internals(reused).resourceQueue instanceof Promise)
   assert.equal(managed.resourceReloadPromise, null)
   assert.equal(managed.modelReloadPromise, null)
+})
+
+test("hot reload keeps a live worker while initializing settlement bookkeeping", () => {
+  const supervisor = new RuntimeSupervisor(new EventHub())
+  const state = internals(supervisor)
+  const managed = runtime(
+    "legacy-live",
+    "ready",
+    snapshot("legacy-live", "existing-leaf")
+  )
+  managed.live = new RuntimeLiveState("existing-leaf")
+  state.runtimes.set(managed.webSessionId, managed)
+  const legacy = supervisor as unknown as {
+    settlementCounts?: Map<FakeRuntime, number>
+    runGenerations?: WeakMap<FakeRuntime, number>
+  }
+  delete legacy.settlementCounts
+  delete legacy.runGenerations
+
+  try {
+    const reused = RuntimeSupervisor.reuseAfterHotReload(supervisor)
+    const migrated = reused as unknown as {
+      settlementCounts: Map<FakeRuntime, number>
+      runGenerations: WeakMap<FakeRuntime, number>
+    }
+    assert.equal(reused, supervisor)
+    assert.equal(state.runtimes.get(managed.webSessionId), managed)
+    assert.ok(migrated.settlementCounts instanceof Map)
+    assert.ok(migrated.runGenerations instanceof WeakMap)
+    assert.equal(reused.settlementPending(managed.webSessionId), false)
+    state.handleWorkerMessage(managed, {
+      type: "session.event",
+      sessionId: managed.webSessionId,
+      seq: 1,
+      eventType: "agent_start",
+      payload: {},
+    })
+    assert.equal(managed.status, "busy")
+    assert.equal(migrated.runGenerations.get(managed), 1)
+  } finally {
+    state.runtimes.delete(managed.webSessionId)
+  }
 })

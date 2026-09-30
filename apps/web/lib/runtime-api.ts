@@ -18,6 +18,7 @@ export function runtimeErrorResponse(error: unknown) {
             : error.code === "RuntimeDraftUnauthorized"
               ? 403
               : error.code === "SessionWriteLeaseConflict" ||
+                  error.code === "SessionFileChanged" ||
                   error.code === "RuntimeNotActive" ||
                   error.code === "RuntimeBusy" ||
                   error.code === "UpdateMaintenance" ||

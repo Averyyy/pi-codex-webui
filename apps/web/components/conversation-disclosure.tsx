@@ -4,6 +4,7 @@ import {
   createContext,
   useContext,
   useEffect,
+  useRef,
   useState,
   useSyncExternalStore,
   type ReactNode,
@@ -113,6 +114,7 @@ export function ConversationDisclosure({
   onOpenChange?: (open: boolean) => void
 }) {
   const anchorEntryId = useContext(ConversationAnchorContext)
+  const disclosureRef = useRef<HTMLDivElement>(null)
   const hash = useSyncExternalStore(subscribeHash, currentHash, serverHash)
   const targeted = Boolean(
     hash &&
@@ -129,9 +131,13 @@ export function ConversationDisclosure({
   useEffect(() => {
     if (!targeted || !open) return
     const frame = requestAnimationFrame(() => {
-      document
-        .getElementById(hash.slice(1))
-        ?.scrollIntoView({ block: "center" })
+      const viewport = disclosureRef.current?.closest<HTMLElement>(
+        '[data-session-viewport-active="true"]'
+      )
+      const target = [
+        ...(viewport?.querySelectorAll<HTMLElement>('[id^="entry-"]') ?? []),
+      ].find((element) => element.id === hash.slice(1))
+      target?.scrollIntoView({ block: "center" })
     })
     return () => cancelAnimationFrame(frame)
   }, [hash, open, targeted])
@@ -164,6 +170,7 @@ export function ConversationDisclosure({
 
   return (
     <Collapsible
+      ref={disclosureRef}
       open={open}
       onOpenChange={(next) => {
         setSelection({ open: next, hash })

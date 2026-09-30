@@ -10,4 +10,5 @@ export interface SessionView {
   eventCursor: string
   live: SessionLiveSnapshot
   runtime: { status: RuntimeStatus; snapshot: RuntimeSnapshot | null }
+  selectedFileSync: "complete" | "deferred"
 }

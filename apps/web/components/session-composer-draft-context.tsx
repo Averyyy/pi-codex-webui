@@ -26,14 +26,27 @@ export function SessionComposerDraftProvider({
   children: ReactNode
 }) {
   const [initialState] = useState(() => {
-    const nextStore = new SessionComposerDraftStore()
+    let storage: Storage | null = null
     let restored = false
     let error: string | null = null
     if (typeof window !== "undefined") {
       try {
+        storage = window.sessionStorage
+      } catch (failure) {
+        error = `Could not access composer draft storage in this tab: ${
+          failure instanceof Error ? failure.message : String(failure)
+        }`
+      }
+    }
+    const nextStore = new SessionComposerDraftStore(storage)
+    if (storage) {
+      try {
         const handoff = readUpdateDraftHandoff()
         if (handoff) {
           nextStore.restoreUpdateHandoff(handoff)
+          if (nextStore.getStorageError()) {
+            throw new Error(nextStore.getStorageError()!)
+          }
           restored = true
         }
       } catch (failure) {
@@ -43,6 +56,17 @@ export function SessionComposerDraftProvider({
     return { store: nextStore, restored, error }
   })
   const [clearError, setClearError] = useState<string | null>(null)
+  const [storageError, setStorageError] = useState<string | null>(() =>
+    initialState.store.getStorageError()
+  )
+
+  useEffect(() => {
+    const store = initialState.store
+    const updateError = () => setStorageError(store.getStorageError())
+    const unsubscribe = store.subscribeStorageError(updateError)
+    updateError()
+    return unsubscribe
+  }, [initialState.store])
 
   useEffect(() => {
     if (!initialState.restored || typeof window === "undefined") return
@@ -61,7 +85,7 @@ export function SessionComposerDraftProvider({
     }
   }, [initialState.restored])
 
-  const handoffError = initialState.error ?? clearError
+  const handoffError = initialState.error ?? clearError ?? storageError
 
   return (
     <SessionComposerDraftContext value={initialState.store}>
@@ -82,4 +106,8 @@ export function useSessionComposerDraftStore() {
 
 export function useSessionComposerDraftHandoffError() {
   return useContext(SessionComposerDraftHandoffErrorContext)
+}
+
+export function useSessionComposerDraftError() {
+  return useSessionComposerDraftHandoffError()
 }

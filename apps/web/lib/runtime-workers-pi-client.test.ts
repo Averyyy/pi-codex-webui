@@ -6,11 +6,12 @@ import {
   type Server,
   type ServerResponse,
 } from "node:http"
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { randomUUID } from "node:crypto"
 import test from "node:test"
+import { SessionManager } from "@earendil-works/pi-coding-agent"
 
 import {
   runtimeSnapshotSchema,
@@ -417,6 +418,77 @@ test("Pi Client worker speaks the authenticated pi-server protocol", async () =>
       } finally {
         await rm(directory, { recursive: true, force: true })
       }
+    }
+  }
+})
+
+test("cancelled Pi Client new session preserves every branch of the source file", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "pi-client-cancel-new-"))
+  const cwd = path.join(directory, "project")
+  const agentDir = path.join(directory, "agent")
+  const extensionsDir = path.join(agentDir, "extensions")
+  let child: ChildProcess | undefined
+
+  try {
+    await Promise.all([mkdir(cwd), mkdir(extensionsDir, { recursive: true })])
+    await writeFile(
+      path.join(extensionsDir, "cancel-new.js"),
+      'export default function (pi) { pi.on("session_before_switch", (event) => event.reason === "new" ? { cancel: true } : undefined) }\n'
+    )
+
+    const manager = SessionManager.create(cwd, path.join(directory, "sessions"))
+    const rootEntry = manager.appendCustomEntry("test-root")
+    const siblingEntry = manager.appendCustomEntry("test-sibling")
+    manager.branch(rootEntry)
+    manager.appendCustomEntry("test-selected")
+    const sourceFile = manager.getSessionFile()
+    assert.ok(sourceFile)
+    await writeFile(
+      sourceFile,
+      [manager.getHeader(), ...manager.getEntries()]
+        .map((entry) => JSON.stringify(entry))
+        .join("\n") + "\n"
+    )
+    child = startWorker("packages/worker-pi-client/src/worker.ts", {
+      ...process.env,
+      PI_CODING_AGENT_DIR: agentDir,
+      PI_SERVER_URL: "http://127.0.0.1:9",
+    })
+    const messages = new WorkerMessages(child)
+    const webSessionId = randomUUID()
+    const snapshot = await requestReady(messages, {
+      type: "runtime.initialize",
+      requestId: randomUUID(),
+      payload: {
+        webSessionId,
+        runtimeProfileId: "pi-client-fixture",
+        cwd,
+        agentDir,
+        mcpTools: [],
+        webuiAdapters: [],
+        target: { mode: "resume", nativeSessionFile: sourceFile },
+      },
+    })
+    assert.equal(snapshot.nativeSessionFile, sourceFile)
+    const before = await readFile(sourceFile)
+
+    const result = await request(messages, {
+      type: "session.new",
+      requestId: randomUUID(),
+      sessionId: webSessionId,
+      payload: { nextWebSessionId: randomUUID() },
+    })
+    assert.equal((result as { cancelled: boolean }).cancelled, true)
+    assert.deepEqual(await readFile(sourceFile), before)
+    assert.equal(
+      SessionManager.open(sourceFile).getEntry(siblingEntry)?.id,
+      siblingEntry
+    )
+  } finally {
+    try {
+      if (child) await stopWorker(child)
+    } finally {
+      await rm(directory, { recursive: true, force: true })
     }
   }
 })

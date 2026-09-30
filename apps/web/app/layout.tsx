@@ -13,6 +13,7 @@ import { KeyboardShortcutsProvider } from "@/components/keyboard-shortcuts-provi
 import { PwaRegistration } from "@/components/pwa-registration"
 import { SessionComposerDraftProvider } from "@/components/session-composer-draft-context"
 import { ModelCatalogProvider } from "@/components/model-catalog-provider"
+import { SessionViewportCacheProvider } from "@/components/session-viewport-cache-provider"
 import { PerformanceDiagnosticsPanel } from "@/components/performance-diagnostics-panel"
 import { getLocalizedConfig } from "@/lib/i18n-server"
 import { getMutationToken } from "@/lib/request-security"
@@ -57,16 +58,18 @@ export default async function RootLayout({
                   {t("ui.skipToMain")}
                 </a>
                 <ModelCatalogProvider>
-                  <SessionComposerDraftProvider>
-                    <AppUpdateProvider mutationToken={mutationToken}>
-                      <TooltipProvider>
-                        {children}
-                        <Suspense fallback={null}>
-                          <PerformanceDiagnosticsPanel />
-                        </Suspense>
-                      </TooltipProvider>
-                    </AppUpdateProvider>
-                  </SessionComposerDraftProvider>
+                  <SessionViewportCacheProvider>
+                    <SessionComposerDraftProvider>
+                      <AppUpdateProvider mutationToken={mutationToken}>
+                        <TooltipProvider>
+                          {children}
+                          <Suspense fallback={null}>
+                            <PerformanceDiagnosticsPanel />
+                          </Suspense>
+                        </TooltipProvider>
+                      </AppUpdateProvider>
+                    </SessionComposerDraftProvider>
+                  </SessionViewportCacheProvider>
                 </ModelCatalogProvider>
                 <Toaster />
                 <PwaRegistration />

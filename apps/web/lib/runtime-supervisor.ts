@@ -438,6 +438,8 @@ class ModelCatalogReadInvalidatedError extends Error {
 
 export class RuntimeSupervisor {
   private readonly runtimes = new Map<string, ManagedRuntime>()
+  private settlementCounts = new Map<ManagedRuntime, number>()
+  private runGenerations = new WeakMap<ManagedRuntime, number>()
   private runtimeDrafts = new Map<string, RuntimeDraft>()
   private draftPreparations = new Map<string, Promise<RuntimeDraft>>()
   private readonly knownResources = new Map<string, ResourceCatalog>()
@@ -447,6 +449,11 @@ export class RuntimeSupervisor {
   liveState(sessionId: string) {
     const runtime = this.runtimes.get(sessionId)
     return runtime?.live?.capture(runtime.status) ?? null
+  }
+
+  settlementPending(sessionId: string) {
+    const runtime = this.runtimes.get(sessionId)
+    return runtime ? (this.settlementCounts.get(runtime) ?? 0) > 0 : false
   }
 
   knownResourceCatalog(cwd: string) {
@@ -493,8 +500,7 @@ export class RuntimeSupervisor {
       getPiAgentDir()
     )
     const hasResourceCatalog =
-      this.knownResources.has(key) &&
-      this.knownResourceFingerprints.has(key)
+      this.knownResources.has(key) && this.knownResourceFingerprints.has(key)
     const resourceCatalog = hasResourceCatalog
       ? this.knownResourceCatalogFromState(target.cwd, projectState)
       : null
@@ -585,6 +591,8 @@ export class RuntimeSupervisor {
 
   static reuseAfterHotReload(supervisor: RuntimeSupervisor) {
     Object.setPrototypeOf(supervisor, RuntimeSupervisor.prototype)
+    supervisor.settlementCounts ??= new Map()
+    supervisor.runGenerations ??= new WeakMap()
     supervisor.sessionClosureMap()
     supervisor.resourceQueue ??= Promise.resolve()
     supervisor.resourceOperationCount ??= 0
@@ -4058,6 +4066,10 @@ export class RuntimeSupervisor {
       message.eventType === "compaction_start"
     ) {
       runtime.status = "busy"
+      this.runGenerations.set(
+        runtime,
+        (this.runGenerations.get(runtime) ?? 0) + 1
+      )
     }
     if (message.eventType === "agent_settled") {
       runtime.status = "ready"
@@ -4079,18 +4091,36 @@ export class RuntimeSupervisor {
     }
 
     if (message.eventType === "agent_settled") {
-      const revision = runtime.live?.revision
-      void this.refreshSettledRuntimeSnapshot(runtime, revision)
-        .then(() => syncPiSessionFile(runtime.nativeSessionFile))
-        .then(() => markStoredSessionCompleted(runtime.webSessionId))
-        .then((updated) => {
+      const generation = this.runGenerations.get(runtime) ?? 0
+      const settlingLive = runtime.live
+      const sameIdleRun = () =>
+        !runtime.cleaned &&
+        this.runtimes.get(runtime.webSessionId) === runtime &&
+        runtime.live === settlingLive &&
+        (this.runGenerations.get(runtime) ?? 0) === generation &&
+        runtime.status === "ready"
+      this.settlementCounts.set(
+        runtime,
+        (this.settlementCounts.get(runtime) ?? 0) + 1
+      )
+      void (async () => {
+        while (sameIdleRun()) {
+          const revision = runtime.live?.revision
+          await this.refreshSettledRuntimeSnapshot(runtime, revision)
+          if (!sameIdleRun()) return
+          if (revision !== runtime.live?.revision) continue
+          await syncPiSessionFile(runtime.nativeSessionFile)
+          if (!sameIdleRun()) return
+          if (revision !== runtime.live?.revision) continue
+          const updated = await markStoredSessionCompleted(runtime.webSessionId)
           if (!updated) {
             throw new RuntimeRequestError(
               "SessionNotFound",
               `Cannot mark missing Web session ${runtime.webSessionId} completed.`
             )
           }
-          if (revision !== runtime.live?.revision) return
+          if (!sameIdleRun()) return
+          if (revision !== runtime.live?.revision) continue
           if (runtime.snapshot)
             runtime.live?.checkpoint(revision!, runtime.snapshot.leafId)
           publishDomainEvent()
@@ -4114,13 +4144,20 @@ export class RuntimeSupervisor {
               console.error("Could not reload Pi runtime resources:", error)
             })
           }
-        })
+          return
+        }
+      })()
         .catch((error: unknown) =>
           this.failRuntime(
             runtime,
             error instanceof Error ? error : new Error(String(error))
           )
         )
+        .finally(() => {
+          const remaining = (this.settlementCounts.get(runtime) ?? 1) - 1
+          if (remaining > 0) this.settlementCounts.set(runtime, remaining)
+          else this.settlementCounts.delete(runtime)
+        })
       return
     }
 

@@ -3,6 +3,7 @@ import test from "node:test"
 
 import {
   applySessionEntityUpdate,
+  sessionNameEntityUpdate,
   type SessionPageEntityCollection,
 } from "@/lib/session-catalog-events"
 
@@ -54,5 +55,37 @@ test("session entity updates patch only the addressed loaded row", () => {
       hasUnreadCompletion: false,
     }),
     page
+  )
+})
+
+test("Pi session name changes patch the matching sidebar entity", () => {
+  const update = sessionNameEntityUpdate("session-a", {
+    type: "session_info_changed",
+    name: "Desktop UI Audit",
+  })
+  const page: SessionPageEntityCollection<SessionRow> = {
+    sessions: [
+      { id: "session-a", title: null, hasUnreadCompletion: false },
+      { id: "session-b", title: null, hasUnreadCompletion: false },
+    ],
+    nextCursor: null,
+  }
+  assert.deepEqual(
+    applySessionEntityUpdate(page, update).sessions.map(
+      (session) => session.title
+    ),
+    ["Desktop UI Audit", null]
+  )
+  assert.deepEqual(
+    sessionNameEntityUpdate("session-a", { type: "session_info_changed" }),
+    { sessionId: "session-a", title: null }
+  )
+  assert.throws(
+    () =>
+      sessionNameEntityUpdate("session-a", {
+        type: "session_info_changed",
+        name: 42,
+      }),
+    /Invalid Pi session name change event/
   )
 })

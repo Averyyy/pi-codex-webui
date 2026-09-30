@@ -21,6 +21,16 @@ async function temporaryPackage(version) {
   return root
 }
 
+function isolatedLauncherEnvironment(root) {
+  return {
+    APPDATA: path.join(root, "appdata"),
+    USERPROFILE: path.join(root, "home"),
+    HOME: path.join(root, "home"),
+    XDG_CONFIG_HOME: path.join(root, "xdg"),
+    PI_WEB_CODEX_CONFIG_DIR: root,
+  }
+}
+
 test("global bridge never downgrades an existing canonical install", async () => {
   const calls = []
   const result = await ensureCanonicalGlobal({
@@ -234,7 +244,7 @@ test("a live instance lock blocks global mutation when health is unavailable", a
       import("../bin/global-launcher.mjs").then(({ launchGlobalWebHost }) =>
         launchGlobalWebHost({
           packageRoot: extension,
-          env: { PI_WEB_CODEX_CONFIG_DIR: root },
+          env: isolatedLauncherEnvironment(root),
           fetchImpl: async () => {
             throw new TypeError("connection refused")
           },
@@ -272,7 +282,7 @@ test("a running service must match the verified canonical global version", async
       import("../bin/global-launcher.mjs").then(({ launchGlobalWebHost }) =>
         launchGlobalWebHost({
           packageRoot: extension,
-          env: { PI_WEB_CODEX_CONFIG_DIR: root },
+          env: isolatedLauncherEnvironment(root),
           fetchImpl: async (url) =>
             Response.json({ name: APP_NAME, version: "1.0.0" }),
           resolveGlobal: async () => ({

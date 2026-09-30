@@ -19,7 +19,10 @@ export async function GET(
     const view = await getSessionView(sessionId, previousLeaf, syncSelectedFile)
     return view
       ? Response.json(view, { headers: { "Cache-Control": "no-store" } })
-      : Response.json({ error: "Session not found." }, { status: 404 })
+      : Response.json(
+          { error: "Session not found.", code: "SessionNotFound" },
+          { status: 404 }
+        )
   } catch (error) {
     return runtimeErrorResponse(error)
   }

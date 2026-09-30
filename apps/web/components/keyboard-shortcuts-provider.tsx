@@ -94,9 +94,12 @@ function currentProjectId(pathname: string) {
 }
 
 function dataValue(name: string) {
+  const activeViewport = document.querySelector<HTMLElement>(
+    '[data-session-viewport-active="true"]'
+  )
   return (
-    document
-      .querySelector<HTMLElement>(`[data-${name}]`)
+    activeViewport
+      ?.querySelector<HTMLElement>(`[data-${name}]`)
       ?.getAttribute(`data-${name}`) ?? undefined
   )
 }

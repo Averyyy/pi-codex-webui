@@ -1,22 +1,28 @@
 "use client"
 
 import {
+  Activity,
   createContext,
   useCallback,
   useContext,
   useEffect,
   useLayoutEffect,
+  memo,
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type ReactNode,
 } from "react"
 import { usePathname } from "next/navigation"
+import Link from "next/link"
 
 import { SessionClientViewport } from "@/components/session-client-viewport"
+import { useSessionViewportCache } from "@/components/session-viewport-cache-provider"
 import { useModelCatalogStore } from "@/components/model-catalog-provider"
 import { prepareSessionModelCatalog } from "@/lib/model-catalog-store"
 import { SessionStreamingProvider } from "@/components/session-streaming-context"
+import type { SessionViewController } from "@/lib/session-view-controller"
 import { useI18n } from "@/components/i18n-provider"
 import { cancelPendingNavigationMeasurement } from "@/lib/performance-diagnostics"
 import {
@@ -25,8 +31,7 @@ import {
   dispatchSessionRouteRejected,
 } from "@/lib/session-navigation-events"
 import type { SessionRouteClientData } from "@/lib/session-route-client"
-
-const MAX_REMEMBERED_SESSIONS = 8
+import type { SessionViewportCache } from "@/lib/session-viewport-cache"
 
 interface SessionRouteTarget {
   sessionId: string
@@ -37,11 +42,6 @@ interface SessionRouteTarget {
 interface SessionViewportRegistry {
   register(route: SessionRouteClientData): void
   reject(target: SessionRouteTarget): void
-}
-
-interface StoredSessionRoute {
-  route: SessionRouteClientData
-  lastUsed: number
 }
 
 const RegistryContext = createContext<SessionViewportRegistry | null>(null)
@@ -138,10 +138,61 @@ export function SessionRouteRejected() {
   return null
 }
 
+const RetainedSessionViewport = memo(function RetainedSessionViewport({
+  route,
+  controller,
+  cache,
+  visible,
+  identityVerified,
+}: {
+  route: SessionRouteClientData
+  controller: SessionViewController
+  cache: SessionViewportCache
+  visible: boolean
+  identityVerified: boolean
+}) {
+  // Ownership remains outside Activity so hiding pauses the transport while
+  // the root cache keeps the controller across workspace layout changes.
+  useLayoutEffect(() => cache.retainOwner(controller), [cache, controller])
+
+  return (
+    <div
+      className={visible ? "flex min-h-0 min-w-0 flex-1 flex-col" : "hidden"}
+      hidden={!visible}
+      aria-hidden={!visible}
+      inert={!visible}
+      data-session-viewport-active={visible ? "true" : undefined}
+      data-session-viewport-session-id={route.session.id}
+    >
+      <Activity mode={visible ? "visible" : "hidden"}>
+        <SessionStreamingProvider
+          controller={controller}
+          selectedNativeFileRevision={
+            route.nativeFileChanged ? route.nativeFileRevision : undefined
+          }
+          initialView={null}
+        >
+          <SessionClientViewport
+            route={route}
+            identityVerified={identityVerified}
+            active={visible}
+          />
+        </SessionStreamingProvider>
+      </Activity>
+    </div>
+  )
+})
+
 export function SessionViewportHost({ children }: { children: ReactNode }) {
   const pathname = usePathname()
   const { t } = useI18n()
   const modelCatalogStore = useModelCatalogStore()
+  const cache = useSessionViewportCache()
+  const routes = useSyncExternalStore(
+    cache.subscribe,
+    cache.getSnapshot,
+    cache.getServerSnapshot
+  )
   const [navigationState, setNavigationState] = useState(() => ({
     pathname,
     pendingPath: null as string | null,
@@ -157,26 +208,20 @@ export function SessionViewportHost({ children }: { children: ReactNode }) {
   const [rejectedTargetKey, setRejectedTargetKey] = useState<string | null>(
     null
   )
-  const [routes, setRoutes] = useState<Map<string, StoredSessionRoute>>(
-    () => new Map()
-  )
   const currentTarget = useMemo(
     () => sessionRouteTarget(pendingPath ?? pathname),
     [pathname, pendingPath]
   )
   const currentTargetRef = useRef(currentTarget)
 
-  const touchRoute = useCallback((path: string | null) => {
-    const target = sessionRouteTarget(path)
-    if (!target) return
-    setRoutes((current) => {
-      const stored = current.get(target.sessionId)
-      if (!stored || stored.route.projectId !== target.projectId) return current
-      const next = new Map(current)
-      next.set(target.sessionId, { ...stored, lastUsed: Date.now() })
-      return next
-    })
-  }, [])
+  const touchRoute = useCallback(
+    (path: string | null) => {
+      const target = sessionRouteTarget(path)
+      if (!target) return
+      cache.touch(target.sessionId, target.projectId)
+    },
+    [cache]
+  )
 
   const register = useCallback(
     (route: SessionRouteClientData) => {
@@ -189,37 +234,29 @@ export function SessionViewportHost({ children }: { children: ReactNode }) {
         route.modelCatalogBinding
       )
 
-      setRoutes((current) => {
-        const next = new Map(current)
-        next.set(route.session.id, { route, lastUsed: Date.now() })
-        if (next.size > MAX_REMEMBERED_SESSIONS) {
-          const leastRecentlyUsed = [...next.entries()]
-            .filter(([sessionId]) => sessionId !== target.sessionId)
-            .sort(([, left], [, right]) => left.lastUsed - right.lastUsed)[0]
-          if (leastRecentlyUsed) next.delete(leastRecentlyUsed[0])
-        }
-        return next
-      })
+      if (!cache.register(route)) {
+        setConfirmedTargetKey(null)
+        setRejectedTargetKey(target.key)
+        return
+      }
       setConfirmedTargetKey(target.key)
       setRejectedTargetKey((current) =>
         current === target.key ? null : current
       )
     },
-    [modelCatalogStore]
+    [cache, modelCatalogStore]
   )
 
-  const reject = useCallback((target: SessionRouteTarget) => {
-    setRoutes((current) => {
-      if (!current.has(target.sessionId)) return current
-      const next = new Map(current)
-      next.delete(target.sessionId)
-      return next
-    })
-    setConfirmedTargetKey((current) =>
-      current === target.key ? null : current
-    )
-    setRejectedTargetKey(target.key)
-  }, [])
+  const reject = useCallback(
+    (target: SessionRouteTarget) => {
+      cache.reject(target.sessionId, target.projectId)
+      setConfirmedTargetKey((current) =>
+        current === target.key ? null : current
+      )
+      setRejectedTargetKey(target.key)
+    },
+    [cache]
+  )
 
   const registry = useMemo(() => ({ register, reject }), [register, reject])
 
@@ -311,44 +348,55 @@ export function SessionViewportHost({ children }: { children: ReactNode }) {
     activeRoute?.session.id === currentTarget?.sessionId
   const authorized = routeMatches && confirmedTargetKey === currentTarget?.key
 
-  if (!currentTarget) {
-    return <RegistryContext value={registry}>{children}</RegistryContext>
-  }
-  if (rejectedTargetKey === currentTarget.key) {
-    return <RegistryContext value={registry}>{children}</RegistryContext>
-  }
-  if (!routeMatches || !activeRoute) {
-    return (
-      <RegistryContext value={registry}>
-        {loadingShell(currentTarget.sessionId, t("session.list.loading"))}
+  const rejected =
+    currentTarget !== null && rejectedTargetKey === currentTarget.key
+  const unavailable = currentTarget
+    ? cache.getUnavailable(currentTarget.sessionId, currentTarget.projectId)
+    : null
+  const visibleIdentity =
+    currentTarget && !rejected && !unavailable && routeMatches
+      ? activeRoute?.identityKey
+      : null
+  return (
+    <RegistryContext value={registry}>
+      {unavailable ? (
+        <section
+          role="alert"
+          className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 p-6 text-center"
+        >
+          <h1 className="text-lg font-semibold">{t("app.notFound.title")}</h1>
+          <p className="text-sm text-muted-foreground">{unavailable.message}</p>
+          <Link href="/" className="text-sm text-primary underline">
+            {t("app.notFound.home")}
+          </Link>
+        </section>
+      ) : !currentTarget || rejected ? (
+        children
+      ) : !routeMatches || !activeRoute ? (
+        <>
+          {loadingShell(currentTarget.sessionId, t("session.list.loading"))}
+          <div hidden aria-hidden="true" inert>
+            {children}
+          </div>
+        </>
+      ) : (
         <div hidden aria-hidden="true" inert>
           {children}
         </div>
-      </RegistryContext>
-    )
-  }
-
-  return (
-    <RegistryContext value={registry}>
-      <div hidden aria-hidden="true" inert>
-        {children}
-      </div>
-      <SessionStreamingProvider
-        key={activeRoute.identityKey}
-        identityKey={activeRoute.identityKey}
-        sessionId={activeRoute.session.id}
-        selectedNativeFileRevision={
-          activeRoute.nativeFileChanged
-            ? activeRoute.nativeFileRevision
-            : undefined
-        }
-        initialView={null}
-      >
-        <SessionClientViewport
-          route={activeRoute}
-          identityVerified={Boolean(authorized)}
-        />
-      </SessionStreamingProvider>
+      )}
+      {[...routes.values()].map(({ route, controller }) => {
+        const visible = visibleIdentity === route.identityKey
+        return (
+          <RetainedSessionViewport
+            key={route.identityKey}
+            route={route}
+            controller={controller}
+            cache={cache}
+            visible={visible}
+            identityVerified={visible && Boolean(authorized)}
+          />
+        )
+      })}
     </RegistryContext>
   )
 }

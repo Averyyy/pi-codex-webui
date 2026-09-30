@@ -52,7 +52,7 @@ function ExtensionDialogView({ instanceId }: { instanceId: string }) {
       <DialogContent
         onCloseAutoFocus={(event) => {
           const composer = document.querySelector<HTMLTextAreaElement>(
-            "[data-composer-input]"
+            '[data-session-viewport-active="true"] [data-composer-input]'
           )
           if (!composer) return
           event.preventDefault()
@@ -111,7 +111,7 @@ function ExtensionPanelView({ instanceId }: { instanceId: string }) {
         className="min-w-0 gap-0 overflow-hidden"
         onCloseAutoFocus={(event) => {
           const composer = document.querySelector<HTMLTextAreaElement>(
-            "[data-composer-input]"
+            '[data-session-viewport-active="true"] [data-composer-input]'
           )
           if (!composer) return
           event.preventDefault()

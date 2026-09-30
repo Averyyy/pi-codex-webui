@@ -14,6 +14,7 @@ import {
 import { homedir, tmpdir } from "node:os"
 import path from "node:path"
 import test, { mock } from "node:test"
+import { SessionManager } from "@earendil-works/pi-coding-agent"
 
 import { GET as getProjectRoute } from "../app/api/v1/projects/[projectId]/route"
 import { POST as refreshProjectSessionsRoute } from "../app/api/v1/projects/[projectId]/sessions/refresh/route"
@@ -51,6 +52,11 @@ import {
   syncPiSessionIndex,
 } from "./session-index"
 import { getSessionRouteIdentity } from "./session-route-identity"
+import { getSessionView } from "./session-view"
+import { getRuntimeSupervisor } from "./runtime-supervisor"
+import { RuntimeSupervisor } from "./runtime-supervisor"
+import { RuntimeLiveState } from "./runtime-live"
+import { EventHub } from "./event-hub"
 import { GET as getSessionCatalog } from "../app/api/v1/session-catalog/route"
 import { getMutationToken } from "./request-security"
 
@@ -1519,6 +1525,325 @@ test("search does not discover disk-only sessions", async () => {
 
       assert.deepEqual(await searchSessions("needle"), [])
       assert.deepEqual(await indexedSessionFiles(), [])
+    }
+  )
+})
+
+test("real pi-client branch history indexes and searches only the active branch", async () => {
+  await withSessionIndexHarness(
+    "pi-web-codex-real-client-branch-",
+    async ({ sessionRoot, projectCwd }) => {
+      const manager = SessionManager.create(projectCwd, sessionRoot)
+      const root = manager.appendMessage({
+        role: "user",
+        content: [{ type: "text", text: "branch integration question" }],
+        timestamp: Date.now(),
+      })
+      manager.appendCustomMessageEntry("test", "abandonedbranch", true)
+      manager.branch(root)
+      manager.appendCustomMessageEntry("test", "selectedbranch", true)
+      const file = manager.getSessionFile()
+      assert.ok(file)
+      await writeFile(
+        file,
+        [manager.getHeader(), ...manager.getEntries()]
+          .map((entry) => JSON.stringify(entry))
+          .join("\n") + "\n"
+      )
+
+      const project = await addWorkspaceProject(projectCwd)
+      assert.equal(project.sessionCount, 1)
+      const [session] = await listProjectSessions(project.id)
+      assert.equal(session?.nativeSessionId, manager.getSessionId())
+      assert.equal((await searchSessions("abandonedbranch")).length, 0)
+      assert.equal((await searchSessions("selectedbranch")).length, 1)
+      assert.equal((await getSessionSnapshot(session!.id))?.entries.length, 2)
+    }
+  )
+})
+
+test("selected-file sync defers own active Pi Client append until runtime is idle", async () => {
+  await withSessionIndexHarness(
+    "pi-web-codex-active-file-",
+    async ({ sessionRoot, projectCwd }) => {
+      const file = path.join(sessionRoot, "active.jsonl")
+      await writeFile(
+        file,
+        sessionJsonl("native-active", projectCwd, "initial question")
+      )
+      const project = await addWorkspaceProject(projectCwd)
+      const [session] = await listProjectSessions(project.id)
+      assert.ok(session)
+      let baseLeafId = "native-active-message"
+      const appendedLeafId = "native-active-reply"
+      await appendFile(
+        file,
+        `${JSON.stringify({
+          type: "message",
+          id: appendedLeafId,
+          parentId: baseLeafId,
+          timestamp: "2026-07-14T00:01:00.000Z",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "own active output" }],
+            timestamp: Date.parse("2026-07-14T00:01:00.000Z"),
+          },
+        })}\n`
+      )
+      let runtimeBusy = true
+      let overlayBusy = true
+      let overlayCleared = false
+      let settlementPending = true
+      const supervisor = getRuntimeSupervisor()
+      const liveMock = mock.method(
+        supervisor,
+        "liveState",
+        () =>
+          ({
+            baseLeafId,
+            revision: 1,
+            state: {
+              messages: overlayCleared
+                ? []
+                : [
+                    {
+                      id: 1,
+                      parts: [],
+                      role: "assistant",
+                      complete: !overlayBusy,
+                    },
+                  ],
+              tools: overlayCleared
+                ? []
+                : [
+                    {
+                      id: "settled-tool",
+                      name: "bash",
+                      arguments: {},
+                      status: overlayBusy ? "running" : "error",
+                    },
+                  ],
+              activeMessageIds: [],
+              nextMessageId: 1,
+              runtimeStatus: runtimeBusy ? "busy" : "ready",
+            },
+          }) as ReturnType<typeof supervisor.liveState>
+      )
+      const stateMock = mock.method(
+        supervisor,
+        "state",
+        () =>
+          ({
+            status: runtimeBusy ? "busy" : "ready",
+            snapshot: null,
+          }) as ReturnType<typeof supervisor.state>
+      )
+      const settlementMock = mock.method(
+        supervisor,
+        "settlementPending",
+        () => settlementPending
+      )
+      try {
+        const deferred = await getSessionView(session.id, baseLeafId, true)
+        assert.equal(deferred?.selectedFileSync, "deferred")
+        assert.equal(deferred.snapshot.history?.leafId, baseLeafId)
+        const database = await getDatabase()
+        assert.equal(
+          (
+            database
+              .prepare("SELECT last_entry_id FROM sessions WHERE id = ?")
+              .get(session.id) as { last_entry_id: string }
+          ).last_entry_id,
+          baseLeafId
+        )
+
+        runtimeBusy = false
+        const stillActive = await getSessionView(session.id, baseLeafId, true)
+        assert.equal(stillActive?.selectedFileSync, "deferred")
+        overlayBusy = false
+        const pendingSettle = await getSessionView(session.id, baseLeafId, true)
+        assert.equal(pendingSettle?.selectedFileSync, "deferred")
+        assert.equal(pendingSettle.snapshot.history?.leafId, baseLeafId)
+        baseLeafId = appendedLeafId
+        overlayCleared = true
+        settlementPending = false
+        const completed = await getSessionView(session.id, baseLeafId, true)
+        assert.equal(completed?.selectedFileSync, "complete")
+        assert.equal(completed.snapshot.history?.leafId, appendedLeafId)
+        assert.deepEqual(completed.live.messages, [])
+        assert.deepEqual(completed.live.tools, [])
+
+        const externalLeafId = "native-external-reply"
+        await appendFile(
+          file,
+          `${JSON.stringify({
+            type: "message",
+            id: externalLeafId,
+            parentId: appendedLeafId,
+            timestamp: "2026-07-14T00:02:00.000Z",
+            message: {
+              role: "assistant",
+              content: [{ type: "text", text: "external idle append" }],
+              timestamp: Date.parse("2026-07-14T00:02:00.000Z"),
+            },
+          })}\n`
+        )
+        const external = await getSessionView(session.id, baseLeafId, true)
+        assert.equal(external?.selectedFileSync, "complete")
+        assert.equal(external.snapshot.history?.leafId, externalLeafId)
+
+        overlayCleared = false
+        await assert.rejects(
+          getSessionView(session.id, baseLeafId, true),
+          (error: unknown) =>
+            typeof error === "object" &&
+            error !== null &&
+            "code" in error &&
+            error.code === "SessionFileChanged"
+        )
+      } finally {
+        liveMock.mock.restore()
+        stateMock.mock.restore()
+        settlementMock.mock.restore()
+      }
+    }
+  )
+})
+
+test("late session name event retries settlement without losing completed live output", async () => {
+  await withSessionIndexHarness(
+    "pi-web-codex-settle-name-",
+    async ({ sessionRoot, projectCwd }) => {
+      const file = path.join(sessionRoot, "settle.jsonl")
+      await writeFile(file, sessionJsonl("native-settle", projectCwd, "prompt"))
+      const project = await addWorkspaceProject(projectCwd)
+      const [session] = await listProjectSessions(project.id)
+      assert.ok(session)
+      const baseLeafId = "native-settle-message"
+      const nextLeafId = "native-settle-reply"
+      await appendFile(
+        file,
+        `${JSON.stringify({
+          type: "message",
+          id: nextLeafId,
+          parentId: baseLeafId,
+          timestamp: "2026-07-14T00:01:00.000Z",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "completed output" }],
+            timestamp: Date.parse("2026-07-14T00:01:00.000Z"),
+          },
+        })}\n`
+      )
+      const hub = new EventHub()
+      let completed!: () => void
+      const completedEvent = new Promise<void>((resolve) => {
+        completed = resolve
+      })
+      const originalPublish = hub.publish.bind(hub)
+      const publishMock = mock.method(
+        hub,
+        "publish",
+        (input: Parameters<EventHub["publish"]>[0]) => {
+          const event = originalPublish(input)
+          if (event.type === "session.completed") completed()
+          return event
+        }
+      )
+      const supervisor = new RuntimeSupervisor(hub)
+      const live = new RuntimeLiveState(baseLeafId)
+      live.revision = 1
+      live.store.restore({
+        messages: [{ id: 1, role: "assistant", parts: [], complete: true }],
+        tools: [],
+        activeMessageIds: [],
+        nextMessageId: 2,
+        runtimeStatus: "ready",
+      })
+      const managed = {
+        webSessionId: session.id,
+        nativeSessionFile: file,
+        status: "ready",
+        cleaned: false,
+        snapshot: { leafId: baseLeafId },
+        live,
+        pendingWebUiRestart: false,
+        pendingMcpRestart: false,
+        pendingModelReload: false,
+        pendingResourceReload: false,
+      }
+      const internal = supervisor as unknown as {
+        runtimes: Map<string, typeof managed>
+        handleWorkerMessage(runtime: typeof managed, message: unknown): void
+        refreshSettledRuntimeSnapshot(
+          runtime: typeof managed,
+          revision?: number
+        ): Promise<void>
+      }
+      internal.runtimes.set(session.id, managed)
+      let firstSnapshot!: () => void
+      let requests = 0
+      const refreshMock = mock.method(
+        internal,
+        "refreshSettledRuntimeSnapshot",
+        async (runtime: typeof managed, revision?: number) => {
+          requests++
+          if (requests === 1)
+            await new Promise<void>((resolve) => {
+              firstSnapshot = resolve
+            })
+          if (revision !== runtime.live.revision) return
+          runtime.snapshot = { leafId: nextLeafId }
+          runtime.status = "ready"
+        }
+      )
+      try {
+        internal.handleWorkerMessage(managed, {
+          type: "session.event",
+          sessionId: session.id,
+          seq: 1,
+          eventType: "agent_settled",
+          payload: {},
+        })
+        assert.equal(supervisor.settlementPending(session.id), true)
+        internal.handleWorkerMessage(managed, {
+          type: "session.event",
+          sessionId: session.id,
+          seq: 2,
+          eventType: "session_info_changed",
+          payload: { name: "Renamed while settling" },
+        })
+        firstSnapshot()
+        let timeout: ReturnType<typeof setTimeout> | undefined
+        try {
+          await Promise.race([
+            completedEvent,
+            new Promise<never>((_, reject) => {
+              timeout = setTimeout(
+                () => reject(new Error("Settlement did not complete.")),
+                5000
+              )
+            }),
+          ])
+        } finally {
+          if (timeout) clearTimeout(timeout)
+        }
+        assert.equal(requests, 2)
+        assert.equal(live.baseLeafId, nextLeafId)
+        assert.deepEqual(live.capture("ready").state.messages, [])
+        assert.equal(
+          (
+            (await getDatabase())
+              .prepare("SELECT last_entry_id FROM sessions WHERE id = ?")
+              .get(session.id) as { last_entry_id: string }
+          ).last_entry_id,
+          nextLeafId
+        )
+      } finally {
+        internal.runtimes.delete(session.id)
+        refreshMock.mock.restore()
+        publishMock.mock.restore()
+      }
     }
   )
 })
