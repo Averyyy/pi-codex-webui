@@ -2,6 +2,14 @@
 
 All notable changes to `pi-web-codex` are documented here.
 
+## [0.1.28] - 2026-09-30
+
+### Fixed
+
+- Preserved desktop-style session viewports, composer drafts, focus, and navigation state across session switches.
+- Kept session history and runtime snapshots consistent while sessions are active, replaced, cancelled, or changed externally.
+- Added bounded viewport retention, typed missing-session handling, and isolated launcher test environments.
+
 ## [0.1.26] - 2026-09-29
 
 ### Added
