@@ -212,3 +212,198 @@ test("rejects a response that selects an unknown option", async () => {
     payload: { active: false },
   })
 })
+
+const BATCH_PARAMS = {
+  questions: [
+    {
+      question: "Which database?",
+      context: "Single-region service.",
+      options: [{ title: "Postgres" }, { title: "SQLite" }],
+    },
+    { question: "Anything else?" },
+  ],
+  allowComment: true,
+}
+
+test("asks each question of a questions batch and returns batch details", async () => {
+  const registrations = await loadWorkerExtensionForTest(initialize)
+  const adapter = registrations.toolExecutions.get("ask-user.execute")
+  assert.ok(adapter)
+  const responses = [
+    {
+      cancelled: false,
+      response: {
+        kind: "selection",
+        selections: ["SQLite"],
+        comment: "Small.",
+      },
+    },
+    { cancelled: false, response: { kind: "freeform", text: "No." } },
+  ]
+  const opened: unknown[] = []
+  const current = runtime(async () => responses[opened.length - 1])
+  const openView = current.value.openView
+  current.value.openView = async (input) => {
+    opened.push(input)
+    return openView(input)
+  }
+
+  const result = await adapter.execute(
+    { ...current.request, params: BATCH_PARAMS },
+    current.value
+  )
+  assert.deepEqual(
+    opened.map((input) => (input as { title: string }).title),
+    ["需要你的选择（1/2）", "需要你的选择（2/2）"]
+  )
+  assert.deepEqual((opened[1] as { state: unknown }).state, {
+    question: "Anything else?",
+    options: [],
+    allowMultiple: false,
+    allowFreeform: true,
+    allowComment: true,
+  })
+  assert.deepEqual(result, {
+    handled: true,
+    result: {
+      content: [
+        {
+          type: "text",
+          text: [
+            "User answered 2 of 2 questions:",
+            "1. Which database? → SQLite — Small.",
+            "2. Anything else? → No.",
+          ].join("\n"),
+        },
+      ],
+      details: {
+        kind: "batch",
+        questions: [
+          {
+            question: "Which database?",
+            context: "Single-region service.",
+            options: [{ title: "Postgres" }, { title: "SQLite" }],
+          },
+          { question: "Anything else?", options: [] },
+        ],
+        answers: [
+          {
+            status: "answered",
+            response: {
+              kind: "selection",
+              selections: ["SQLite"],
+              comment: "Small.",
+            },
+          },
+          { status: "answered", response: { kind: "freeform", text: "No." } },
+        ],
+        cancelled: false,
+      },
+    },
+  })
+  assert.deepEqual(current.events, [
+    {
+      name: "herdr:blocked",
+      payload: { active: true, label: "Waiting for user response" },
+    },
+    {
+      name: "ask:answered",
+      payload: {
+        question: "Which database?",
+        response: { kind: "selection" },
+        batch: { index: 0, total: 2 },
+      },
+    },
+    {
+      name: "ask:answered",
+      payload: {
+        question: "Anything else?",
+        response: { kind: "freeform" },
+        batch: { index: 1, total: 2 },
+      },
+    },
+    { name: "herdr:blocked", payload: { active: false } },
+  ])
+})
+
+test("cancelling any question cancels the whole questions batch", async () => {
+  const registrations = await loadWorkerExtensionForTest(initialize)
+  const adapter = registrations.toolExecutions.get("ask-user.execute")
+  assert.ok(adapter)
+  let calls = 0
+  const current = runtime(async () => {
+    calls += 1
+    return calls === 1
+      ? {
+          cancelled: false,
+          response: { kind: "selection", selections: ["Postgres"] },
+        }
+      : { cancelled: true }
+  })
+
+  const result = await adapter.execute(
+    { ...current.request, params: BATCH_PARAMS },
+    current.value
+  )
+  assert.equal(result.handled, true)
+  if (!result.handled) return
+  assert.equal(
+    (result.result.content[0] as { text?: string } | undefined)?.text,
+    "User cancelled the questions"
+  )
+  assert.deepEqual(
+    (result.result.details as { answers: unknown[]; cancelled: boolean })
+      .cancelled,
+    true
+  )
+  assert.deepEqual(current.events.slice(1), [
+    {
+      name: "ask:cancelled",
+      payload: { question: "Which database?", batch: { index: 0, total: 2 } },
+    },
+    {
+      name: "ask:cancelled",
+      payload: { question: "Anything else?", batch: { index: 1, total: 2 } },
+    },
+    { name: "herdr:blocked", payload: { active: false } },
+  ])
+})
+
+test("rejects invalid questions batches before opening a dialog", async () => {
+  const registrations = await loadWorkerExtensionForTest(initialize)
+  const adapter = registrations.toolExecutions.get("ask-user.execute")
+  assert.ok(adapter)
+  const invalid = [
+    [
+      { ...BATCH_PARAMS, question: "Top?" },
+      /Use exactly one of question or questions/,
+    ],
+    [
+      { ...BATCH_PARAMS, options: ["A"] },
+      /options cannot be set at the top level/,
+    ],
+    [{ questions: [{ question: "Only?" }] }, /questions needs 2-4 entries/],
+    [
+      { questions: [{ question: "Same" }, { question: "same" }] },
+      /repeats the question/,
+    ],
+    [
+      { questions: [{ question: "A" }, { question: "B", options: [{}] }] },
+      /questions\[1\]: Malformed options/,
+    ],
+  ] as const
+  for (const [params, message] of invalid) {
+    const current = runtime(async () => {
+      throw new Error("Dialog must not open.")
+    })
+    const result = await adapter.execute(
+      { ...current.request, params },
+      current.value
+    )
+    assert.equal(result.handled, true)
+    if (!result.handled) return
+    assert.equal(result.result.isError, true)
+    assert.match((result.result.content[0] as { text: string }).text, message)
+    assert.deepEqual(current.events, [])
+  }
+})

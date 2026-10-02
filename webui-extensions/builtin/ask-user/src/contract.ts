@@ -262,3 +262,155 @@ export function buildToolResult(params: AskParams, result: AskDialogResult) {
     },
   }
 }
+
+export const ASK_BATCH_MIN_QUESTIONS = 2
+export const ASK_BATCH_MAX_QUESTIONS = 4
+const ASK_BATCH_ENTRY_FIELDS = [
+  "context",
+  "options",
+  "allowMultiple",
+  "allowFreeform",
+] as const
+
+export interface AskBatchParams {
+  questions: AskParams[]
+  timeout?: number
+}
+
+export interface AskBatchPosition {
+  index: number
+  total: number
+}
+
+export type AskBatchAnswer =
+  { status: "answered"; response: AskResponse } | { status: "skipped" }
+
+export function isAskBatchRequest(value: unknown) {
+  const params = record(value)
+  return params !== null && params.questions != null
+}
+
+export function parseAskBatchParams(value: unknown): AskBatchParams {
+  const params = record(value)
+  if (!params) throw new TypeError("Invalid ask_user questions.")
+  if (typeof params.question === "string" && params.question.trim()) {
+    throw new TypeError(
+      "Use exactly one of question or questions. Put every question in questions, or ask a single question with question."
+    )
+  }
+  const misplaced = ASK_BATCH_ENTRY_FIELDS.filter(
+    (field) => params[field] != null
+  )
+  if (misplaced.length > 0) {
+    throw new TypeError(
+      `${misplaced.join(", ")} cannot be set at the top level together with questions. Set them on each questions entry instead.`
+    )
+  }
+  const { questions } = params
+  const range = `${ASK_BATCH_MIN_QUESTIONS}-${ASK_BATCH_MAX_QUESTIONS}`
+  if (!Array.isArray(questions)) {
+    throw new TypeError(
+      `questions must be an array of ${range} question objects.`
+    )
+  }
+  if (questions.length < ASK_BATCH_MIN_QUESTIONS) {
+    throw new TypeError(
+      `questions needs ${range} entries but got ${questions.length}. To ask one question, use question instead.`
+    )
+  }
+  if (questions.length > ASK_BATCH_MAX_QUESTIONS) {
+    throw new TypeError(
+      `questions accepts at most ${ASK_BATCH_MAX_QUESTIONS} entries but got ${questions.length}. Ask the rest in a later ask_user call.`
+    )
+  }
+  const shared = parseAskParams({
+    question: "questions",
+    allowComment: params.allowComment,
+    timeout: params.timeout,
+  })
+  const seen = new Set<string>()
+  const entries = questions.map((rawEntry: unknown, index) => {
+    const label = `questions[${index}]`
+    const entry = record(rawEntry)
+    if (
+      !entry ||
+      typeof entry.question !== "string" ||
+      !entry.question.trim()
+    ) {
+      throw new TypeError(`${label}.question must be a non-empty string.`)
+    }
+    let parsed: AskParams
+    try {
+      parsed = parseAskParams({
+        question: entry.question,
+        context: entry.context,
+        options: entry.options,
+        allowMultiple: entry.allowMultiple,
+        allowFreeform: entry.allowFreeform,
+        allowComment: shared.allowComment,
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      throw new TypeError(`${label}: ${message}`)
+    }
+    const key = parsed.question.toLowerCase()
+    if (seen.has(key)) {
+      throw new TypeError(
+        `${label} repeats the question "${parsed.question}". Each question in a batch must be distinct.`
+      )
+    }
+    seen.add(key)
+    return parsed
+  })
+  return {
+    questions: entries,
+    ...(shared.timeout !== undefined ? { timeout: shared.timeout } : {}),
+  }
+}
+
+export function askUserBatchEventPayload<T extends object>(
+  payload: T,
+  batch: AskBatchPosition
+) {
+  return { ...payload, batch }
+}
+
+export function buildBatchToolResult(
+  params: AskBatchParams,
+  answers: AskBatchAnswer[] | null
+) {
+  const questions = params.questions.map((entry) => ({
+    question: entry.question,
+    ...(entry.context ? { context: entry.context } : {}),
+    options: entry.options,
+  }))
+  if (!answers) {
+    return {
+      content: [{ type: "text", text: "User cancelled the questions" }],
+      details: { kind: "batch", questions, answers: [], cancelled: true },
+    }
+  }
+  const answered = answers.filter(
+    (answer) => answer.status === "answered"
+  ).length
+  const lines = questions.map((entry, index) => {
+    const answer = answers[index]
+    const summary =
+      answer?.status === "answered"
+        ? responseSummary(answer.response)
+        : "(skipped)"
+    return `${index + 1}. ${entry.question} → ${summary}`
+  })
+  return {
+    content: [
+      {
+        type: "text",
+        text: [
+          `User answered ${answered} of ${questions.length} questions:`,
+          ...lines,
+        ].join("\n"),
+      },
+    ],
+    details: { kind: "batch", questions, answers, cancelled: false },
+  }
+}

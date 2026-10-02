@@ -34,10 +34,11 @@
         "target": {
           "packageName": "pi-ask-user",
           "extensionPath": "**/index.ts",
-          "version": ">=0.15.0 <0.16.0",
+          "version": ">=0.15.0 <0.17.0",
           "testedVersions": [
             "0.15.0",
-            "0.15.1"
+            "0.15.1",
+            "0.16.0"
           ],
           "compatibility": {
             "mode": "probe",

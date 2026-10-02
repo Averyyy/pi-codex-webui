@@ -1,6 +1,6 @@
 {
   "name": "pi-web-codex",
-  "version": "0.1.30",
+  "version": "0.1.31",
   "description": "A local Web Host for Pi coding-agent workflows.",
   "license": "MIT",
   "keywords": [
