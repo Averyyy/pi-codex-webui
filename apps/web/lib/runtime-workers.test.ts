@@ -1,6 +1,7 @@
 import assert from "node:assert/strict"
 import { fork, type ChildProcess } from "node:child_process"
 import { randomUUID } from "node:crypto"
+import { createServer } from "node:http"
 import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
@@ -112,9 +113,27 @@ test("Pi Client duplicates into its own worker without changing the source", asy
   await stopWorker(pi)
 
   const sourceBefore = await readFile(piSnapshot.nativeSessionFile)
+  const piServer = createServer((request, response) => {
+    const found = request.method === "GET" && request.url === "/api/models"
+    response.writeHead(found ? 200 : 404, {
+      "Content-Type": "application/json",
+    })
+    response.end(
+      JSON.stringify(
+        found
+          ? { models: [], available: [], providers: [] }
+          : { error: "Not found" }
+      )
+    )
+  })
+  await new Promise<void>((resolve) =>
+    piServer.listen(0, "127.0.0.1", () => resolve())
+  )
+  const piServerAddress = piServer.address()
+  assert.ok(piServerAddress && typeof piServerAddress === "object")
   const client = startWorker("packages/worker-pi-client/src/worker.ts", {
     ...baseEnvironment,
-    PI_SERVER_URL: "http://127.0.0.1:9",
+    PI_SERVER_URL: `http://127.0.0.1:${piServerAddress.port}`,
   })
   const clientSnapshot = await requestReady(client, {
     type: "runtime.initialize",
@@ -133,6 +152,9 @@ test("Pi Client duplicates into its own worker without changing the source", asy
     },
   })
   await stopWorker(client)
+  await new Promise<void>((resolve, reject) =>
+    piServer.close((error) => (error ? reject(error) : resolve()))
+  )
 
   const sourceAfter = await readFile(piSnapshot.nativeSessionFile)
   assert.notEqual(clientSnapshot.nativeSessionId, piSnapshot.nativeSessionId)

@@ -2,6 +2,7 @@ import assert from "node:assert/strict"
 import { fork, type ChildProcess } from "node:child_process"
 import { mkdir, mkdtemp, readFile, rm, stat } from "node:fs/promises"
 import { randomUUID } from "node:crypto"
+import { createServer } from "node:http"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import test from "node:test"
@@ -145,9 +146,33 @@ test("Pi worker promotes a draft without exposing its private session file", asy
 })
 
 test("Pi Client worker promotes a draft without exposing its private session file", async () => {
-  await assertDraftWorker(
-    "packages/worker-pi-client/src/worker.ts",
-    "pi-client-default",
-    { PI_SERVER_URL: "http://127.0.0.1:9" }
+  const piServer = createServer((request, response) => {
+    const found = request.method === "GET" && request.url === "/api/models"
+    response.writeHead(found ? 200 : 404, {
+      "Content-Type": "application/json",
+    })
+    response.end(
+      JSON.stringify(
+        found
+          ? { models: [], available: [], providers: [] }
+          : { error: "Not found" }
+      )
+    )
+  })
+  await new Promise<void>((resolve) =>
+    piServer.listen(0, "127.0.0.1", () => resolve())
   )
+  try {
+    const address = piServer.address()
+    assert.ok(address && typeof address === "object")
+    await assertDraftWorker(
+      "packages/worker-pi-client/src/worker.ts",
+      "pi-client-default",
+      { PI_SERVER_URL: `http://127.0.0.1:${address.port}` }
+    )
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      piServer.close((error) => (error ? reject(error) : resolve()))
+    )
+  }
 })

@@ -57,6 +57,7 @@ function streamResponse(response: ServerResponse) {
   })
   response.end(
     [
+      'event: cache_policy\ndata: {"cacheRetention":"short"}\n\n',
       'data: {"type":"start"}\n\n',
       'data: {"type":"text_start","contentIndex":0}\n\n',
       'data: {"type":"text_delta","contentIndex":0,"delta":"fixture answer"}\n\n',
@@ -88,6 +89,29 @@ class PiServerFixture {
         return
       }
 
+      if (request.method === "GET" && pathname === "/api/models") {
+        const model = {
+          id: "fixture-model",
+          name: "Fixture model",
+          api: "openai-completions",
+          provider: "fixture",
+          baseUrl: `http://${request.headers.host}/v1`,
+          reasoning: false,
+          input: ["text"],
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+          contextWindow: 16_000,
+          maxTokens: 2_000,
+        }
+        sendJson(response, 200, {
+          models: [model],
+          available: [model],
+          providers: [
+            { id: "fixture", fetchDeferred: false, cancelDeferred: false },
+          ],
+        })
+        return
+      }
+
       if (request.method !== "POST") {
         sendJson(response, 404, { error: "Not found" })
         return
@@ -110,6 +134,18 @@ class PiServerFixture {
           entryCount: 0,
           leafId: null,
           revision: 0,
+        })
+        return
+      }
+
+      const abortMatch = /^\/api\/session\/([^/]+)\/runs\/([^/]+)\/abort$/.exec(
+        pathname
+      )
+      if (abortMatch) {
+        sendJson(response, 200, {
+          sessionId: decodeURIComponent(abortMatch[1]!),
+          runId: decodeURIComponent(abortMatch[2]!),
+          status: "completed",
         })
         return
       }
@@ -322,7 +358,13 @@ test("Pi Client worker speaks the authenticated pi-server protocol", async () =>
       ),
       true
     )
-    assert.equal(fixture.requests.length, 0)
+    assert.deepEqual(
+      fixture.requests.map(({ method, path: requestPath }) => [
+        method,
+        requestPath,
+      ]),
+      fixture.requests.map(() => ["GET", "/api/models"])
+    )
 
     const firstPromptId = randomUUID()
     await request(messages, {
@@ -427,10 +469,13 @@ test("cancelled Pi Client new session preserves every branch of the source file"
   const cwd = path.join(directory, "project")
   const agentDir = path.join(directory, "agent")
   const extensionsDir = path.join(agentDir, "extensions")
+  const authToken = "fixture-server-token"
   let child: ChildProcess | undefined
+  const fixture = new PiServerFixture(authToken)
 
   try {
     await Promise.all([mkdir(cwd), mkdir(extensionsDir, { recursive: true })])
+    const serverUrl = await fixture.listen()
     await writeFile(
       path.join(extensionsDir, "cancel-new.js"),
       'export default function (pi) { pi.on("session_before_switch", (event) => event.reason === "new" ? { cancel: true } : undefined) }\n'
@@ -452,7 +497,8 @@ test("cancelled Pi Client new session preserves every branch of the source file"
     child = startWorker("packages/worker-pi-client/src/worker.ts", {
       ...process.env,
       PI_CODING_AGENT_DIR: agentDir,
-      PI_SERVER_URL: "http://127.0.0.1:9",
+      PI_SERVER_AUTH_TOKEN: authToken,
+      PI_SERVER_URL: serverUrl,
     })
     const messages = new WorkerMessages(child)
     const webSessionId = randomUUID()
@@ -488,7 +534,11 @@ test("cancelled Pi Client new session preserves every branch of the source file"
     try {
       if (child) await stopWorker(child)
     } finally {
-      await rm(directory, { recursive: true, force: true })
+      try {
+        await fixture.close()
+      } finally {
+        await rm(directory, { recursive: true, force: true })
+      }
     }
   }
 })

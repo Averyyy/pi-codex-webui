@@ -10,6 +10,7 @@ import {
   readdir,
   rm,
 } from "node:fs/promises"
+import { createServer as createHttpServer } from "node:http"
 import { createServer } from "node:net"
 import { tmpdir } from "node:os"
 import path from "node:path"
@@ -501,7 +502,44 @@ async function assertTaskTerminal(url, mutationHeaders, packageVersion) {
   }
 }
 
+// Pi Client workers load the pi-server model catalog during initialization.
+async function startPiServerCatalogStub() {
+  const server = createHttpServer((request, response) => {
+    const found = request.method === "GET" && request.url === "/api/models"
+    response.writeHead(found ? 200 : 404, {
+      "Content-Type": "application/json",
+    })
+    response.end(
+      JSON.stringify(
+        found
+          ? { models: [], available: [], providers: [] }
+          : { error: "Not found" }
+      )
+    )
+  })
+  await new Promise((resolve, reject) => {
+    server.once("error", reject)
+    server.listen(0, "127.0.0.1", resolve)
+  })
+  return {
+    url: `http://127.0.0.1:${server.address().port}`,
+    close: () =>
+      new Promise((resolve, reject) =>
+        server.close((error) => (error ? reject(error) : resolve()))
+      ),
+  }
+}
+
 async function assertPiClientTask(url, mutationHeaders) {
+  const piServer = await startPiServerCatalogStub()
+  try {
+    await assertPiClientTaskWithServer(url, mutationHeaders, piServer.url)
+  } finally {
+    await piServer.close()
+  }
+}
+
+async function assertPiClientTaskWithServer(url, mutationHeaders, serverUrl) {
   const runtimesResponse = await fetch(`${url}/api/v1/runtimes`)
   const runtimes = JSON.parse(await expectOk(runtimesResponse, "Runtime list"))
   const profile = runtimes.profiles?.find(
@@ -528,7 +566,7 @@ async function assertPiClientTask(url, mutationHeaders) {
       },
       body: JSON.stringify({
         enabled: true,
-        serverUrl: "http://127.0.0.1:9",
+        serverUrl,
         defaultProfileId: "pi",
       }),
     }
