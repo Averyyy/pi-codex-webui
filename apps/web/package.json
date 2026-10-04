@@ -12,7 +12,6 @@
     "typecheck": "next typegen && tsc --noEmit"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "1.29.0",
     "@pi-web-codex/extension-sdk": "workspace:*",
     "@workspace/runtime-protocol": "workspace:*",
     "@workspace/ui": "workspace:*",

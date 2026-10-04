@@ -31,6 +31,7 @@ export function runtimeErrorResponse(error: unknown) {
                   error.code === "RuntimeDraftClaimUncertain" ||
                   error.code === "QueueConflict" ||
                   error.code === "ModelScopeConflict" ||
+                  error.code === "AgentSettingsConflict" ||
                   error.code === "ModelCatalogChanged" ||
                   error.code === "ModelCatalogUnavailable" ||
                   error.code === "ModelNotAvailable" ||

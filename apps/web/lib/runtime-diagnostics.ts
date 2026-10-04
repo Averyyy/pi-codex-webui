@@ -68,8 +68,6 @@ export const runtimeDiagnosticsSchema = z.object({
   startedAt: z.iso.datetime().nullable(),
   lastActivityAt: z.iso.datetime().nullable(),
   pendingRequests: z.number().int().nonnegative(),
-  activeMcpCalls: z.number().int().nonnegative(),
-  mcpServers: z.array(z.string()),
   activeTools: z.array(z.string()),
   crash: runtimeCrashSchema.nullable(),
   events: z.array(protocolEventSchema),

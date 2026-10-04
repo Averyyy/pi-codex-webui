@@ -1768,7 +1768,7 @@ test("late session name event retries settlement without losing completed live o
         snapshot: { leafId: baseLeafId },
         live,
         pendingWebUiRestart: false,
-        pendingMcpRestart: false,
+        pendingSettingsRestart: false,
         pendingModelReload: false,
         pendingResourceReload: false,
       }

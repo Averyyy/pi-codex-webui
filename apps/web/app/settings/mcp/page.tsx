@@ -22,10 +22,12 @@ export default async function McpSettingsPage({
       description={t("settings.page.mcp.description")}
     >
       <McpSettings
-        key={`${data.catalog.projectId ?? "global"}:${data.catalog.revision}`}
+        key={data.catalog.projectId ?? "global"}
         projects={data.projects}
         initialCatalog={data.catalog}
         mutationToken={data.mutationToken}
+        legacyMcpServerCount={data.legacyMcpServerCount}
+        legacyMcpConfigPath={data.legacyMcpConfigPath}
       />
     </SettingsSection>
   )

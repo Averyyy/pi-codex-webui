@@ -32,14 +32,14 @@ Actual browser screenshots of pi-web-codex 0.1.3 running locally on macOS, captu
 
 ## Why pi-web-codex
 
-| | Capability | What it means in practice |
-| --- | --- | --- |
-| ⚡ | **Real-time Pi sessions** | Prompt streaming, tool events, abort, retry, compaction, model and thinking controls. |
-| 🧭 | **Projects and session history** | Browse JSONL projects, search full text, fork or clone sessions, navigate branches, and export/import JSONL or HTML. |
-| 🧩 | **Native WebUI Extensions** | Render dialogs, editors, widgets and overlays in the browser while preserving Pi's original TUI fallback. |
-| 🔌 | **MCP and runtime controls** | Configure stdio or Streamable HTTP servers, inspect connection status, and reload idle runtimes safely. |
-| 🛠️ | **Developer visibility** | Read-only files, Git branch/commit/worktree state, environment details and runtime diagnostics in one place. |
-| 📦 | **Local-first delivery** | A standalone CLI, installable PWA, atomic settings, optional notifications and no hosted account required. |
+|     | Capability                       | What it means in practice                                                                                            |
+| --- | -------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| ⚡  | **Real-time Pi sessions**        | Prompt streaming, tool events, abort, retry, compaction, model and thinking controls.                                |
+| 🧭  | **Projects and session history** | Browse JSONL projects, search full text, fork or clone sessions, navigate branches, and export/import JSONL or HTML. |
+| 🧩  | **Native WebUI Extensions**      | Render dialogs, editors, widgets and overlays in the browser while preserving Pi's original TUI fallback.            |
+| 🔌  | **Native MCP and codemode**      | Configure Pi's stdio or Streamable HTTP servers, choose tool exposure, and inspect JavaScript and nested tool calls. |
+| 🛠️  | **Developer visibility**         | Read-only files, Git branch/commit/worktree state, environment details and runtime diagnostics in one place.         |
+| 📦  | **Local-first delivery**         | A standalone CLI, installable PWA, atomic settings, optional notifications and no hosted account required.           |
 
 ## Install and run
 
@@ -74,6 +74,16 @@ pi install npm:pi-web-codex
 ```
 
 If Pi is already open, run `/reload` (or restart Pi) to load the installed extension. Then run `/pi-web-codex` inside Pi. The host opens its configured URL (default: <http://127.0.0.1:1816>) when the server is ready. Use `pi-web-codex --help` to see all CLI options.
+
+## Agent settings and MCP
+
+**Settings → Agent** configures tool selection, codemode, compaction, cache warming, queues, image handling, and request behavior for Pi and Pi Client. Settings are shared through the Pi Agent directory; trusted project settings follow Pi's override rules. Saving Agent or MCP settings reloads idle sessions and applies changes to running sessions after the current turn.
+
+**Settings → MCP** edits Pi's native `mcp.json` in the agent directory or a selected project's `.pi` directory. Pi connects project servers after the project is trusted. Servers use codemode exposure by default; `direct` declares their tools to the model, and `deferred` makes them available through tool search. `/mcp` shows connection status and tool counts in a session; `/mcp login name`, `/mcp logout name`, and `/mcp reconnect name` manage authentication and reconnection.
+
+The WebUI loads Pi's built-in MCP, codemode, and tool-search extensions. `pi-mcp-adapter` is unsupported in WebUI sessions. MCP credentials and environment substitutions follow Pi's native configuration and OAuth storage.
+
+Old WebUI MCP entries remain in `config.json` as inactive migration data; Settings → MCP shows that file's path when entries exist, and its forms let you add those servers to native Pi `mcp.json`.
 
 ## Updating the WebUI
 

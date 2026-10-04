@@ -46,10 +46,51 @@ function flush() {
 
 function runtimeBody() {
   return {
-    status: "ready",
+    status: "ready" as const,
     snapshot: null,
   }
 }
+
+test("extension notifications and status updates do not require an input expiry", () => {
+  const controller = new SessionRuntimeController("session-a", runtimeBody())
+  const emit = (payload: unknown) =>
+    controller.applyEvent({
+      id: "event-11111111-1111-4111-8111-111111111111-1",
+      type: "extension.ui.request",
+      payload,
+    })
+  assert.doesNotThrow(() =>
+    emit({
+      requestId: "mcp-status",
+      method: "notify",
+      message: "fixture: connected, 1 tools (codemode)",
+      notifyType: "info",
+    })
+  )
+  emit({
+    requestId: "status",
+    method: "setStatus",
+    statusKey: "mcp",
+    statusText: "Connected",
+  })
+  emit({
+    requestId: "widget",
+    method: "setWidget",
+    widgetKey: "mcp",
+    widgetLines: ["Connected"],
+  })
+  assert.deepEqual(controller.getSnapshot().extensionStatuses, {
+    mcp: "Connected",
+  })
+  assert.deepEqual(controller.getSnapshot().extensionWidgets, {
+    mcp: { lines: ["Connected"], placement: "aboveEditor" },
+  })
+  assert.throws(
+    () => emit({ requestId: "login", method: "input", title: "MCP login" }),
+    /omitted an extension UI expiry/
+  )
+  controller.dispose()
+})
 
 test("StrictMode-style retain and a warm return share the existing lease", async () => {
   const calls: string[] = []

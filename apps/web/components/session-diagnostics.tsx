@@ -64,7 +64,6 @@ function nextStatus(
     pid: terminated ? null : current.pid,
     startedAt: terminated ? null : current.startedAt,
     pendingRequests: terminated ? 0 : current.pendingRequests,
-    activeMcpCalls: terminated ? 0 : current.activeMcpCalls,
     activeTools: terminated ? [] : current.activeTools,
     crash:
       event.type === "runtime.crashed"
@@ -241,14 +240,6 @@ export function SessionDiagnostics({ sessionId }: { sessionId: string }) {
                   </dt>
                   <dd className="mt-1 tabular-nums">
                     {diagnostics.pendingRequests}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-muted-foreground">
-                    {t("session.diagnostics.activeMcp")}
-                  </dt>
-                  <dd className="mt-1 tabular-nums">
-                    {diagnostics.activeMcpCalls}
                   </dd>
                 </div>
                 <div>

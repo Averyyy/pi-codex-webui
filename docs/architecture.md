@@ -224,7 +224,7 @@ let currentConversation
 │  EventHub                                                    │
 │  ResourceService                                             │
 │  PackageService                                              │
-│  McpService                                                  │
+│  Native MCP configuration                                    │
 │  SecretStore                                                 │
 └───────────────────────────┬──────────────────────────────────┘
                             │
@@ -581,13 +581,8 @@ PATCH /api/v1/extensions/:extensionId
 ### MCP
 
 ```text
-GET    /api/v1/mcp/servers
-POST   /api/v1/mcp/servers
-PATCH  /api/v1/mcp/servers/:serverId
-DELETE /api/v1/mcp/servers/:serverId
-
-POST /api/v1/mcp/servers/:serverId/test
-POST /api/v1/mcp/servers/:serverId/reconnect
+GET /api/v1/mcp/servers
+PUT /api/v1/mcp/servers
 ```
 
 ### Extension UI
@@ -682,9 +677,6 @@ extension.ui.request
 extension.notification
 extension.status.updated
 extension.widget.updated
-
-mcp.server.status
-mcp.tools.updated
 
 config.updated
 
@@ -1536,69 +1528,39 @@ Settings
 - enabled
 - scope
 - transport
-- connection status
-- discovered tools
-- enabled tools
-- last connected
-- last error
-- reconnect
-- test connection
-- logs
+- exposure
+- native configuration path
+
+会话中的 `/mcp` 显示原生连接状态和工具数量；`/mcp login 名称`、`/mcp logout 名称`、`/mcp reconnect 名称` 管理认证与重连。
 
 ## 14.2 MCP 配置
 
-```ts
-export interface McpServerConfig {
-  id: string
-  name: string
-
-  scope: "global" | "project"
-  projectId?: string
-
-  enabled: boolean
-
-  transport:
-    | {
-        type: "stdio"
-        command: string
-        args: string[]
-        cwd?: string
-      }
-    | {
-        type: "http"
-        url: string
-        headers?: Record<string, string | SecretReference>
-      }
-
-  env: Record<string, string | SecretReference>
-
-  timeoutMs?: number
-
-  enabledTools?: string[]
-  disabledTools?: string[]
+```json
+{
+  "mcpServers": {
+    "docs": {
+      "url": "https://example.com/mcp",
+      "headers": { "Authorization": "Bearer ${DOCS_TOKEN}" },
+      "enabled": true,
+      "exposure": "codemode",
+      "timeout": 60
+    }
+  }
 }
 ```
 
 ## 14.3 MCP 与 SDK
 
-SDK Worker 可以把 MCP tools 注入为 custom tools。
-
-概念流程：
+SDK Worker 加载 Pi 内置 MCP、codemode 和工具搜索扩展。MCP 连接与工具注册由 Pi 管理：
 
 ```text
-MCP config
+agentDir/mcp.json + trusted project .pi/mcp.json
     ↓
-Host McpService keeps one client per server
+Pi built-in MCP extension in the selected Worker
     ↓
-Tool discovery and enabled-tool filtering
+Native direct, codemode, deferred, or hidden tool exposure
     ↓
-Definitions sent to the selected Worker at initialization
-    ↓
-Worker registers proxy Pi ToolDefinitions in AgentSession
-    ↓
-Tool execute request returns to the shared Host client over IPC
-    ↓
-MCP call result returns to Pi and the frontend event stream
+Pi tool events and results reach the frontend event stream
 ```
 
 MCP tool 名称应 namespace 化：
@@ -1611,7 +1573,9 @@ mcp__browser__navigate
 
 ## 14.4 Secrets
 
-MCP token、API key 等不得明文存入 `config.json`。
+WebUI 的 PiServer token 由 SecretStore 管理，`config.json` 保存凭据引用。
+
+MCP 使用 Pi 原生 `mcp.json` 的环境变量替换和 `mcp-auth.json` OAuth 存储。
 
 配置保存引用：
 
@@ -1729,21 +1693,22 @@ pi-web-codex/
 
 “所有设置都记忆”不等于所有东西都塞进一个 JSON。
 
-| 设置                            | 权威存储                        |
-| ------------------------------- | ------------------------------- |
-| host、port、open browser        | `config.json`                   |
-| appearance、density、font size  | `config.json`                   |
-| 默认 runtime                    | `config.json`                   |
-| Pi Client profiles              | `config.json`                   |
-| 收藏、标签、project 排序        | `state.db`                      |
-| composer drafts                 | `state.db`                      |
-| 最近打开 session                | `state.db`                      |
-| Pi models/settings              | Pi settings                     |
-| Pi packages                     | Pi settings/package manager     |
-| Pi skills/extensions filters    | Pi settings                     |
-| project-local resource override | project settings                |
-| MCP config                      | `config.json` 或 project config |
-| API key、token、MCP secret      | SecretStore                     |
+| 设置                            | 权威存储                          |
+| ------------------------------- | --------------------------------- |
+| host、port、open browser        | `config.json`                     |
+| appearance、density、font size  | `config.json`                     |
+| 默认 runtime                    | `config.json`                     |
+| Pi Client profiles              | `config.json`                     |
+| 收藏、标签、project 排序        | `state.db`                        |
+| composer drafts                 | `state.db`                        |
+| 最近打开 session                | `state.db`                        |
+| Pi models/settings              | Pi settings                       |
+| Pi packages                     | Pi settings/package manager       |
+| Pi skills/extensions filters    | Pi settings                       |
+| project-local resource override | project settings                  |
+| MCP config                      | agentDir/mcp.json 或 .pi/mcp.json |
+| PiServer token                  | SecretStore                       |
+| MCP OAuth credentials           | Pi mcp-auth.json                  |
 
 Settings UI 对用户呈现为统一系统，但服务端根据 setting key 路由到正确存储。
 

@@ -57,6 +57,7 @@ const sections = [
     key: "settings.nav.models",
     icon: SlidersHorizontalIcon,
   },
+  { href: "/settings/agent", key: "settings.agent.title", icon: SparklesIcon },
   {
     href: "/settings/extensions",
     key: "settings.nav.extensions",

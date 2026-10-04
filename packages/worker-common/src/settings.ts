@@ -18,7 +18,7 @@ import type { CodingAgentModule } from "./coding-agent.js"
 
 type SettingsScope = "global" | "project"
 
-class AtomicSettingsStorage {
+export class AtomicSettingsStorage {
   private readonly paths: Record<SettingsScope, string>
 
   constructor(codingAgent: CodingAgentModule, cwd: string, agentDir: string) {

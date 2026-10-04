@@ -3,6 +3,7 @@
 import { useDeferredValue } from "react"
 import {
   BotIcon,
+  BracesIcon,
   FileDownIcon,
   FilePenLineIcon,
   FileSearchIcon,
@@ -27,6 +28,11 @@ import {
 } from "@/components/session-streaming-context"
 import { toolCallStatus } from "@/lib/tool-call-status"
 import { fileMutationToolKind } from "@/lib/file-mutation-tool"
+import {
+  codemodeCalls,
+  codemodeSource,
+  mcpToolLabel,
+} from "@/lib/codemode-tool"
 import { hashlineEditToolKind } from "@/lib/hashline-edit-tool"
 import { translate, type Locale } from "@/lib/i18n"
 import type { ToolResultView } from "@/lib/message-content"
@@ -63,6 +69,9 @@ function toolSummary(name: string, args: Record<string, unknown>) {
     case "grep":
       field = args.pattern
       break
+    case "codemode":
+      field = codemodeSource(args)?.split("\n", 1)[0]
+      break
   }
   return typeof field === "string" ? field : ""
 }
@@ -78,6 +87,8 @@ function toolAppearance(name: string): {
       return { icon: <TerminalIcon />, tone: "execute" }
     case "Agent":
       return { icon: <BotIcon />, tone: "agent" }
+    case "codemode":
+      return { icon: <BracesIcon />, tone: "execute" }
     case "read":
       return { icon: <FileTextIcon />, tone: "read" }
     case "write":
@@ -90,6 +101,136 @@ function toolAppearance(name: string): {
     default:
       return { icon: <WrenchIcon />, tone: "neutral" }
   }
+}
+
+function CodemodeToolCard({
+  part,
+  result,
+  running,
+  failed,
+  incomplete,
+  locale,
+}: {
+  part: Extract<TranscriptPart, { type: "toolCall" }>
+  result?: ToolResultView
+  running: boolean
+  failed: boolean
+  incomplete: boolean
+  locale: Locale
+}) {
+  const calls = codemodeCalls(result?.details)
+  const status = (callStatus: (typeof calls)[number]["status"]) =>
+    translate(
+      locale,
+      callStatus === "running"
+        ? "session.tool.callRunning"
+        : callStatus === "ok"
+          ? "session.tool.callComplete"
+          : callStatus === "error"
+            ? "session.tool.callFailed"
+            : "session.tool.callCancelled"
+    )
+  const code = codemodeSource(part.arguments)
+  return (
+    <ConversationDisclosure
+      defaultOpen={false}
+      label={<code className="font-mono text-xs">codemode</code>}
+      preview={toolSummary("codemode", part.arguments)}
+      icon={<BracesIcon />}
+      tone="execute"
+      status={
+        failed
+          ? translate(locale, "session.transcript.failed")
+          : running
+            ? translate(locale, "session.transcript.running")
+            : translate(
+                locale,
+                incomplete
+                  ? "session.transcript.incomplete"
+                  : "session.transcript.complete"
+              )
+      }
+      statusTone={
+        failed
+          ? "destructive"
+          : running
+            ? "running"
+            : incomplete
+              ? "muted"
+              : "success"
+      }
+      ariaLabel={translate(locale, "session.tool.expand", { name: "codemode" })}
+    >
+      <div className="flex min-w-0 flex-col gap-3">
+        {code !== undefined ? (
+          <section className="min-w-0">
+            <p className="mb-1.5 text-xs font-medium text-muted-foreground">
+              {translate(locale, "session.tool.script")}
+            </p>
+            <pre className="max-h-96 max-w-full overflow-auto rounded-lg bg-muted/60 p-3 font-mono text-xs leading-5">
+              <code>{code}</code>
+            </pre>
+          </section>
+        ) : null}
+        {calls.length ? (
+          <section className="min-w-0">
+            <p className="mb-1.5 text-xs font-medium text-muted-foreground">
+              {translate(locale, "session.tool.nestedCalls")}
+            </p>
+            <ul className="flex min-w-0 flex-col gap-2">
+              {calls.map((call) => (
+                <li
+                  key={call.id}
+                  className="min-w-0 rounded-lg bg-muted/50 p-3 text-xs"
+                >
+                  <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                    <code className="font-medium break-all">{call.name}</code>
+                    <span className="text-muted-foreground">
+                      {status(call.status)}
+                    </span>
+                    {call.durationMs !== undefined ? (
+                      <span className="text-muted-foreground">
+                        {translate(locale, "session.tool.wallTime")}:{" "}
+                        {call.durationMs < 1_000
+                          ? translate(
+                              locale,
+                              "session.subagents.durationMilliseconds",
+                              { count: Math.round(call.durationMs) }
+                            )
+                          : translate(
+                              locale,
+                              "session.subagents.durationSeconds",
+                              { count: Math.round(call.durationMs / 1_000) }
+                            )}
+                      </span>
+                    ) : null}
+                  </div>
+                  {call.args ? (
+                    <pre className="mt-2 max-h-32 overflow-auto font-mono break-words whitespace-pre-wrap text-muted-foreground">
+                      {call.args}
+                    </pre>
+                  ) : null}
+                  {call.error ? (
+                    <p className="mt-2 break-words whitespace-pre-wrap text-destructive">
+                      {call.error}
+                    </p>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
+        {result ? (
+          <ShellOrLiteralResult
+            name="codemode"
+            result={result}
+            running={running}
+            locale={locale}
+          />
+        ) : null}
+      </div>
+    </ConversationDisclosure>
+  )
 }
 
 const WEB_ACCESS_ICONS: Record<WebAccessToolName, React.ReactNode> = {
@@ -328,6 +469,20 @@ export function ToolCallCard({
       </ToolResultAnchor>
     )
   }
+  if (effectivePart.name === "codemode") {
+    return (
+      <ToolResultAnchor entryId={persistedResult?.entryId}>
+        <CodemodeToolCard
+          part={effectivePart}
+          result={result}
+          running={running}
+          failed={failed}
+          incomplete={incomplete}
+          locale={locale}
+        />
+      </ToolResultAnchor>
+    )
+  }
   const hashlineKind = hashlineEditToolKind(
     effectivePart.name,
     effectivePart.arguments
@@ -369,7 +524,11 @@ export function ToolCallCard({
     <ToolResultAnchor entryId={persistedResult?.entryId}>
       <ConversationDisclosure
         defaultOpen={false}
-        label={<code className="font-mono text-xs">{effectivePart.name}</code>}
+        label={
+          <code className="font-mono text-xs">
+            {mcpToolLabel(effectivePart.name, result?.details)}
+          </code>
+        }
         preview={summary}
         icon={appearance.icon}
         tone={appearance.tone}

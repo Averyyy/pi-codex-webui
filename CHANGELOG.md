@@ -2,6 +2,18 @@
 
 All notable changes to `pi-web-codex` are documented here.
 
+## [0.1.33] - 2026-10-04
+
+### Added
+
+- Added global and project agent settings for codemode, compaction, retries, and image handling.
+- Added codemode tool-call presentation and live agent settings updates.
+
+### Changed
+
+- Routed MCP configuration and execution through the native agent runtime.
+- Replaced WebUI-managed MCP connections with global and project MCP configuration.
+
 ## [0.1.28] - 2026-09-30
 
 ### Fixed

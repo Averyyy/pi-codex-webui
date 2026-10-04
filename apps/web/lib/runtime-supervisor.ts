@@ -17,6 +17,8 @@ import path from "node:path"
 
 import {
   modelSettingsSchema,
+  agentSettingsSnapshotSchema,
+  type AgentSettings,
   modelSettingsSnapshotSchema,
   promptAcceptedSchema,
   queueStateSchema,
@@ -70,7 +72,6 @@ import { getEventHub, type EventHub } from "@/lib/event-hub"
 import { loadConfig } from "@/lib/config"
 import type { AppConfig } from "@/lib/config-schema"
 import { emitCatalogMetric } from "@/lib/catalog-metrics"
-import { getMcpService } from "@/lib/mcp-service"
 import {
   readProjectCatalogState,
   type ProjectCatalogState,
@@ -147,12 +148,10 @@ interface ManagedRuntime {
   cleaned: boolean
   pendingResourceReload: boolean
   pendingModelReload: boolean
-  pendingMcpRestart: boolean
+  pendingSettingsRestart: boolean
   pendingWebUiRestart: boolean
   webUiRestartPromise: Promise<void> | null
   projectTrusted: boolean
-  mcpServerIds: Set<string>
-  mcpCalls: Map<string, AbortController>
   cleanupPromise: Promise<void> | null
   stopPromise: Promise<void> | null
   stopReason?: "explicit" | "idle-budget"
@@ -328,6 +327,8 @@ type ResourceRequestMessage = Extract<
       | "models.set-scope"
       | "providers.remove"
       | "providers.save"
+      | "agent-settings.get"
+      | "agent-settings.set"
   }
 >
 
@@ -703,7 +704,7 @@ export class RuntimeSupervisor {
           "A Pi runtime still has active or queued work. Wait for it to become idle before updating the WebUI."
         )
       }
-      if (runtime.pending.size > 0 || runtime.mcpCalls.size > 0) {
+      if (runtime.pending.size > 0) {
         throw new RuntimeRequestError(
           "RuntimeBusy",
           "A Pi runtime still has an in-flight request. Wait for it to finish before updating the WebUI."
@@ -722,7 +723,7 @@ export class RuntimeSupervisor {
         runtime.stopPromise ||
         runtime.pendingResourceReload ||
         runtime.pendingModelReload ||
-        runtime.pendingMcpRestart ||
+        runtime.pendingSettingsRestart ||
         runtime.pendingWebUiRestart
       ) {
         throw new RuntimeRequestError(
@@ -988,8 +989,6 @@ export class RuntimeSupervisor {
         ? new Date(runtime.lastActivityAt).toISOString()
         : null,
       pendingRequests: runtime?.pending.size ?? 0,
-      activeMcpCalls: runtime?.mcpCalls.size ?? 0,
-      mcpServers: runtime ? [...runtime.mcpServerIds].sort() : [],
       activeTools: runtime?.snapshot?.activeTools ?? [],
       crash,
       events: this.eventHub.recent(sessionId),
@@ -2404,12 +2403,14 @@ export class RuntimeSupervisor {
     switch (message.type) {
       case "models.catalog":
       case "resources.catalog":
+      case "agent-settings.get":
         return null
       case "models.refresh":
         return { kind: "agentDir", mode: "refresh", agentDir }
       case "models.set-scope":
       case "providers.remove":
       case "providers.save":
+      case "agent-settings.set":
         return { kind: "agentDir", mode: "write", agentDir }
       case "resources.set-enabled":
         return message.payload.writeScope === "global"
@@ -2756,6 +2757,45 @@ export class RuntimeSupervisor {
     }
   }
 
+  async agentSettings(target: ModelSettingsRuntimeTarget) {
+    return agentSettingsSnapshotSchema.parse(
+      await this.resourceRequest(
+        {
+          type: "agent-settings.get",
+          requestId: requestId(),
+          payload: { cwd: target.cwd, agentDir: getPiAgentDir() },
+        },
+        REQUEST_TIMEOUT_MS,
+        target
+      )
+    )
+  }
+
+  async setAgentSettings(
+    target: ModelSettingsRuntimeTarget,
+    settings: AgentSettings,
+    expected: AgentSettings
+  ) {
+    const snapshot = agentSettingsSnapshotSchema.parse(
+      await this.resourceRequest(
+        {
+          type: "agent-settings.set",
+          requestId: requestId(),
+          payload: {
+            cwd: target.cwd,
+            agentDir: getPiAgentDir(),
+            settings,
+            expected,
+          },
+        },
+        REQUEST_TIMEOUT_MS,
+        target
+      )
+    )
+    await this.reloadConfiguredRuntimes(target.cwd, true)
+    return snapshot
+  }
+
   async setModelScope(
     target: ModelSettingsRuntimeTarget,
     enabledModelIds: string[] | null,
@@ -2897,12 +2937,7 @@ export class RuntimeSupervisor {
       })
     )
     await this.reloadResources(cwd, false)
-    await getMcpService().catalog({
-      projectId,
-      projectPath: cwd,
-      projectTrusted: trusted,
-    })
-    await this.reloadMcpRuntimes(cwd, false)
+    await this.reloadConfiguredRuntimes(cwd, false)
     return this.annotateResourceReload(cwd, catalog)
   }
 
@@ -2911,8 +2946,7 @@ export class RuntimeSupervisor {
     cwd: string | null,
     global: boolean
   ) {
-    await getMcpService().configurationChanged(serverId)
-    await this.reloadMcpRuntimes(cwd, global)
+    await this.reloadConfiguredRuntimes(cwd, global)
     this.eventHub.publish({
       type: "mcp.status",
       payload: { serverId, reason: "configuration-changed" },
@@ -3199,7 +3233,7 @@ export class RuntimeSupervisor {
       thinkingLevel?: RuntimeSnapshot["thinkingLevel"]
     }
   ): Promise<RuntimeDraftClaimResult> {
-    const runtime = draft.runtime
+    let runtime = draft.runtime
     if (runtime.cleaned) {
       throw new RuntimeRequestError(
         "RuntimeDraftUnavailable",
@@ -3304,6 +3338,8 @@ export class RuntimeSupervisor {
         payload: runtime.snapshot,
       })
 
+      runtime = await this.refreshClaimedDraftSettings(draft)
+
       const result: RuntimeDraftClaimResult = {
         projectId: draft.projectId,
         sessionId: identity.id,
@@ -3346,6 +3382,25 @@ export class RuntimeSupervisor {
     await this.stop(draft.runtime.webSessionId)
     await rm(draft.runtime.nativeSessionFile, { force: true })
     await rm(draft.draftDirectory, { recursive: true, force: true })
+  }
+
+  private async refreshClaimedDraftSettings(draft: RuntimeDraft) {
+    const previous = draft.runtime
+    if (!previous.pendingSettingsRestart) return previous
+    const selectedModel = previous.snapshot?.model
+    const selectedThinking = previous.snapshot?.thinkingLevel
+    const sessionId = previous.webSessionId
+    await this.stop(sessionId)
+    await this.cleanup(previous)
+    const refreshed = await this.activate(sessionId)
+    draft.runtime = refreshed
+    if (selectedModel) {
+      await this.setModel(sessionId, selectedModel.provider, selectedModel.id)
+    }
+    if (selectedThinking) {
+      await this.setThinkingLevel(sessionId, selectedThinking)
+    }
+    return refreshed
   }
 
   private isUnclaimedDraftRuntime(runtime: ManagedRuntime) {
@@ -3519,20 +3574,20 @@ export class RuntimeSupervisor {
         : getPiWorkerPath()
     )
     await access(workerPath)
-    const mcpContext = await this.mcpContext(target.projectId, target.cwd)
-    const [mcpTools, webuiAdapters] = await Promise.all([
-      getMcpService().toolDefinitions(mcpContext),
-      webUiAdaptersForRuntime(
-        target.runtimeKind,
-        target.projectId === null
-          ? { projectId: null, projectTrusted: false }
-          : {
-              cwd: target.cwd,
-              projectId: target.projectId,
-              projectTrusted: mcpContext.projectTrusted,
-            }
-      ),
-    ])
+    const projectTrustContext = await this.projectTrustContext(
+      target.projectId,
+      target.cwd
+    )
+    const webuiAdapters = await webUiAdaptersForRuntime(
+      target.runtimeKind,
+      target.projectId === null
+        ? { projectId: null, projectTrusted: false }
+        : {
+            cwd: target.cwd,
+            projectId: target.projectId,
+            projectTrusted: projectTrustContext.projectTrusted,
+          }
+    )
 
     // All preparation awaits above can yield to the update request.  Check
     // immediately before forking so no new app-owned worker can escape the
@@ -3564,12 +3619,10 @@ export class RuntimeSupervisor {
       cleaned: false,
       pendingResourceReload: false,
       pendingModelReload: false,
-      pendingMcpRestart: false,
+      pendingSettingsRestart: false,
       pendingWebUiRestart: false,
       webUiRestartPromise: null,
-      projectTrusted: mcpContext.projectTrusted,
-      mcpServerIds: new Set(mcpTools.map((tool) => tool.serverId)),
-      mcpCalls: new Map(),
+      projectTrusted: projectTrustContext.projectTrusted,
       cleanupPromise: null,
       stopPromise: null,
       resourceReloadPromise: null,
@@ -3606,7 +3659,6 @@ export class RuntimeSupervisor {
               runtimeProfileId: target.profileId,
               cwd: target.cwd,
               agentDir: getPiAgentDir(),
-              mcpTools,
               webuiAdapters,
               target: initializationTarget,
               ...(launchMode === "draft" ? { draft: true } : {}),
@@ -3749,20 +3801,20 @@ export class RuntimeSupervisor {
       realpath(target.nativeSessionFile),
     ])
     await access(workerPath)
-    const mcpContext = await this.mcpContext(target.projectId, target.cwd)
-    const [mcpTools, webuiAdapters] = await Promise.all([
-      getMcpService().toolDefinitions(mcpContext),
-      webUiAdaptersForRuntime(
-        target.runtimeKind,
-        target.projectId === null
-          ? { projectId: null, projectTrusted: false }
-          : {
-              cwd: target.cwd,
-              projectId: target.projectId,
-              projectTrusted: mcpContext.projectTrusted,
-            }
-      ),
-    ])
+    const projectTrustContext = await this.projectTrustContext(
+      target.projectId,
+      target.cwd
+    )
+    const webuiAdapters = await webUiAdaptersForRuntime(
+      target.runtimeKind,
+      target.projectId === null
+        ? { projectId: null, projectTrusted: false }
+        : {
+            cwd: target.cwd,
+            projectId: target.projectId,
+            projectTrusted: projectTrustContext.projectTrusted,
+          }
+    )
     const lockPath = await this.acquireSessionLock({
       webSessionId: sessionId,
       runtimeProfileId: target.runtimeProfileId,
@@ -3798,12 +3850,10 @@ export class RuntimeSupervisor {
       cleaned: false,
       pendingResourceReload: false,
       pendingModelReload: false,
-      pendingMcpRestart: false,
+      pendingSettingsRestart: false,
       pendingWebUiRestart: false,
       webUiRestartPromise: null,
-      projectTrusted: mcpContext.projectTrusted,
-      mcpServerIds: new Set(mcpTools.map((tool) => tool.serverId)),
-      mcpCalls: new Map(),
+      projectTrusted: projectTrustContext.projectTrusted,
       cleanupPromise: null,
       stopPromise: null,
       resourceReloadPromise: null,
@@ -3833,7 +3883,6 @@ export class RuntimeSupervisor {
               runtimeProfileId: target.runtimeProfileId,
               cwd: target.cwd,
               agentDir: getPiAgentDir(),
-              mcpTools,
               webuiAdapters,
               target: { mode: "resume", nativeSessionFile },
             },
@@ -3926,14 +3975,7 @@ export class RuntimeSupervisor {
     message: WorkerToHostMessage
   ) {
     runtime.lastActivityAt = Date.now()
-    if (message.type === "mcp.call.request") {
-      void this.handleMcpCallRequest(runtime, message)
-      return
-    }
-    if (message.type === "mcp.call.cancel") {
-      runtime.mcpCalls.get(message.requestId)?.abort()
-      return
-    }
+
     if (message.type === "extension.ui.request") {
       let expiresAt: number | null | undefined
       if (message.payload.method === "setStatus") {
@@ -4133,10 +4175,10 @@ export class RuntimeSupervisor {
             runtime.pendingResourceReload = false
             runtime.pendingModelReload = false
             this.scheduleWebUiRestart(runtime)
-          } else if (runtime.pendingMcpRestart) {
+          } else if (runtime.pendingSettingsRestart) {
             runtime.pendingResourceReload = false
             runtime.pendingModelReload = false
-            this.scheduleMcpRestart(runtime)
+            this.scheduleConfiguredRestart(runtime)
           } else if (runtime.pendingModelReload) {
             this.scheduleModelSettingsReload(runtime)
           } else if (runtime.pendingResourceReload) {
@@ -4162,67 +4204,6 @@ export class RuntimeSupervisor {
     }
 
     publishDomainEvent()
-  }
-
-  private async handleMcpCallRequest(
-    runtime: ManagedRuntime,
-    message: Extract<WorkerToHostMessage, { type: "mcp.call.request" }>
-  ) {
-    const sendFailure = (code: string, detail: string) => {
-      if (!runtime.child.connected) return
-      runtime.child.send({
-        type: "mcp.call.response",
-        requestId: message.requestId,
-        success: false,
-        error: { code, message: detail },
-      } satisfies HostToWorkerMessage)
-    }
-    if (message.sessionId !== runtime.webSessionId) {
-      sendFailure("McpSessionMismatch", "MCP call came from the wrong session.")
-      return
-    }
-    if (!runtime.mcpServerIds.has(message.payload.serverId)) {
-      sendFailure(
-        "McpServerUnavailable",
-        `MCP server ${message.payload.serverId} is not available to this runtime.`
-      )
-      return
-    }
-    if (runtime.mcpCalls.has(message.requestId)) {
-      sendFailure("DuplicateMcpCall", "Duplicate MCP call request ID.")
-      return
-    }
-
-    const controller = new AbortController()
-    runtime.mcpCalls.set(message.requestId, controller)
-    try {
-      const result = await getMcpService().callTool(
-        message.payload.serverId,
-        message.payload.toolName,
-        message.payload.arguments,
-        {
-          projectId: runtime.projectId,
-          projectPath: runtime.projectId === null ? null : runtime.cwd,
-          projectTrusted: runtime.projectTrusted,
-          signal: controller.signal,
-        }
-      )
-      if (runtime.child.connected) {
-        runtime.child.send({
-          type: "mcp.call.response",
-          requestId: message.requestId,
-          success: true,
-          result,
-        } satisfies HostToWorkerMessage)
-      }
-    } catch (error) {
-      sendFailure(
-        error instanceof Error ? error.name : "McpCallFailed",
-        error instanceof Error ? error.message : String(error)
-      )
-    } finally {
-      runtime.mcpCalls.delete(message.requestId)
-    }
   }
 
   private request(
@@ -4699,7 +4680,7 @@ export class RuntimeSupervisor {
     })
   }
 
-  private async mcpContext(projectId: string | null, cwd: string) {
+  private async projectTrustContext(projectId: string | null, cwd: string) {
     if (projectId === null) {
       return {
         projectId: null,
@@ -4715,7 +4696,7 @@ export class RuntimeSupervisor {
     }
   }
 
-  private async reloadMcpRuntimes(cwd: string | null, global: boolean) {
+  private async reloadConfiguredRuntimes(cwd: string | null, global: boolean) {
     const restarts: Promise<void>[] = []
     for (const runtime of [...this.runtimes.values()]) {
       if (
@@ -4725,18 +4706,18 @@ export class RuntimeSupervisor {
         continue
       }
       if (runtime.status === "ready") {
-        restarts.push(this.restartMcpRuntime(runtime))
+        restarts.push(this.restartConfiguredRuntime(runtime))
       } else if (runtime.status === "busy" || runtime.status === "starting") {
-        runtime.pendingMcpRestart = true
+        runtime.pendingSettingsRestart = true
       }
     }
     await Promise.all(restarts)
   }
 
-  private scheduleMcpRestart(runtime: ManagedRuntime) {
-    void this.restartMcpRuntime(runtime).catch((error: unknown) => {
+  private scheduleConfiguredRestart(runtime: ManagedRuntime) {
+    void this.restartConfiguredRuntime(runtime).catch((error: unknown) => {
       this.eventHub.publish({
-        type: "mcp.reload.failed",
+        type: "runtime.settings.reload.failed",
         sessionId: runtime.webSessionId,
         payload: {
           message: error instanceof Error ? error.message : String(error),
@@ -4772,7 +4753,7 @@ export class RuntimeSupervisor {
     }
     const sessionId = runtime.webSessionId
     runtime.pendingWebUiRestart = false
-    runtime.pendingMcpRestart = false
+    runtime.pendingSettingsRestart = false
     runtime.pendingResourceReload = false
     runtime.pendingModelReload = false
     this.eventHub.publish({
@@ -4785,20 +4766,18 @@ export class RuntimeSupervisor {
     await this.activate(sessionId)
   }
 
-  private async restartMcpRuntime(runtime: ManagedRuntime) {
+  private async restartConfiguredRuntime(runtime: ManagedRuntime) {
     if (runtime.cleaned) return
     if (this.isUnclaimedDraftRuntime(runtime)) {
-      throw new RuntimeRequestError(
-        "RuntimeDraftUnavailable",
-        "The draft runtime must be claimed before MCP servers can reload."
-      )
+      runtime.pendingSettingsRestart = true
+      return
     }
     const sessionId = runtime.webSessionId
-    runtime.pendingMcpRestart = false
+    runtime.pendingSettingsRestart = false
     runtime.pendingResourceReload = false
     runtime.pendingModelReload = false
     this.eventHub.publish({
-      type: "mcp.reload.started",
+      type: "runtime.settings.reload.started",
       sessionId,
       payload: {},
     })
@@ -4835,14 +4814,14 @@ export class RuntimeSupervisor {
       if (
         (runtime.modelReloadPromise || runtime.status === "ready") &&
         !runtime.pendingWebUiRestart &&
-        !runtime.pendingMcpRestart
+        !runtime.pendingSettingsRestart
       ) {
         reloads.push(this.reloadRuntimeModelSettings(runtime))
       } else if (
         runtime.status === "busy" ||
         runtime.status === "starting" ||
         runtime.pendingWebUiRestart ||
-        runtime.pendingMcpRestart
+        runtime.pendingSettingsRestart
       ) {
         runtime.pendingModelReload = true
       }
@@ -4994,8 +4973,8 @@ export class RuntimeSupervisor {
     if (runtime.cleaned || runtime.status !== "ready") return
     if (runtime.pendingWebUiRestart) {
       setImmediate(() => this.scheduleWebUiRestart(runtime))
-    } else if (runtime.pendingMcpRestart) {
-      setImmediate(() => this.scheduleMcpRestart(runtime))
+    } else if (runtime.pendingSettingsRestart) {
+      setImmediate(() => this.scheduleConfiguredRestart(runtime))
     } else if (runtime.pendingModelReload) {
       setImmediate(() => this.scheduleModelSettingsReload(runtime))
     } else if (runtime.pendingResourceReload) {
@@ -5138,8 +5117,6 @@ export class RuntimeSupervisor {
     if (runtime.cleanupPromise) return runtime.cleanupPromise
     runtime.cleanupPromise = (async () => {
       runtime.cleaned = true
-      for (const controller of runtime.mcpCalls.values()) controller.abort()
-      runtime.mcpCalls.clear()
       for (const requestId of this.extensionUIRequests(runtime).keys()) {
         this.removePendingExtensionUI(runtime, requestId)
       }
@@ -5234,11 +5211,10 @@ export class RuntimeSupervisor {
       (runtime.snapshot?.isCompacting ?? false) ||
       (runtime.snapshot?.queuedPrompts.length ?? 0) > 0 ||
       runtime.pending.size > 0 ||
-      (runtime.mcpCalls?.size ?? 0) > 0 ||
       (runtime.extensionUiRequests?.size ?? 0) > 0 ||
       runtime.pendingResourceReload ||
       runtime.pendingModelReload ||
-      runtime.pendingMcpRestart ||
+      runtime.pendingSettingsRestart ||
       runtime.pendingWebUiRestart ||
       runtime.resourceReloadPromise !== null ||
       runtime.modelReloadPromise !== null ||

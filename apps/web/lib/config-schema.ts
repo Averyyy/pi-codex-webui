@@ -11,86 +11,6 @@ export const secretReferenceSchema = z
   .object({ $secret: z.string().uuid() })
   .strict()
 
-export const mcpServerIdSchema = z
-  .string()
-  .min(1)
-  .max(48)
-  .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
-
-const mcpStoredValueSchema = z.union([
-  z.string().max(8_192),
-  secretReferenceSchema,
-])
-
-const mcpToolNameSchema = z.string().min(1).max(128)
-
-const mcpServerSchema = z
-  .object({
-    id: mcpServerIdSchema,
-    name: z.string().trim().min(1).max(80),
-    scope: z.enum(["global", "project"]),
-    projectId: z.string().min(1).nullable(),
-    enabled: z.boolean(),
-    transport: z.discriminatedUnion("type", [
-      z.object({
-        type: z.literal("stdio"),
-        command: z.string().trim().min(1).max(2_048),
-        args: z.array(z.string().max(8_192)).max(200),
-        cwd: z.string().max(2_048).nullable(),
-      }),
-      z.object({
-        type: z.literal("http"),
-        url: z.url({ protocol: /^https?$/ }).max(2_048),
-        headers: z.record(z.string().min(1).max(256), mcpStoredValueSchema),
-      }),
-    ]),
-    env: z.record(z.string().min(1).max(256), mcpStoredValueSchema),
-    timeoutMs: z.number().int().min(1_000).max(600_000),
-    enabledTools: z.array(mcpToolNameSchema).max(1_000),
-    disabledTools: z.array(mcpToolNameSchema).max(1_000),
-  })
-  .superRefine((server, context) => {
-    if (server.scope === "project" && !server.projectId) {
-      context.addIssue({
-        code: "custom",
-        path: ["projectId"],
-        message: "Project-scoped MCP servers require a project ID.",
-      })
-    }
-    if (server.scope === "global" && server.projectId !== null) {
-      context.addIssue({
-        code: "custom",
-        path: ["projectId"],
-        message: "Global MCP servers cannot have a project ID.",
-      })
-    }
-    for (const key of ["enabledTools", "disabledTools"] as const) {
-      if (new Set(server[key]).size !== server[key].length) {
-        context.addIssue({
-          code: "custom",
-          path: [key],
-          message: `${key} cannot contain duplicates.`,
-        })
-      }
-    }
-  })
-
-const mcpSchema = z
-  .object({
-    servers: z.record(mcpServerIdSchema, mcpServerSchema),
-  })
-  .superRefine((mcp, context) => {
-    for (const [id, server] of Object.entries(mcp.servers)) {
-      if (id !== server.id) {
-        context.addIssue({
-          code: "custom",
-          path: ["servers", id, "id"],
-          message: "MCP server map key must match the server ID.",
-        })
-      }
-    }
-  })
-
 export const runtimeProfileIdSchema = z
   .string()
   .min(1)
@@ -253,7 +173,7 @@ export const configSchema = z.object({
   server: serverSchema,
   appearance: appearanceSchema,
   developer: developerSchema,
-  mcp: mcpSchema,
+  mcp: z.unknown().optional(),
   webuiExtensions: webUiExtensionsSchema,
 })
 
@@ -262,7 +182,6 @@ export const configPatchSchema = z
     server: serverSchema.pick({ port: true, openBrowser: true }).partial(),
     appearance: appearanceSchema.partial(),
     developer: developerSchema,
-    mcp: mcpSchema,
     webuiExtensions: webUiExtensionsSchema,
   })
   .partial()
@@ -277,8 +196,6 @@ export const configPatchSchema = z
 export type AppConfig = z.infer<typeof configSchema>
 export type ConfigPatch = z.infer<typeof configPatchSchema>
 export type RuntimeSettingsView = z.infer<typeof runtimeSettingsViewSchema>
-export type McpServerConfig = AppConfig["mcp"]["servers"][string]
-export type McpStoredValue = z.infer<typeof mcpStoredValueSchema>
 
 export const DEFAULT_CONFIG: AppConfig = {
   schemaVersion: 3,
@@ -308,9 +225,6 @@ export const DEFAULT_CONFIG: AppConfig = {
       },
     },
   },
-  mcp: {
-    servers: {},
-  },
   webuiExtensions: {
     preferences: {},
   },
@@ -325,7 +239,6 @@ export function parseConfig(value: unknown): AppConfig {
         schemaVersion: 3,
         developer:
           legacy.developer ?? structuredClone(DEFAULT_CONFIG.developer),
-        mcp: legacy.mcp ?? structuredClone(DEFAULT_CONFIG.mcp),
         webuiExtensions: structuredClone(DEFAULT_CONFIG.webuiExtensions),
       })
     }
@@ -339,7 +252,6 @@ export function mergeConfig(config: AppConfig, patch: ConfigPatch): AppConfig {
     server: { ...config.server, ...patch.server },
     appearance: { ...config.appearance, ...patch.appearance },
     developer: patch.developer ?? config.developer,
-    mcp: patch.mcp ?? config.mcp,
     webuiExtensions: patch.webuiExtensions ?? config.webuiExtensions,
   })
 }

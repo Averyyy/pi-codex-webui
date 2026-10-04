@@ -19,6 +19,7 @@ import {
 import { createSettingsManager } from "./settings.js"
 import type { CodingAgentModule, ModelThinkingModule } from "./coding-agent.js"
 import { handleModelSettingsMessage } from "./model-settings.js"
+import { handleAgentSettingsMessage } from "./agent-settings.js"
 import { projectTrustedForWeb } from "./project-trust.js"
 
 export { projectTrustedForWeb } from "./project-trust.js"
@@ -38,6 +39,8 @@ type ResourceMessage = Extract<
       | "models.set-scope"
       | "providers.remove"
       | "providers.save"
+      | "agent-settings.get"
+      | "agent-settings.set"
   }
 >
 
@@ -468,6 +471,12 @@ export async function handleResourceMessage(
 ) {
   const { cwd, agentDir } = message.payload
   if (
+    message.type === "agent-settings.get" ||
+    message.type === "agent-settings.set"
+  ) {
+    return handleAgentSettingsMessage(codingAgent, message)
+  }
+  if (
     message.type === "models.catalog" ||
     message.type === "models.refresh" ||
     message.type === "models.set-scope" ||
@@ -503,6 +512,8 @@ export function isResourceMessage(
 ): message is ResourceMessage {
   return (
     message.type === "resources.catalog" ||
+    message.type === "agent-settings.get" ||
+    message.type === "agent-settings.set" ||
     message.type === "resources.set-enabled" ||
     message.type === "packages.install" ||
     message.type === "packages.remove" ||

@@ -41,10 +41,8 @@ test("shared UI labels follow the Chinese locale", () => {
   assert.equal(t("settings.resources.project"), "当前项目")
   assert.equal(t("settings.resources.source.explicitPath"), "显式路径")
   assert.equal(t("settings.resources.source.package"), "安装来源")
-  assert.equal(t("settings.mcp.context"), "MCP 上下文")
-  assert.equal(t("settings.mcp.serverCountMany", { count: 2 }), "2 项")
-  assert.equal(t("settings.mcpForm.environment"), "环境变量")
-  assert.equal(t("settings.valueEditor.secret"), "敏感值")
+  assert.equal(t("settings.agent.title"), "Agent")
+  assert.equal(t("settings.agent.codemode"), "启用 Codemode")
   assert.equal(t("settings.resources.readFailed"), "读取 Pi 资源状态失败。")
   assert.equal(
     t("settings.resources.toggleEnabled", {
@@ -57,7 +55,6 @@ test("shared UI labels follow the Chinese locale", () => {
     t("settings.resources.filteredSummary", { visible: 2, total: 19 }),
     "显示 2 / 19 项"
   )
-  assert.equal(t("settings.mcp.status.connected"), "已连接")
   assert.equal(
     t("settings.common.conflict"),
     "设置已在其他页面更新；当前修改已保留，请检查后重试。"
@@ -72,10 +69,6 @@ test("shared UI labels follow the Chinese locale", () => {
   )
   assert.equal(t("settings.runtime.sessionCountOne", { count: 1 }), "1 个会话")
   assert.equal(t("settings.runtime.sessionCountMany", { count: 2 }), "2 个会话")
-  assert.equal(
-    t("settings.mcp.lastConnected", { value: "2026-08-04 10:00:00Z" }),
-    "最近连接：2026-08-04 10:00:00Z"
-  )
   assert.equal(t("composer.reasoningEffort"), "推理强度")
   assert.equal(t("composer.reasoningLevel", { level: "max" }), "推理：max")
   assert.equal(t("composer.commands"), "命令")
@@ -170,8 +163,8 @@ test("shared UI labels retain their English defaults", () => {
   )
   assert.equal(t("settings.resources.source.explicitPath"), "Explicit path")
   assert.equal(t("settings.resources.source.package"), "Install source")
-  assert.equal(t("settings.mcp.serverCountOne", { count: 1 }), "1 server")
-  assert.equal(t("settings.mcp.serverCountMany", { count: 2 }), "2 servers")
+  assert.equal(t("settings.agent.title"), "Agent")
+  assert.equal(t("settings.agent.codemode"), "Enable Codemode")
   assert.equal(
     t("settings.resources.readFailed"),
     "Failed to read Pi resource status."
@@ -187,7 +180,6 @@ test("shared UI labels retain their English defaults", () => {
     t("settings.resources.filteredSummary", { visible: 2, total: 19 }),
     "Showing 2 of 19 items"
   )
-  assert.equal(t("settings.mcp.status.connected"), "Connected")
   assert.equal(
     t("settings.common.conflict"),
     "Settings changed on another page. Your edits were kept; review them and try again."
@@ -204,10 +196,6 @@ test("shared UI labels retain their English defaults", () => {
   assert.equal(
     t("settings.runtime.sessionCountMany", { count: 2 }),
     "2 sessions"
-  )
-  assert.equal(
-    t("settings.mcp.lastConnected", { value: "2026-08-04 10:00:00Z" }),
-    "Last connected: 2026-08-04 10:00:00Z"
   )
   assert.equal(
     t("ui.resizeSidebar"),

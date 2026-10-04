@@ -19,7 +19,7 @@ test("idle recycling preserves a leased runtime until its lease expires", async 
         extensionUiRequests: Map<string, unknown>
         pendingResourceReload: boolean
         pendingModelReload: boolean
-        pendingMcpRestart: boolean
+        pendingSettingsRestart: boolean
         pendingWebUiRestart: boolean
         resourceReloadPromise: Promise<unknown> | null
         modelReloadPromise: Promise<unknown> | null
@@ -41,7 +41,7 @@ test("idle recycling preserves a leased runtime until its lease expires", async 
     extensionUiRequests: new Map(),
     pendingResourceReload: false,
     pendingModelReload: false,
-    pendingMcpRestart: false,
+    pendingSettingsRestart: false,
     pendingWebUiRestart: false,
     resourceReloadPromise: null,
     modelReloadPromise: null,
@@ -80,7 +80,7 @@ test("idle recycling delegates unclaimed drafts to their own lease reaper", () =
         extensionUiRequests: Map<string, unknown>
         pendingResourceReload: boolean
         pendingModelReload: boolean
-        pendingMcpRestart: boolean
+        pendingSettingsRestart: boolean
         pendingWebUiRestart: boolean
         resourceReloadPromise: Promise<unknown> | null
         modelReloadPromise: Promise<unknown> | null
@@ -108,7 +108,7 @@ test("idle recycling delegates unclaimed drafts to their own lease reaper", () =
           extensionUiRequests: Map<string, unknown>
           pendingResourceReload: boolean
           pendingModelReload: boolean
-          pendingMcpRestart: boolean
+          pendingSettingsRestart: boolean
           pendingWebUiRestart: boolean
           resourceReloadPromise: Promise<unknown> | null
           modelReloadPromise: Promise<unknown> | null
@@ -131,7 +131,7 @@ test("idle recycling delegates unclaimed drafts to their own lease reaper", () =
     extensionUiRequests: new Map(),
     pendingResourceReload: false,
     pendingModelReload: false,
-    pendingMcpRestart: false,
+    pendingSettingsRestart: false,
     pendingWebUiRestart: false,
     resourceReloadPromise: null,
     modelReloadPromise: null,

@@ -633,10 +633,7 @@ export class SessionRuntimeController {
         typeof event.payload !== "object" ||
         event.payload === null ||
         !("requestId" in event.payload) ||
-        typeof event.payload.requestId !== "string" ||
-        !("expiresAt" in event.payload) ||
-        (event.payload.expiresAt !== null &&
-          typeof event.payload.expiresAt !== "number")
+        typeof event.payload.requestId !== "string"
       ) {
         throw new Error("Runtime emitted an invalid extension UI request.")
       }
@@ -666,6 +663,13 @@ export class SessionRuntimeController {
         request.method !== "notify" &&
         request.method !== "set_title"
       ) {
+        if (
+          !("expiresAt" in event.payload) ||
+          (event.payload.expiresAt !== null &&
+            typeof event.payload.expiresAt !== "number")
+        ) {
+          throw new Error("Runtime omitted an extension UI expiry.")
+        }
         const requestId = event.payload.requestId
         const active = activeExtensionRequest(
           requestId,

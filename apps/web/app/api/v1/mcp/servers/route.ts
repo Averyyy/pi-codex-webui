@@ -1,54 +1,59 @@
-import { mcpServerInputSchema, saveMcpServer } from "@/lib/mcp-config"
-import {
-  mcpCatalogResponse,
-  mcpErrorResponse,
-  revisionFrom,
-  selectedProjectId,
-  validateInputScope,
-} from "@/lib/mcp-api"
-import { resolveMcpContext } from "@/lib/mcp-settings-data"
+import { z, ZodError } from "zod"
+
+import { McpConfigConflictError, writeMcpConfigFile } from "@/lib/mcp-config"
+import { readMcpSettings, resolveMcpContext } from "@/lib/mcp-settings-data"
+import { runtimeErrorResponse } from "@/lib/runtime-api"
 import { validateLocalMutation } from "@/lib/request-security"
 import { getRuntimeSupervisor } from "@/lib/runtime-supervisor"
+import { assertUpdateAllowed } from "@/lib/update-maintenance"
 
 export const runtime = "nodejs"
 
 export async function GET(request: Request) {
   try {
-    return await mcpCatalogResponse(selectedProjectId(request))
+    return Response.json(
+      await readMcpSettings(new URL(request.url).searchParams.get("projectId")),
+      { headers: { "Cache-Control": "no-store" } }
+    )
   } catch (error) {
-    return await mcpErrorResponse(error, selectedProjectId(request))
+    return runtimeErrorResponse(error)
   }
 }
 
-export async function POST(request: Request) {
-  const securityError = validateLocalMutation(request)
-  if (securityError) {
-    return Response.json({ error: securityError }, { status: 403 })
-  }
-  const revision = revisionFrom(request)
-  if (revision === null) {
-    return Response.json(
-      { error: "A valid If-Match header is required." },
-      { status: 428 }
-    )
-  }
+const saveSchema = z.object({
+  scope: z.enum(["global", "project"]),
+  expectedText: z.string().nullable(),
+  text: z.string(),
+})
 
+export async function PUT(request: Request) {
+  const securityError = validateLocalMutation(request)
+  if (securityError)
+    return Response.json({ error: securityError }, { status: 403 })
+  const projectId = new URL(request.url).searchParams.get("projectId")
   try {
-    const projectId = selectedProjectId(request)
-    await resolveMcpContext(projectId)
-    const input = mcpServerInputSchema.parse(await request.json())
-    validateInputScope(input, projectId)
-    const next = await saveMcpServer(revision, input)
-    const server = next.mcp.servers[input.id]!
+    assertUpdateAllowed()
+    const input = saveSchema.parse(await request.json())
+    const current = await readMcpSettings(projectId)
+    const file = current.files[input.scope]
+    if (!file)
+      return Response.json(
+        { error: "Select a project to edit project MCP settings." },
+        { status: 400 }
+      )
+    await writeMcpConfigFile(file.path, input.expectedText, input.text)
+    const context = await resolveMcpContext(projectId)
     await getRuntimeSupervisor().mcpConfigurationChanged(
-      server.id,
-      server.scope === "project"
-        ? (await resolveMcpContext(server.projectId)).projectPath
-        : null,
-      server.scope === "global"
+      "mcp.json",
+      context.projectPath,
+      input.scope === "global"
     )
-    return await mcpCatalogResponse(projectId)
+    return Response.json(await readMcpSettings(projectId))
   } catch (error) {
-    return await mcpErrorResponse(error, selectedProjectId(request))
+    if (error instanceof McpConfigConflictError)
+      return Response.json({ error: error.message }, { status: 409 })
+    if (error instanceof ZodError || error instanceof SyntaxError)
+      return Response.json({ error: error.message }, { status: 400 })
+    return runtimeErrorResponse(error)
   }
 }

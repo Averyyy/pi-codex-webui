@@ -19,7 +19,7 @@ interface RuntimeFixture {
   extensionUiRequests: Map<string, unknown>
   pendingResourceReload: boolean
   pendingModelReload: boolean
-  pendingMcpRestart: boolean
+  pendingSettingsRestart: boolean
   pendingWebUiRestart: boolean
   resourceReloadPromise: Promise<unknown> | null
   modelReloadPromise: Promise<unknown> | null
@@ -83,7 +83,7 @@ function runtime(overrides: Partial<RuntimeFixture> = {}): RuntimeFixture {
     extensionUiRequests: new Map(),
     pendingResourceReload: false,
     pendingModelReload: false,
-    pendingMcpRestart: false,
+    pendingSettingsRestart: false,
     pendingWebUiRestart: false,
     resourceReloadPromise: null,
     modelReloadPromise: null,

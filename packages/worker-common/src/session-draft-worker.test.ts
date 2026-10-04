@@ -90,7 +90,6 @@ async function assertDraftWorker(
         runtimeProfileId,
         cwd,
         agentDir,
-        mcpTools: [],
         webuiAdapters: [],
         target: { mode: "new" as const },
         draft: true,

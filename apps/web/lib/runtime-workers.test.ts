@@ -89,27 +89,12 @@ test("Pi Client duplicates into its own worker without changing the source", asy
       runtimeProfileId: "pi",
       cwd,
       agentDir,
-      mcpTools: [
-        {
-          serverId: "fixture",
-          serverName: "Fixture",
-          toolName: "echo",
-          name: "mcp__fixture__echo",
-          title: "Echo",
-          description: "Echo a value.",
-          inputSchema: {
-            type: "object",
-            properties: { value: { type: "string" } },
-            required: ["value"],
-          },
-        },
-      ],
       webuiAdapters: [],
       target: { mode: "new" },
     },
   })
   assert.equal(typeof piSnapshot.leafId, "string")
-  assert.equal(piSnapshot.activeTools.includes("mcp__fixture__echo"), true)
+  assert.ok(piSnapshot.slashCommands?.some((command) => command.name === "mcp"))
   await stopWorker(pi)
 
   const sourceBefore = await readFile(piSnapshot.nativeSessionFile)
@@ -143,7 +128,6 @@ test("Pi Client duplicates into its own worker without changing the source", asy
       runtimeProfileId: "pi-client-default",
       cwd,
       agentDir,
-      mcpTools: [],
       webuiAdapters: [],
       target: {
         mode: "duplicate",

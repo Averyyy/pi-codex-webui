@@ -118,86 +118,6 @@ export const runtimeSnapshotSchema = z.object({
   extensionStatuses: z.record(z.string(), z.string()).default({}),
 })
 
-export const mcpToolDefinitionSchema = z.object({
-  serverId: z.string().min(1),
-  serverName: z.string().min(1),
-  toolName: z.string().min(1),
-  name: z.string().min(1),
-  title: z.string().optional(),
-  description: z.string().optional(),
-  inputSchema: z.record(z.string(), z.unknown()),
-})
-
-export const mcpCallResultSchema = z.object({
-  content: z.array(z.unknown()),
-  structuredContent: z.record(z.string(), z.unknown()).optional(),
-  isError: z.boolean().optional(),
-})
-
-export const mcpConnectionStatusSchema = z.enum([
-  "disabled",
-  "disconnected",
-  "connecting",
-  "connected",
-  "error",
-])
-
-export const mcpConfiguredValueViewSchema = z.object({
-  key: z.string().min(1),
-  value: z.string(),
-  secret: z.boolean(),
-  configured: z.boolean(),
-})
-
-export const mcpServerViewSchema = z.object({
-  id: z.string().min(1),
-  name: z.string().min(1),
-  scope: z.enum(["global", "project"]),
-  projectId: z.string().nullable(),
-  enabled: z.boolean(),
-  transport: z.discriminatedUnion("type", [
-    z.object({
-      type: z.literal("stdio"),
-      command: z.string(),
-      args: z.array(z.string()),
-      cwd: z.string().nullable(),
-    }),
-    z.object({
-      type: z.literal("http"),
-      url: z.string(),
-      headers: z.array(mcpConfiguredValueViewSchema),
-    }),
-  ]),
-  env: z.array(mcpConfiguredValueViewSchema),
-  timeoutMs: z.number().int().positive(),
-  status: mcpConnectionStatusSchema,
-  tools: z.array(
-    z.object({
-      name: z.string().min(1),
-      namespacedName: z.string().min(1),
-      title: z.string().optional(),
-      description: z.string().optional(),
-      enabled: z.boolean(),
-    })
-  ),
-  lastConnectedAt: z.string().nullable(),
-  lastError: z.string().nullable(),
-  logs: z.array(
-    z.object({
-      timestamp: z.string(),
-      level: z.enum(["info", "stderr", "error"]),
-      message: z.string(),
-    })
-  ),
-})
-
-export const mcpCatalogSchema = z.object({
-  revision: z.number().int().nonnegative(),
-  projectId: z.string().nullable(),
-  projectTrusted: z.boolean(),
-  servers: z.array(mcpServerViewSchema),
-})
-
 export const promptAcceptedSchema = z.object({
   accepted: z.literal(true),
   queued: z.boolean(),
@@ -781,7 +701,6 @@ const initializeMessageSchema = z.object({
     runtimeProfileId: z.string().min(1),
     cwd: z.string().min(1),
     agentDir: z.string().min(1),
-    mcpTools: z.array(mcpToolDefinitionSchema),
     webuiAdapters: z.array(webUiAdapterDescriptorSchema),
     target: z.discriminatedUnion("mode", [
       z.object({
@@ -1022,19 +941,6 @@ const shutdownMessageSchema = z.object({
   requestId: z.string().min(1),
 })
 
-const mcpCallResponseMessageSchema = z.object({
-  type: z.literal("mcp.call.response"),
-  requestId: z.string().min(1),
-  success: z.boolean(),
-  result: mcpCallResultSchema.optional(),
-  error: z
-    .object({
-      code: z.string().min(1),
-      message: z.string().min(1),
-    })
-    .optional(),
-})
-
 const reloadResourcesMessageSchema = z.object({
   type: z.literal("runtime.reload-resources"),
   requestId: z.string().min(1),
@@ -1047,6 +953,78 @@ const reloadModelSettingsMessageSchema = z.object({
   sessionId: z.string().min(1),
 })
 
+const tokenCountSchema = z
+  .number()
+  .int()
+  .nonnegative()
+  .max(Number.MAX_SAFE_INTEGER)
+export const agentSettingsSchema = z.object({
+  defaultThinkingLevel: thinkingLevelSchema.optional(),
+  modelThinkingLevels: z.record(z.string(), thinkingLevelSchema).optional(),
+  defaultTools: z.array(z.string().min(1)).optional(),
+  codemode: z
+    .object({
+      mode: z.enum(["on", "only"]).optional(),
+      inlineBudget: tokenCountSchema.optional(),
+    })
+    .optional(),
+  cacheWarming: z.enum(["off", "streaming", "idle"]).optional(),
+  transport: z
+    .enum(["auto", "sse", "websocket", "websocket-cached"])
+    .optional(),
+  httpIdleTimeoutMs: tokenCountSchema.optional(),
+  websocketConnectTimeoutMs: tokenCountSchema.optional(),
+  compaction: z
+    .object({
+      enabled: z.boolean().optional(),
+      reserveTokens: tokenCountSchema.optional(),
+      keepRecentTokens: tokenCountSchema.optional(),
+      modelOverrides: z
+        .record(
+          z.string(),
+          z.object({
+            reserveTokens: tokenCountSchema.optional(),
+            keepRecentTokens: tokenCountSchema.optional(),
+          })
+        )
+        .optional(),
+    })
+    .optional(),
+  retry: z
+    .object({
+      enabled: z.boolean().optional(),
+      maxRetries: tokenCountSchema.optional(),
+      baseDelayMs: tokenCountSchema.optional(),
+      maxAgentDelayMs: tokenCountSchema.optional(),
+      provider: z
+        .object({
+          timeoutMs: tokenCountSchema.optional(),
+          maxRetries: tokenCountSchema.optional(),
+          maxRetryDelayMs: tokenCountSchema.optional(),
+        })
+        .optional(),
+    })
+    .optional(),
+  steeringMode: z.enum(["all", "one-at-a-time"]).optional(),
+  followUpMode: z.enum(["all", "one-at-a-time"]).optional(),
+  images: z
+    .object({
+      autoResize: z.boolean().optional(),
+      blockImages: z.boolean().optional(),
+    })
+    .optional(),
+})
+
+export const agentSettingsSnapshotSchema = z.object({
+  global: agentSettingsSchema,
+  defaults: agentSettingsSchema,
+  effective: agentSettingsSchema,
+  project: agentSettingsSchema,
+  projectTrusted: z.boolean(),
+})
+export type AgentSettings = z.infer<typeof agentSettingsSchema>
+export type AgentSettingsSnapshot = z.infer<typeof agentSettingsSnapshotSchema>
+
 const resourceRequestBaseSchema = z.object({
   requestId: z.string().min(1),
   payload: z.object({
@@ -1057,6 +1035,17 @@ const resourceRequestBaseSchema = z.object({
 
 const resourceCatalogMessageSchema = resourceRequestBaseSchema.extend({
   type: z.literal("resources.catalog"),
+})
+
+const agentSettingsGetMessageSchema = resourceRequestBaseSchema.extend({
+  type: z.literal("agent-settings.get"),
+})
+const agentSettingsSetMessageSchema = resourceRequestBaseSchema.extend({
+  type: z.literal("agent-settings.set"),
+  payload: resourceRequestBaseSchema.shape.payload.extend({
+    settings: agentSettingsSchema,
+    expected: agentSettingsSchema,
+  }),
 })
 
 const resourceToggleMessageSchema = resourceRequestBaseSchema.extend({
@@ -1160,6 +1149,8 @@ export const hostToWorkerMessageSchema = z.discriminatedUnion("type", [
   reloadResourcesMessageSchema,
   reloadModelSettingsMessageSchema,
   resourceCatalogMessageSchema,
+  agentSettingsGetMessageSchema,
+  agentSettingsSetMessageSchema,
   resourceToggleMessageSchema,
   packageInstallMessageSchema,
   packageRemoveMessageSchema,
@@ -1170,7 +1161,6 @@ export const hostToWorkerMessageSchema = z.discriminatedUnion("type", [
   modelScopeSetMessageSchema,
   providerRemoveMessageSchema,
   providerSaveMessageSchema,
-  mcpCallResponseMessageSchema,
   shutdownMessageSchema,
 ])
 
@@ -1247,23 +1237,6 @@ const webUiExtensionStatusMessageSchema = z.object({
   payload: webUiExtensionStatusSchema,
 })
 
-const mcpCallRequestMessageSchema = z.object({
-  type: z.literal("mcp.call.request"),
-  requestId: z.string().min(1),
-  sessionId: z.string().min(1),
-  payload: z.object({
-    serverId: z.string().min(1),
-    toolName: z.string().min(1),
-    arguments: z.record(z.string(), z.unknown()),
-  }),
-})
-
-const mcpCallCancelMessageSchema = z.object({
-  type: z.literal("mcp.call.cancel"),
-  requestId: z.string().min(1),
-  sessionId: z.string().min(1),
-})
-
 export const workerToHostMessageSchema = z.discriminatedUnion("type", [
   runtimeReadyMessageSchema,
   runtimeResponseMessageSchema,
@@ -1275,22 +1248,12 @@ export const workerToHostMessageSchema = z.discriminatedUnion("type", [
   tuiSurfaceEventMessageSchema,
   webUiViewEventMessageSchema,
   webUiExtensionStatusMessageSchema,
-  mcpCallRequestMessageSchema,
-  mcpCallCancelMessageSchema,
 ])
 
 export type ThinkingLevel = z.infer<typeof thinkingLevelSchema>
 export type RuntimeStatus = z.infer<typeof runtimeStatusSchema>
 export type RuntimeModel = z.infer<typeof runtimeModelSchema>
 export type RuntimeSnapshot = z.infer<typeof runtimeSnapshotSchema>
-export type McpToolDefinition = z.infer<typeof mcpToolDefinitionSchema>
-export type McpCallResult = z.infer<typeof mcpCallResultSchema>
-export type McpConnectionStatus = z.infer<typeof mcpConnectionStatusSchema>
-export type McpConfiguredValueView = z.infer<
-  typeof mcpConfiguredValueViewSchema
->
-export type McpServerView = z.infer<typeof mcpServerViewSchema>
-export type McpCatalog = z.infer<typeof mcpCatalogSchema>
 export type PromptAccepted = z.infer<typeof promptAcceptedSchema>
 export type QueuedPromptMode = z.infer<typeof queuedPromptModeSchema>
 export type QueuedPromptItem = z.infer<typeof queuedPromptItemSchema>

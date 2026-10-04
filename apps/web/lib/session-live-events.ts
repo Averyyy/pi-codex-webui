@@ -73,6 +73,7 @@ export function applySessionLiveEvent(
     const payload = event.payload as {
       toolCallId: string
       toolName: string
+      parentToolCallId?: string
       args?: unknown
       partialResult?: unknown
       result?: unknown
@@ -84,6 +85,7 @@ export function applySessionLiveEvent(
       typeof payload.toolName !== "string"
     )
       throw new Error("Invalid tool event.")
+    if (payload.parentToolCallId) return
     if (event.type === "tool.execution.start")
       store.startTool({ ...payload, args: payload.args })
     if (event.type === "tool.execution.update")

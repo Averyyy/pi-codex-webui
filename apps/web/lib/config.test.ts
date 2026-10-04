@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import { mkdtemp, readFile, rm } from "node:fs/promises"
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import test from "node:test"
@@ -13,11 +13,43 @@ import {
   ManagedInstancePortError,
   patchConfig,
 } from "./config"
+import { DEFAULT_CONFIG } from "./config-schema"
 
 function restoreEnv(name: string, value: string | undefined) {
   if (value === undefined) delete process.env[name]
   else process.env[name] = value
 }
+
+test("ordinary settings persistence retains old MCP migration data", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "pi-web-mcp-migration-"))
+  const previousRoot = process.env.PI_WEB_CODEX_CONFIG_DIR
+  const migrationData = {
+    servers: {
+      docs: {
+        transport: { type: "http", url: "https://example.com/mcp" },
+        enabledTools: ["search"],
+        env: { TOKEN: { $secret: "fixture-reference" } },
+      },
+    },
+  }
+  try {
+    process.env.PI_WEB_CODEX_CONFIG_DIR = root
+    const file = path.join(root, "config.json")
+    await writeFile(
+      file,
+      JSON.stringify({ ...structuredClone(DEFAULT_CONFIG), mcp: migrationData })
+    )
+    const current = await loadConfig()
+    assert.deepEqual(current.mcp, migrationData)
+    await patchConfig(current.revision, { appearance: { theme: "dark" } })
+    const persisted = JSON.parse(await readFile(file, "utf8"))
+    assert.deepEqual(persisted.mcp, migrationData)
+    assert.equal(persisted.appearance.theme, "dark")
+  } finally {
+    restoreEnv("PI_WEB_CODEX_CONFIG_DIR", previousRoot)
+    await rm(root, { recursive: true, force: true })
+  }
+})
 
 test("managed instances project and persist their bound port per config root", async () => {
   const firstRoot = await mkdtemp(path.join(tmpdir(), "pi-web-codex-instance-"))

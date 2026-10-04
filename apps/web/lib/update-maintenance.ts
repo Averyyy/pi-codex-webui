@@ -132,24 +132,18 @@ export async function prepareForUpdate() {
   const operationId = beginUpdatePreparation()
 
   try {
-    const [
-      { getRuntimeSupervisor },
-      { getShellSupervisor },
-      { getMcpService },
-    ] = await Promise.all([
-      import("./runtime-supervisor"),
-      import("./shell-supervisor"),
-      import("./mcp-service"),
-    ])
+    const [{ getRuntimeSupervisor }, { getShellSupervisor }] =
+      await Promise.all([
+        import("./runtime-supervisor"),
+        import("./shell-supervisor"),
+      ])
 
     // Check every busy source after the synchronous gate is installed.  No
     // worker is stopped until all checks pass, so a 409 is side-effect free.
     getShellSupervisor().assertUpdateIdle()
     getRuntimeSupervisor().assertUpdateIdle()
-    getMcpService().assertUpdateIdle()
 
     await getRuntimeSupervisor().drainForUpdate()
-    await getMcpService().shutdownForUpdate()
     markUpdatePrepared(operationId)
     return { ok: true, operationId }
   } catch (error) {

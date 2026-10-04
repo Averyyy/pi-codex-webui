@@ -4,6 +4,274 @@ export type Locale = (typeof locales)[number]
 export const DEFAULT_LOCALE: Locale = "zh-CN"
 
 const messages = {
+  "settings.agent.title": { "zh-CN": "Agent", "en-US": "Agent" },
+  "settings.agent.description": {
+    "zh-CN": "配置 Pi 与 Pi Client 的工具、上下文、缓存和请求行为。",
+    "en-US":
+      "Configure tools, context, caching, and requests for Pi and Pi Client.",
+  },
+  "settings.agent.scope": {
+    "zh-CN":
+      "保存到此 WebUI 使用的本地 Pi Agent 目录 settings.json，由 Pi 和 Pi Client 共用。Pi Client 的模型请求发往 PiServer。",
+    "en-US":
+      "Saved to settings.json in this WebUI’s local agent directory, shared by Pi and Pi Client. Pi Client sends model requests to PiServer.",
+  },
+  "settings.agent.projectOverrides": {
+    "zh-CN":
+      "当前项目含有单独设置。受信任项目的设置会覆盖全局设置，缓存预热始终使用全局设置。",
+    "en-US":
+      "This project has its own settings. Trusted project settings override global settings; cache warming always uses global settings.",
+  },
+  "settings.agent.loading": {
+    "zh-CN": "正在读取 Agent 设置…",
+    "en-US": "Loading agent settings…",
+  },
+  "settings.agent.loadFailed": {
+    "zh-CN": "无法读取 Agent 设置。",
+    "en-US": "Could not load agent settings.",
+  },
+  "settings.agent.saved": {
+    "zh-CN": "Agent 设置已保存。",
+    "en-US": "Agent settings saved.",
+  },
+  "settings.agent.invalidJson": {
+    "zh-CN": "模型覆盖设置必须是有效的 JSON 对象。",
+    "en-US": "Per-model settings must be valid JSON objects.",
+  },
+  "settings.agent.tools": {
+    "zh-CN": "工具与 Codemode",
+    "en-US": "Tools and Codemode",
+  },
+  "settings.agent.toolsDescription": {
+    "zh-CN": "选择新会话启用的工具，以及模型调用工具的方式。",
+    "en-US": "Choose startup tools and how the model calls them.",
+  },
+  "settings.agent.codemode": {
+    "zh-CN": "启用 Codemode",
+    "en-US": "Enable Codemode",
+  },
+  "settings.agent.codemodeDescription": {
+    "zh-CN":
+      "让模型运行 JavaScript，组合工具调用、并行处理结果并保留脚本状态。",
+    "en-US":
+      "Let the model run JavaScript to compose tool calls, process results in parallel, and keep script state.",
+  },
+  "settings.agent.codemodeMode": {
+    "zh-CN": "工具调用方式",
+    "en-US": "Tool access",
+  },
+  "settings.agent.codemodeModeDescription": {
+    "zh-CN": "混合模式保留直接工具调用；仅脚本模式通过 Codemode 调用工具。",
+    "en-US":
+      "Mixed mode keeps direct tool calls; script-only mode calls tools through Codemode.",
+  },
+  "settings.agent.inlineBudget": {
+    "zh-CN": "工具声明预算（tokens）",
+    "en-US": "Tool declaration budget (tokens)",
+  },
+  "settings.agent.inlineBudgetDescription": {
+    "zh-CN":
+      "默认 3000；未列出的工具可通过 searchTools() 查找。0 仅列出命名空间。",
+    "en-US":
+      "Default 3000. Unlisted tools are available through searchTools(). Use 0 to list namespaces only.",
+  },
+  "settings.agent.defaultTools": {
+    "zh-CN": "启动工具",
+    "en-US": "Startup tools",
+  },
+  "settings.agent.defaultToolsDescription": {
+    "zh-CN":
+      "逗号分隔。read, bash, edit, write 为默认工具；+名称添加工具，-名称移除工具。空列表禁用内置工具。",
+    "en-US":
+      "Comma-separated. Defaults: read, bash, edit, write. +name adds a tool; -name removes one. An empty list disables built-in tools.",
+  },
+  "settings.agent.modelContext": {
+    "zh-CN": "模型、缓存与上下文",
+    "en-US": "Model, cache, and context",
+  },
+  "settings.agent.defaultThinking": {
+    "zh-CN": "默认思考强度",
+    "en-US": "Default thinking level",
+  },
+  "settings.agent.cacheWarming": {
+    "zh-CN": "缓存预热",
+    "en-US": "Cache warming",
+  },
+  "settings.agent.cacheWarmingDescription": {
+    "zh-CN":
+      "运行期间预热为默认值。空闲预热也在两次运行之间发送请求，会产生额外费用；仅支持声明缓存寿命的模型，预计可节省至少 $0.05 时执行。",
+    "en-US":
+      "Streaming is the default. Idle warming also sends requests between runs and adds cost. It runs only for models with a declared cache lifetime and at least $0.05 in estimated avoided cache-miss cost.",
+  },
+  "settings.agent.compaction": {
+    "zh-CN": "自动压缩上下文",
+    "en-US": "Automatic context compaction",
+  },
+  "settings.agent.reserveTokens": {
+    "zh-CN": "回答预留 tokens",
+    "en-US": "Response reserve tokens",
+  },
+  "settings.agent.keepRecentTokens": {
+    "zh-CN": "保留近期 tokens",
+    "en-US": "Recent tokens to keep",
+  },
+  "settings.agent.perModel": {
+    "zh-CN": "按模型设置",
+    "en-US": "Per-model settings",
+  },
+  "settings.agent.modelThinkingLevels": {
+    "zh-CN": "模型思考强度",
+    "en-US": "Model thinking levels",
+  },
+  "settings.agent.modelThinkingLevelsDescription": {
+    "zh-CN":
+      'JSON 对象，键为精确的 provider/modelId，例如 {"openai/gpt-5.6": "high"}。',
+    "en-US":
+      'JSON object keyed by exact provider/modelId, for example {"openai/gpt-5.6": "high"}.',
+  },
+  "settings.agent.compactionOverrides": {
+    "zh-CN": "模型压缩预算",
+    "en-US": "Model compaction budgets",
+  },
+  "settings.agent.compactionOverridesDescription": {
+    "zh-CN":
+      'JSON 对象，例如 {"openai/gpt-5.6": {"reserveTokens": 16384, "keepRecentTokens": 20000}}。未设置的值继承上方预算。',
+    "en-US":
+      'JSON object, for example {"openai/gpt-5.6": {"reserveTokens": 16384, "keepRecentTokens": 20000}}. Omitted values inherit the budgets above.',
+  },
+  "settings.agent.network": {
+    "zh-CN": "连接与重试",
+    "en-US": "Connection and retries",
+  },
+  "settings.agent.transport": {
+    "zh-CN": "模型请求传输方式",
+    "en-US": "Model request transport",
+  },
+  "settings.agent.transportDescription": {
+    "zh-CN":
+      "用于支持多种传输方式的模型供应商；Pi Client 与 PiServer 的连接由运行时设置管理。",
+    "en-US":
+      "Used by model providers supporting multiple transports. Runtime settings manage the Pi Client connection to PiServer.",
+  },
+  "settings.agent.httpTimeout": {
+    "zh-CN": "HTTP 空闲超时（ms）",
+    "en-US": "HTTP idle timeout (ms)",
+  },
+  "settings.agent.websocketTimeout": {
+    "zh-CN": "WebSocket 连接超时（ms）",
+    "en-US": "WebSocket connection timeout (ms)",
+  },
+  "settings.agent.timeoutDescription": {
+    "zh-CN": "0 关闭此限制。",
+    "en-US": "0 disables this limit.",
+  },
+  "settings.agent.retryEnabled": {
+    "zh-CN": "自动重试临时失败",
+    "en-US": "Retry transient failures",
+  },
+  "settings.agent.retryOptions": {
+    "zh-CN": "重试详细设置",
+    "en-US": "Retry options",
+  },
+  "settings.agent.retryCount": {
+    "zh-CN": "代理重试次数",
+    "en-US": "Agent retry attempts",
+  },
+  "settings.agent.retryDelay": {
+    "zh-CN": "初始重试延迟（ms）",
+    "en-US": "Initial retry delay (ms)",
+  },
+  "settings.agent.retryMaxDelay": {
+    "zh-CN": "最大代理重试延迟（ms）",
+    "en-US": "Maximum agent retry delay (ms)",
+  },
+  "settings.agent.providerRetryCount": {
+    "zh-CN": "供应商重试次数",
+    "en-US": "Provider retry attempts",
+  },
+  "settings.agent.providerRetryDescription": {
+    "zh-CN": "默认 0，让 Pi 直接处理配额和用量限制；供应商重试会推迟这些处理。",
+    "en-US":
+      "Default 0 lets Pi handle quota and usage-limit errors directly. Provider retries delay that handling.",
+  },
+  "settings.agent.providerTimeout": {
+    "zh-CN": "供应商请求超时（ms）",
+    "en-US": "Provider request timeout (ms)",
+  },
+  "settings.agent.providerMaxDelay": {
+    "zh-CN": "供应商最大请求延迟（ms）",
+    "en-US": "Maximum provider-requested delay (ms)",
+  },
+  "settings.agent.interaction": {
+    "zh-CN": "消息与图片",
+    "en-US": "Messages and images",
+  },
+  "settings.agent.steeringMode": {
+    "zh-CN": "运行中插入消息",
+    "en-US": "Steering message delivery",
+  },
+  "settings.agent.followUpMode": {
+    "zh-CN": "后续消息",
+    "en-US": "Follow-up message delivery",
+  },
+  "settings.agent.imageResize": {
+    "zh-CN": "自动缩小图片",
+    "en-US": "Resize images automatically",
+  },
+  "settings.agent.imageResizeDescription": {
+    "zh-CN": "发送给模型前缩小到最大 2000 × 2000 像素。",
+    "en-US":
+      "Resize to at most 2000 × 2000 pixels before sending to the model.",
+  },
+  "settings.agent.blockImages": {
+    "zh-CN": "禁止向模型发送图片",
+    "en-US": "Block images sent to models",
+  },
+  "settings.agent.applies": {
+    "zh-CN":
+      "保存后重新加载空闲会话；运行中的会话在本轮结束后应用。默认思考强度用于会话启动与模型切换。",
+    "en-US":
+      "Idle sessions reload after saving; running sessions apply changes after the current run. Default thinking levels apply at session startup and model switches.",
+  },
+  "settings.agent.reload": { "zh-CN": "重新读取", "en-US": "Reload" },
+  "settings.agent.choice.off": { "zh-CN": "关闭", "en-US": "Off" },
+  "settings.agent.choice.on": { "zh-CN": "混合调用", "en-US": "Mixed" },
+  "settings.agent.choice.only": {
+    "zh-CN": "仅脚本调用",
+    "en-US": "Scripts only",
+  },
+  "settings.agent.choice.streaming": {
+    "zh-CN": "运行期间",
+    "en-US": "During runs",
+  },
+  "settings.agent.choice.idle": {
+    "zh-CN": "运行与空闲期间",
+    "en-US": "During runs and idle",
+  },
+  "settings.agent.choice.auto": { "zh-CN": "自动", "en-US": "Automatic" },
+  "settings.agent.choice.sse": { "zh-CN": "SSE", "en-US": "SSE" },
+  "settings.agent.choice.websocket": {
+    "zh-CN": "WebSocket",
+    "en-US": "WebSocket",
+  },
+  "settings.agent.choice.websocket-cached": {
+    "zh-CN": "WebSocket（缓存）",
+    "en-US": "WebSocket (cached)",
+  },
+  "settings.agent.choice.one-at-a-time": {
+    "zh-CN": "逐条发送",
+    "en-US": "One at a time",
+  },
+  "settings.agent.choice.all": {
+    "zh-CN": "全部一起发送",
+    "en-US": "All at once",
+  },
+  "settings.agent.choice.minimal": { "zh-CN": "最低", "en-US": "Minimal" },
+  "settings.agent.choice.low": { "zh-CN": "低", "en-US": "Low" },
+  "settings.agent.choice.medium": { "zh-CN": "中", "en-US": "Medium" },
+  "settings.agent.choice.high": { "zh-CN": "高", "en-US": "High" },
+  "settings.agent.choice.xhigh": { "zh-CN": "极高", "en-US": "Extra high" },
+  "settings.agent.choice.max": { "zh-CN": "最大", "en-US": "Maximum" },
   "session.history.latest": {
     "zh-CN": "回到最新记录",
     "en-US": "Back to latest messages",
@@ -133,9 +401,8 @@ const messages = {
     "en-US": "No matching commands",
   },
   "session.runtime.commandInvoked": {
-    "zh-CN": "已发送命令 {command}。若没有出现面板，该命令可能只支持 TUI。",
-    "en-US":
-      "Sent {command}. If nothing appeared, this command may be TUI-only.",
+    "zh-CN": "已发送命令 {command}。",
+    "en-US": "Sent {command}.",
   },
   "composer.send": { "zh-CN": "发送", "en-US": "Send" },
   "composer.placeholder": {
@@ -802,6 +1069,15 @@ const messages = {
   },
   "session.tool.result": { "zh-CN": "结果", "en-US": "Result" },
   "session.tool.arguments": { "zh-CN": "参数", "en-US": "Arguments" },
+  "session.tool.script": { "zh-CN": "脚本", "en-US": "Script" },
+  "session.tool.nestedCalls": {
+    "zh-CN": "内层工具调用",
+    "en-US": "Nested tool calls",
+  },
+  "session.tool.callRunning": { "zh-CN": "运行中", "en-US": "Running" },
+  "session.tool.callComplete": { "zh-CN": "完成", "en-US": "Complete" },
+  "session.tool.callFailed": { "zh-CN": "失败", "en-US": "Failed" },
+  "session.tool.callCancelled": { "zh-CN": "已取消", "en-US": "Cancelled" },
   "session.tool.exitCode": { "zh-CN": "退出码", "en-US": "Exit code" },
   "session.tool.wallTime": { "zh-CN": "耗时", "en-US": "Wall time" },
   "session.fileMutation.write": { "zh-CN": "write", "en-US": "write" },
@@ -1322,10 +1598,6 @@ const messages = {
   "session.diagnostics.pendingIpc": {
     "zh-CN": "待处理 IPC",
     "en-US": "Pending IPC",
-  },
-  "session.diagnostics.activeMcp": {
-    "zh-CN": "活动 MCP",
-    "en-US": "Active MCP",
   },
   "session.diagnostics.activeTools": {
     "zh-CN": "活动工具",
@@ -2544,10 +2816,8 @@ const messages = {
   },
   "settings.page.mcp.title": { "zh-CN": "MCP", "en-US": "MCP" },
   "settings.page.mcp.description": {
-    "zh-CN":
-      "配置真实的 stdio / Streamable HTTP server、发现 tools，并控制 runtime 注入。",
-    "en-US":
-      "Configure stdio or Streamable HTTP servers, discover tools, and control runtime injection.",
+    "zh-CN": "配置 Pi 原生 MCP 服务、连接方式与工具使用方式。",
+    "en-US": "Configure native Pi MCP servers, transports and tool exposure.",
   },
   "settings.page.developer.title": {
     "zh-CN": "开发者",
@@ -3305,280 +3575,13 @@ const messages = {
   },
 
   "settings.mcp.readFailed": {
-    "zh-CN": "读取 MCP 状态失败。",
-    "en-US": "Failed to read MCP status.",
+    "zh-CN": "读取 MCP 配置失败。",
+    "en-US": "Failed to read MCP configuration.",
   },
   "settings.mcp.requestFailed": {
     "zh-CN": "MCP 请求失败。",
     "en-US": "MCP request failed.",
   },
-  "settings.mcp.testFailed": {
-    "zh-CN": "MCP 测试失败。",
-    "en-US": "MCP test failed.",
-  },
-  "settings.mcp.invalidInput": {
-    "zh-CN": "MCP 服务器设置无效，请检查各字段后重试。",
-    "en-US":
-      "The MCP server settings are invalid. Review the fields and try again.",
-  },
-  "settings.mcp.context": { "zh-CN": "MCP 上下文", "en-US": "MCP context" },
-  "settings.mcp.description": {
-    "zh-CN": "全局服务器对所有运行时生效；项目服务器仅注入所选项目。",
-    "en-US":
-      "Global servers apply to every runtime; Project servers are injected only into the selected project.",
-  },
-  "settings.mcp.addServer": {
-    "zh-CN": "添加服务器",
-    "en-US": "Add server",
-  },
-  "settings.mcp.noProject": {
-    "zh-CN": "尚无工作区项目；仍可配置全局 MCP 服务器。",
-    "en-US":
-      "There are no workspace projects yet; you can still configure a Global MCP server.",
-  },
-  "settings.mcp.untrusted": {
-    "zh-CN":
-      "当前项目未受信任；项目 MCP 服务器不会连接或注入运行时。请先在“扩展”或“技能”页面信任该项目。",
-    "en-US":
-      "The current project is not trusted; its Project MCP servers will not connect or inject into runtimes. Trust the project on the Extensions / Skills page.",
-  },
-  "settings.mcp.serverCountOne": {
-    "zh-CN": "{count} 项",
-    "en-US": "{count} server",
-  },
-  "settings.mcp.serverCountMany": {
-    "zh-CN": "{count} 项",
-    "en-US": "{count} servers",
-  },
-  "settings.mcp.saved": {
-    "zh-CN": "{name} 已保存并应用。",
-    "en-US": "{name} was saved and applied.",
-  },
-  "settings.mcp.connectedOne": {
-    "zh-CN": "{name} 连接正常 · {latency} ms · {tools} 个工具",
-    "en-US": "{name} connected · {latency} ms · {tools} tool",
-  },
-  "settings.mcp.connectedMany": {
-    "zh-CN": "{name} 连接正常 · {latency} ms · {tools} 个工具",
-    "en-US": "{name} connected · {latency} ms · {tools} tools",
-  },
-  "settings.mcp.reconnected": {
-    "zh-CN": "{name} 已重新连接。",
-    "en-US": "{name} reconnected.",
-  },
-  "settings.mcp.cancel": { "zh-CN": "取消", "en-US": "Cancel" },
-  "settings.mcp.confirmDeleteTitle": {
-    "zh-CN": "确认删除 MCP 服务器？",
-    "en-US": "Delete this MCP server?",
-  },
-  "settings.mcp.deleteConfirm": {
-    "zh-CN": "删除 MCP 服务器“{name}”？",
-    "en-US": "Delete MCP server “{name}”?",
-  },
-  "settings.mcp.deleted": {
-    "zh-CN": "{name} 已删除。",
-    "en-US": "{name} was deleted.",
-  },
-  "settings.mcp.enabled": {
-    "zh-CN": "{name} 已启用。",
-    "en-US": "{name} enabled.",
-  },
-  "settings.mcp.disabled": {
-    "zh-CN": "{name} 已停用。",
-    "en-US": "{name} disabled.",
-  },
-  "settings.mcp.toolEnabled": {
-    "zh-CN": "{name} 已启用。",
-    "en-US": "{name} enabled.",
-  },
-  "settings.mcp.toolDisabled": {
-    "zh-CN": "{name} 已停用。",
-    "en-US": "{name} disabled.",
-  },
-  "settings.mcp.scopeEmpty": {
-    "zh-CN": "{scope}范围内尚未配置 MCP 服务器。",
-    "en-US": "No {scope} MCP servers are configured.",
-  },
-  "settings.mcp.globalServers": {
-    "zh-CN": "全局服务器",
-    "en-US": "Global servers",
-  },
-  "settings.mcp.projectServers": {
-    "zh-CN": "项目服务器",
-    "en-US": "Project servers",
-  },
-  "settings.mcp.enableServer": {
-    "zh-CN": "{name} 启用状态",
-    "en-US": "{name} enabled state",
-  },
-  "settings.mcp.enableTool": {
-    "zh-CN": "{name} 启用状态",
-    "en-US": "{name} enabled state",
-  },
-  "settings.mcp.status.disabled": {
-    "zh-CN": "已停用",
-    "en-US": "Disabled",
-  },
-  "settings.mcp.status.disconnected": {
-    "zh-CN": "未连接",
-    "en-US": "Disconnected",
-  },
-  "settings.mcp.status.connecting": {
-    "zh-CN": "连接中",
-    "en-US": "Connecting",
-  },
-  "settings.mcp.status.connected": {
-    "zh-CN": "已连接",
-    "en-US": "Connected",
-  },
-  "settings.mcp.status.error": { "zh-CN": "错误", "en-US": "Error" },
-  "settings.mcp.lastConnected": {
-    "zh-CN": "最近连接：{value}",
-    "en-US": "Last connected: {value}",
-  },
-  "settings.mcp.edit": { "zh-CN": "编辑", "en-US": "Edit" },
-  "settings.mcp.testConnection": {
-    "zh-CN": "测试连接",
-    "en-US": "Test connection",
-  },
-  "settings.mcp.reconnect": { "zh-CN": "重连", "en-US": "Reconnect" },
-  "settings.mcp.delete": { "zh-CN": "删除", "en-US": "Delete" },
-  "settings.mcp.discoveredTools": {
-    "zh-CN": "已发现的工具",
-    "en-US": "Discovered tools",
-  },
-  "settings.mcp.toolsEnabled": {
-    "zh-CN": "已启用 {enabled}/{total}",
-    "en-US": "{enabled}/{total} enabled",
-  },
-  "settings.mcp.toolsAfterConnection": {
-    "zh-CN": "连接成功后会显示服务器实际提供的工具。",
-    "en-US": "The server's exposed tools appear after a successful connection.",
-  },
-  "settings.mcp.toolsAfterEnable": {
-    "zh-CN": "启用服务器或测试连接后即可发现工具。",
-    "en-US": "Enable or test the connection to discover tools.",
-  },
-  "settings.mcp.logs": {
-    "zh-CN": "日志（{count}）",
-    "en-US": "Logs ({count})",
-  },
-  "settings.mcp.noLogs": { "zh-CN": "暂无日志。", "en-US": "No logs." },
-
-  "settings.mcpForm.editTitle": {
-    "zh-CN": "编辑 MCP 服务器",
-    "en-US": "Edit MCP server",
-  },
-  "settings.mcpForm.addTitle": {
-    "zh-CN": "添加 MCP 服务器",
-    "en-US": "Add MCP server",
-  },
-  "settings.mcpForm.description": {
-    "zh-CN": "敏感值只写入 SecretStore；保存后 API 不会返回明文。",
-    "en-US":
-      "Secret fields are written only to SecretStore; the API never returns plaintext after saving.",
-  },
-  "settings.mcpForm.name": { "zh-CN": "名称", "en-US": "Name" },
-  "settings.mcpForm.namespace": {
-    "zh-CN": "命名空间",
-    "en-US": "Namespace",
-  },
-  "settings.mcpForm.toolPrefix": {
-    "zh-CN": "工具前缀：mcp__{namespace}__",
-    "en-US": "Tool prefix: mcp__{namespace}__",
-  },
-  "settings.mcpForm.scope": { "zh-CN": "作用范围", "en-US": "Scope" },
-  "settings.mcpForm.transport": {
-    "zh-CN": "传输方式",
-    "en-US": "Transport",
-  },
-  "settings.mcpForm.projectMissing": {
-    "zh-CN": "未选择项目",
-    "en-US": "No project selected",
-  },
-  "settings.mcpForm.command": { "zh-CN": "命令", "en-US": "Command" },
-  "settings.mcpForm.arguments": {
-    "zh-CN": "参数（JSON 字符串数组）",
-    "en-US": "Arguments (JSON string array)",
-  },
-  "settings.mcpForm.cwd": {
-    "zh-CN": "工作目录（可选）",
-    "en-US": "Working directory (optional)",
-  },
-  "settings.mcpForm.cwdPlaceholder": {
-    "zh-CN": "项目服务器默认使用当前项目目录",
-    "en-US": "Project servers use the current project directory by default",
-  },
-  "settings.mcpForm.environment": {
-    "zh-CN": "环境变量",
-    "en-US": "Environment",
-  },
-  "settings.mcpForm.headers": {
-    "zh-CN": "HTTP 请求头",
-    "en-US": "HTTP headers",
-  },
-  "settings.mcpForm.timeout": {
-    "zh-CN": "超时时间（毫秒）",
-    "en-US": "Timeout (ms)",
-  },
-  "settings.mcpForm.enableAfterSave": {
-    "zh-CN": "保存后启用",
-    "en-US": "Enable after saving",
-  },
-  "settings.mcpForm.cancel": { "zh-CN": "取消", "en-US": "Cancel" },
-  "settings.mcpForm.saveConnecting": {
-    "zh-CN": "保存并连接",
-    "en-US": "Save and connect",
-  },
-  "settings.mcpForm.argumentsError": {
-    "zh-CN": "参数必须是合法的 JSON 字符串数组。",
-    "en-US": "Arguments must be a valid JSON string array.",
-  },
-  "settings.mcpForm.argumentsTypeError": {
-    "zh-CN": "参数必须是 JSON 字符串数组。",
-    "en-US": "Arguments must be a JSON string array.",
-  },
-  "settings.mcpForm.timeoutError": {
-    "zh-CN": "超时时间必须是整数毫秒。",
-    "en-US": "Timeout must be an integer number of milliseconds.",
-  },
-  "settings.mcpForm.argumentsLimitError": {
-    "zh-CN": "参数最多 200 项，且每项不能超过 8192 个字符。",
-    "en-US":
-      "Arguments are limited to 200 items and 8,192 characters per item.",
-  },
-  "settings.valueEditor.add": { "zh-CN": "添加", "en-US": "Add" },
-  "settings.valueEditor.key": { "zh-CN": "键", "en-US": "Key" },
-  "settings.valueEditor.value": { "zh-CN": "值", "en-US": "Value" },
-  "settings.valueEditor.savedKeep": {
-    "zh-CN": "已保存，留空保持不变",
-    "en-US": "Saved; leave empty to keep it",
-  },
-  "settings.valueEditor.secret": {
-    "zh-CN": "敏感值",
-    "en-US": "Secret",
-  },
-  "settings.valueEditor.keyLabel": {
-    "zh-CN": "{label}第 {index} 项的键",
-    "en-US": "{label} key {index}",
-  },
-  "settings.valueEditor.valueLabel": {
-    "zh-CN": "{label}第 {index} 项的值",
-    "en-US": "{label} value {index}",
-  },
-  "settings.valueEditor.secretLabel": {
-    "zh-CN": "{label}第 {index} 项设为敏感值",
-    "en-US": "{label} secret {index}",
-  },
-  "settings.valueEditor.remove": {
-    "zh-CN": "删除 {name}",
-    "en-US": "Delete {name}",
-  },
-  "settings.valueEditor.empty": {
-    "zh-CN": "未配置。",
-    "en-US": "Not configured.",
-  },
-
   "settings.webui.context": {
     "zh-CN": "Adapter 上下文",
     "en-US": "Adapter context",

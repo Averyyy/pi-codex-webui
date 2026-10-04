@@ -1,4 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks"
+import { existsSync, readFileSync } from "node:fs"
+import path from "node:path"
 
 import type {
   ExtensionInvocation,
@@ -16,6 +18,37 @@ export const extensionInvocation = new AsyncLocalStorage<ExtensionInvocation>()
 export const extensionContext = new AsyncLocalStorage<ExtensionContext>()
 
 const instrumented = new WeakSet<Extension>()
+
+function legacyMcpExtension(extension: Extension) {
+  if (/^npm:pi-mcp-adapter(?:@|$)/.test(extension.sourceInfo.source)) {
+    return true
+  }
+  if (!path.isAbsolute(extension.resolvedPath)) return false
+  let directory = path.dirname(extension.resolvedPath)
+  for (;;) {
+    const manifest = path.join(directory, "package.json")
+    if (existsSync(manifest)) {
+      return (
+        JSON.parse(readFileSync(manifest, "utf8")).name === "pi-mcp-adapter"
+      )
+    }
+    const parent = path.dirname(directory)
+    if (parent === directory) return false
+    directory = parent
+  }
+}
+
+export function excludeLegacyMcpExtension(base: LoadExtensionsResult) {
+  base.extensions = base.extensions.filter((extension) => {
+    if (!legacyMcpExtension(extension)) return true
+    base.errors.push({
+      path: extension.path,
+      error:
+        "pi-mcp-adapter is unsupported. Configure Pi MCP servers in mcp.json.",
+    })
+    return false
+  })
+}
 
 function invocation(
   host: WebUiAdapterHost,
@@ -178,6 +211,7 @@ function instrumentExtension(
 
 export function createExtensionInstrumentor(getHost: () => WebUiAdapterHost) {
   return (base: LoadExtensionsResult) => {
+    excludeLegacyMcpExtension(base)
     for (const extension of base.extensions) {
       instrumentExtension(extension, getHost)
     }

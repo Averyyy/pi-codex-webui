@@ -34,7 +34,7 @@ interface FakeRuntime {
   cleaned: boolean
   pendingResourceReload: boolean
   pendingModelReload: boolean
-  pendingMcpRestart: boolean
+  pendingSettingsRestart: boolean
   pendingWebUiRestart: boolean
   webUiRestartPromise: Promise<void> | null
   pending: Map<string, unknown>
@@ -180,7 +180,7 @@ function runtime(
     cleaned: false,
     pendingResourceReload: false,
     pendingModelReload: false,
-    pendingMcpRestart: false,
+    pendingSettingsRestart: false,
     pendingWebUiRestart: false,
     webUiRestartPromise: null,
     pending: new Map(),
@@ -1457,7 +1457,7 @@ test("update busy checks do not stop a non-ready worker", () => {
       return true
     }),
     mcpCalls: new Map(),
-    pendingMcpRestart: false,
+    pendingSettingsRestart: false,
     pendingWebUiRestart: false,
     webUiRestartPromise: null,
     extensionUiRequests: new Map(),
@@ -1514,11 +1514,6 @@ test("idle runtime budget trims least-recently-used workers and protects live wo
   pending.pending.set("request", {})
   state.runtimes.set(pending.webSessionId, pending)
 
-  const mcp = runtime("mcp", "ready", snapshot("mcp", "leaf"))
-  mcp.lastActivityAt = now - 30 * 60_000
-  mcp.mcpCalls.set("call", new AbortController())
-  state.runtimes.set(mcp.webSessionId, mcp)
-
   state.recycleIdleRuntimes()
   assert.deepEqual(stopped.map(({ sessionId }) => sessionId).sort(), [
     "expired-idle",
@@ -1546,7 +1541,7 @@ test("update runtime drain waits for every worker before reporting a failure", a
     state.runtimes.set(sessionId, {
       ...runtime(sessionId, "ready", snapshot(sessionId, "leaf")),
       mcpCalls: new Map(),
-      pendingMcpRestart: false,
+      pendingSettingsRestart: false,
       pendingWebUiRestart: false,
       webUiRestartPromise: null,
       extensionUiRequests: new Map(),

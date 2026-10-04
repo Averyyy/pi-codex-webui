@@ -10,14 +10,83 @@ import type {
   ExtensionToolContext,
   LoadExtensionsResult,
 } from "@earendil-works/pi-coding-agent"
+import {
+  DefaultResourceLoader,
+  SettingsManager,
+} from "@earendil-works/pi-coding-agent"
 import type {
   WebUiAdapterDescriptor,
   WebUiExtensionStatus,
   WebUiViewEvent,
 } from "@workspace/runtime-protocol"
 
-import { createExtensionInstrumentor } from "./extension-instrumentation.js"
+import {
+  createExtensionInstrumentor,
+  excludeLegacyMcpExtension,
+} from "./extension-instrumentation.js"
 import { WebUiAdapterHost } from "./webui-adapter-host.js"
+
+test("native MCP excludes pi-mcp-adapter by its package source", () => {
+  const sources = [
+    "npm:pi-mcp-adapter",
+    "npm:pi-mcp-adapter@1.0.0",
+    "npm:pi-mcp-adapter-extra",
+    "builtin",
+    "local",
+  ]
+  const base: LoadExtensionsResult = {
+    extensions: sources.map((source) => {
+      const item = extension(source, () => {})
+      item.sourceInfo.source = source
+      return item
+    }),
+    errors: [],
+    runtime: {} as LoadExtensionsResult["runtime"],
+  }
+  excludeLegacyMcpExtension(base)
+  assert.deepEqual(
+    base.extensions.map((item) => item.sourceInfo.source),
+    sources.slice(2)
+  )
+  assert.equal(base.errors.length, 2)
+  assert.match(base.errors[0]!.error, /Configure Pi MCP servers in mcp\.json/)
+})
+
+test("SDK initial load and reload exclude the legacy MCP package by manifest identity", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "pi-native-mcp-"))
+  try {
+    const legacyRoot = path.join(root, "extension")
+    await mkdir(legacyRoot)
+    await writeFile(
+      path.join(legacyRoot, "package.json"),
+      JSON.stringify({ name: "pi-mcp-adapter", type: "module" })
+    )
+    await writeFile(
+      path.join(legacyRoot, "index.js"),
+      "export default pi => pi.registerCommand('legacy-mcp', { handler: async () => {} })"
+    )
+    const loader = new DefaultResourceLoader({
+      cwd: root,
+      agentDir: path.join(root, "agent"),
+      settingsManager: SettingsManager.inMemory(),
+      additionalExtensionPaths: [path.join(legacyRoot, "index.js")],
+      extensionsOverride: createExtensionInstrumentor(() => {
+        throw new Error("No adapter host is needed")
+      }),
+    })
+    for (let index = 0; index < 2; index++) {
+      await loader.reload()
+      assert.equal(loader.getExtensions().extensions.length, 0)
+      assert.equal(loader.getExtensions().errors.length, 1)
+      assert.match(
+        loader.getExtensions().errors[0]!.error,
+        /pi-mcp-adapter is unsupported/
+      )
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
 
 async function fixture(workerSource: string) {
   const root = await mkdtemp(path.join(tmpdir(), "pi-webui-worker-"))
