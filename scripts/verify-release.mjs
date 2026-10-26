@@ -8,6 +8,7 @@ import {
   mkdir,
   readFile,
   readdir,
+  realpath,
   rm,
 } from "node:fs/promises"
 import { createServer as createHttpServer } from "node:http"
@@ -19,7 +20,9 @@ import { promisify } from "node:util"
 
 const run = promisify(execFile)
 const root = process.cwd()
-const temporary = await mkdtemp(path.join(tmpdir(), "pi-web-release test-"))
+const temporary = await realpath(
+  await mkdtemp(path.join(tmpdir(), "pi-web-release test-"))
+)
 const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm"
 const requestedTarball =
   process.argv[2] ?? process.env.PI_WEB_CODEX_RELEASE_TARBALL
@@ -810,8 +813,8 @@ try {
   const updateResponse = await fetch(`${url}/api/v1/update`)
   const update = JSON.parse(await expectOk(updateResponse, "Installed updater"))
   assert.equal(update.currentVersion, packageJson.version)
-  assert.equal(update.supported, true)
-  assert.equal(update.error, null)
+  assert.equal(update.supported, true, JSON.stringify(update))
+  assert.equal(update.error, null, JSON.stringify(update))
   await assertPageOk(url, "/")
   await assertPageOk(url, "/new")
   await assertPageOk(url, "/settings")
