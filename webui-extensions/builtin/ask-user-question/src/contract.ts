@@ -66,6 +66,7 @@ export interface QuestionnaireResult {
   answers: QuestionAnswer[]
   cancelled: boolean
   globalNote?: string
+  unanswered?: number[]
   error?: QuestionnaireError
 }
 
@@ -486,24 +487,31 @@ export function buildQuestionnaireResponse(
     })
   }
   const segments: string[] = []
+  const unanswered: number[] = []
   for (let index = 0; index < params.questions.length; index += 1) {
     const answer = result.answers.find(
       (candidate) => candidate.questionIndex === index
     )
     if (answer) segments.push(buildAnswerSegment(answer))
+    else unanswered.push(index)
   }
-  if (result.globalNote) {
-    segments.push(`global note: ${result.globalNote}.`)
-  }
-  if (segments.length === 0) {
+  if (segments.length === 0 && !result.globalNote) {
     return buildToolResult(DECLINE_MESSAGE, {
       answers: result.answers,
       cancelled: true,
     })
   }
+  if (unanswered.length) {
+    segments.push(
+      `unanswered: ${unanswered.map((index) => `"${params.questions[index]!.question}"`).join(", ")}.`
+    )
+  }
+  if (result.globalNote) {
+    segments.push(`global note: ${result.globalNote}.`)
+  }
   return buildToolResult(
     `${ENVELOPE_PREFIX} ${segments.join(" ")} ${ENVELOPE_SUFFIX}`,
-    result
+    unanswered.length ? { ...result, unanswered } : result
   )
 }
 

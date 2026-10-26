@@ -23,6 +23,22 @@ const temporary = await mkdtemp(path.join(tmpdir(), "pi-web-release test-"))
 const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm"
 const requestedTarball =
   process.argv[2] ?? process.env.PI_WEB_CODEX_RELEASE_TARBALL
+const childEnv = Object.fromEntries(
+  [
+    "PATH",
+    "Path",
+    "SystemRoot",
+    "WINDIR",
+    "COMSPEC",
+    "PATHEXT",
+    "TEMP",
+    "TMP",
+    "NUMBER_OF_PROCESSORS",
+    "PROCESSOR_ARCHITECTURE",
+  ]
+    .filter((key) => process.env[key] !== undefined)
+    .map((key) => [key, process.env[key]])
+)
 
 function quoteWindowsShellArg(value) {
   return `"${String(value)}"`
@@ -47,6 +63,7 @@ function resolveTarCommand() {
 }
 
 async function runCommand(command, args, options = {}) {
+  options = { env: childEnv, ...options }
   if (process.platform === "win32" && command.toLowerCase().endsWith(".cmd")) {
     if (!path.isAbsolute(command)) {
       // Quoted bare batch names make cmd.exe expand %~dp0 from cwd, not PATH.
@@ -502,9 +519,27 @@ async function assertTaskTerminal(url, mutationHeaders, packageVersion) {
   }
 }
 
-// Pi Client workers load the pi-server model catalog during initialization.
+// Pi Client workers load the model catalog and register an observer connection.
 async function startPiServerCatalogStub() {
-  const server = createHttpServer((request, response) => {
+  const server = createHttpServer(async (request, response) => {
+    if (request.url?.startsWith("/api/observer/connect?")) {
+      response.writeHead(200, { "Content-Type": "text/event-stream" })
+      response.write(
+        'event: connected\ndata: {"connectionId":"release-fixture"}\n\n'
+      )
+      return
+    }
+    if (request.method === "POST" && request.url === "/api/observer") {
+      const chunks = []
+      for await (const chunk of request) chunks.push(chunk)
+      assert.equal(
+        JSON.parse(Buffer.concat(chunks).toString()).connectionId,
+        "release-fixture"
+      )
+      response.writeHead(200, { "Content-Type": "application/json" })
+      response.end(JSON.stringify({ accepted: true }))
+      return
+    }
     const found = request.method === "GET" && request.url === "/api/models"
     response.writeHead(found ? 200 : 404, {
       "Content-Type": "application/json",
@@ -704,10 +739,12 @@ try {
   // Isolate the operating-system user paths as well as app data: lifecycle
   // ownership is global and must never target the user's real background host.
   const runtimeEnv = {
-    ...process.env,
+    ...childEnv,
     HOME: userRoot,
     USERPROFILE: userRoot,
     APPDATA: path.join(userRoot, "AppData", "Roaming"),
+    LOCALAPPDATA: path.join(userRoot, "AppData", "Local"),
+    NPM_CONFIG_PREFIX: installRoot,
     XDG_CONFIG_HOME: path.join(userRoot, ".config"),
     PI_CODING_AGENT_DIR: agentRoot,
     PI_WEB_CODEX_MUTATION_TOKEN: mutationToken,
@@ -769,6 +806,12 @@ try {
   const healthBody = await health.json()
   assert.equal(healthBody.name, "pi-web-codex")
   assert.equal(healthBody.version, packageJson.version)
+  console.log("Checking installed updater status...")
+  const updateResponse = await fetch(`${url}/api/v1/update`)
+  const update = JSON.parse(await expectOk(updateResponse, "Installed updater"))
+  assert.equal(update.currentVersion, packageJson.version)
+  assert.equal(update.supported, true)
+  assert.equal(update.error, null)
   await assertPageOk(url, "/")
   await assertPageOk(url, "/new")
   await assertPageOk(url, "/settings")

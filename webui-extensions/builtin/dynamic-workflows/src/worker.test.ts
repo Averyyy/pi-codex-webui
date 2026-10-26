@@ -1,4 +1,6 @@
 import assert from "node:assert/strict"
+import { readFile } from "node:fs/promises"
+import { matchesGlob } from "node:path"
 import test from "node:test"
 
 import {
@@ -8,6 +10,15 @@ import {
 import { loadWorkerExtensionForTest } from "@pi-web-codex/extension-sdk/testing"
 
 import initialize from "./worker.js"
+
+test("the adapter matches the published workflow wrapper and compiled entry", async () => {
+  const manifest = JSON.parse(
+    await readFile(new URL("../package.json", import.meta.url), "utf8")
+  )
+  const pattern = manifest.piWebCodex.extensions[0].target.extensionPath
+  assert.equal(matchesGlob("/package/extensions/workflow.ts", pattern), true)
+  assert.equal(matchesGlob("/package/dist/pi-extension.js", pattern), true)
+})
 
 const RUN = {
   runId: "run-1",

@@ -14,12 +14,12 @@
     "@pi-web-codex/extension-sdk": "workspace:*"
   },
   "devDependencies": {
-    "@types/node": "^26.1.1",
+    "@types/node": "^26.6.5",
     "@workspace/eslint-config": "workspace:*",
     "@workspace/typescript-config": "workspace:*",
-    "eslint": "^9",
-    "tsup": "^8.5.1",
-    "typescript": "^5.9.3"
+    "eslint": "^9.39.5",
+    "tsup": "^9.0.0",
+    "typescript": "^6.0.3"
   },
   "piWebCodex": {
     "apiVersion": 1,
@@ -34,7 +34,7 @@
         "target": {
           "packageName": "@juicesharp/rpiv-ask-user-question",
           "extensionPath": "**/index.ts",
-          "version": ">=2.7.1 <2.13.0",
+          "version": ">=2.7.1 <2.16.0",
           "testedVersions": [
             "2.7.1",
             "2.9.0",

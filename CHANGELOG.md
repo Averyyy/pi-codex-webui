@@ -2,6 +2,19 @@
 
 All notable changes to `pi-web-codex` are documented here.
 
+## [0.1.35] - 2026-10-27
+
+### Changed
+
+- Updated compatible stable dependencies for Pi 1.4.0 and Pi Client 1.4.0-piclient.10.
+- Preserved batch question headings in the ask-user interface and answers.
+
+### Fixed
+
+- Kept workspace panel toggles synchronized with keyboard and pointer collapse, and registered resize handles only for visible panel pairs.
+- Allowed disposed workers to drain observer connections before exiting.
+- Preserved unanswered question states when submitting partial questionnaires.
+
 ## [0.1.33] - 2026-10-04
 
 ### Added

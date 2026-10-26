@@ -805,6 +805,9 @@ export function SessionWorkspace({
         data-working-directory={workingDirectory}
         elementRef={workspaceElementRef}
         orientation="horizontal"
+        onLayoutChanged={(layout, { isUserInteraction }) => {
+          if (isUserInteraction) setSideOpen(layout["workspace-sidebar"]! > 0)
+        }}
         style={{ height: "var(--session-workspace-height)" }}
         className={cn(
           "min-w-0 overflow-hidden [--session-workspace-height:calc(100svh-3rem)] md:[--session-workspace-height:100svh]",
@@ -815,6 +818,9 @@ export function SessionWorkspace({
         <ResizablePanel id="conversation" minSize="20rem">
           <ResizablePanelGroup
             orientation="vertical"
+            onLayoutChanged={(layout, { isUserInteraction }) => {
+              if (isUserInteraction) setBottomOpen(layout["bottom-terminal"]! > 0)
+            }}
             className={cn(
               !verticalDragging &&
                 "[&>[data-panel]]:transition-[flex-grow] [&>[data-panel]]:duration-200 [&>[data-panel]]:ease-out motion-reduce:[&>[data-panel]]:transition-none"
@@ -930,16 +936,13 @@ export function SessionWorkspace({
               </section>
             </ResizablePanel>
 
-            <ResizableHandle
-              aria-hidden={!bottomOpen}
-              className={cn(
-                "transition-opacity duration-150",
-                !bottomOpen && "hidden"
-              )}
-              onPointerDown={() => setVerticalDragging(true)}
-              onPointerUp={() => setVerticalDragging(false)}
-              onPointerCancel={() => setVerticalDragging(false)}
-            />
+            {bottomOpen && (
+              <ResizableHandle
+                onPointerDown={() => setVerticalDragging(true)}
+                onPointerUp={() => setVerticalDragging(false)}
+                onPointerCancel={() => setVerticalDragging(false)}
+              />
+            )}
             <ResizablePanel
               id="bottom-terminal"
               panelRef={bottomPanelRef}
@@ -948,9 +951,6 @@ export function SessionWorkspace({
               maxSize="65%"
               collapsedSize={0}
               collapsible
-              onResize={(size) => {
-                if (verticalDragging) setBottomOpen(size.inPixels > 1)
-              }}
             >
               <div
                 className={cn(
@@ -995,16 +995,13 @@ export function SessionWorkspace({
           </ResizablePanelGroup>
         </ResizablePanel>
 
-        <ResizableHandle
-          aria-hidden={!sideOpen}
-          className={cn(
-            "transition-opacity duration-150",
-            sideOpen && isDesktop ? "flex" : "hidden"
-          )}
-          onPointerDown={() => setHorizontalDragging(true)}
-          onPointerUp={() => setHorizontalDragging(false)}
-          onPointerCancel={() => setHorizontalDragging(false)}
-        />
+        {sideOpen && isDesktop && (
+          <ResizableHandle
+            onPointerDown={() => setHorizontalDragging(true)}
+            onPointerUp={() => setHorizontalDragging(false)}
+            onPointerCancel={() => setHorizontalDragging(false)}
+          />
+        )}
         <ResizablePanel
           id="workspace-sidebar"
           panelRef={sidePanelRef}
@@ -1014,9 +1011,6 @@ export function SessionWorkspace({
           maxSize="58%"
           collapsedSize={0}
           collapsible
-          onResize={(size) => {
-            if (horizontalDragging) setSideOpen(size.inPixels > 1)
-          }}
         >
           <div
             className={cn("size-full", !sideOpen && "hidden")}

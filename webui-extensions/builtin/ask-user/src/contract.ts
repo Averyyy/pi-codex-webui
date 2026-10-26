@@ -273,6 +273,7 @@ const ASK_BATCH_ENTRY_FIELDS = [
 ] as const
 
 export interface AskBatchParams {
+  heading?: string
   questions: AskParams[]
   timeout?: number
 }
@@ -293,11 +294,8 @@ export function isAskBatchRequest(value: unknown) {
 export function parseAskBatchParams(value: unknown): AskBatchParams {
   const params = record(value)
   if (!params) throw new TypeError("Invalid ask_user questions.")
-  if (typeof params.question === "string" && params.question.trim()) {
-    throw new TypeError(
-      "Use exactly one of question or questions. Put every question in questions, or ask a single question with question."
-    )
-  }
+  const heading =
+    typeof params.question === "string" ? params.question.trim() : undefined
   const misplaced = ASK_BATCH_ENTRY_FIELDS.filter(
     (field) => params[field] != null
   )
@@ -363,6 +361,7 @@ export function parseAskBatchParams(value: unknown): AskBatchParams {
     return parsed
   })
   return {
+    ...(heading ? { heading } : {}),
     questions: entries,
     ...(shared.timeout !== undefined ? { timeout: shared.timeout } : {}),
   }
@@ -387,7 +386,13 @@ export function buildBatchToolResult(
   if (!answers) {
     return {
       content: [{ type: "text", text: "User cancelled the questions" }],
-      details: { kind: "batch", questions, answers: [], cancelled: true },
+      details: {
+        kind: "batch",
+        ...(params.heading ? { heading: params.heading } : {}),
+        questions,
+        answers: [],
+        cancelled: true,
+      },
     }
   }
   const answered = answers.filter(
@@ -406,11 +411,18 @@ export function buildBatchToolResult(
       {
         type: "text",
         text: [
+          ...(params.heading ? [params.heading] : []),
           `User answered ${answered} of ${questions.length} questions:`,
           ...lines,
         ].join("\n"),
       },
     ],
-    details: { kind: "batch", questions, answers, cancelled: false },
+    details: {
+      kind: "batch",
+      ...(params.heading ? { heading: params.heading } : {}),
+      questions,
+      answers,
+      cancelled: false,
+    },
   }
 }

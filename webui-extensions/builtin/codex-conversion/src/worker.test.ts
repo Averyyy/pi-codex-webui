@@ -9,6 +9,7 @@ import type {
 import { loadWorkerExtensionForTest } from "@pi-web-codex/extension-sdk/testing"
 
 import initialize from "./worker.js"
+import { CODEX_QUICK_ACTIONS } from "./contract.js"
 
 test("Codex quick settings hand the selected option to the original command", async () => {
   const registrations = await loadWorkerExtensionForTest(initialize)
@@ -26,7 +27,7 @@ test("Codex quick settings hand the selected option to the original command", as
           origin: "package",
         },
         packageName: "@howaboua/pi-codex-conversion",
-        packageVersion: "3.0.33",
+        packageVersion: "4.0.4",
       },
       commands: new Set(["codex"]),
       tools: new Set<string>(),
@@ -58,10 +59,16 @@ test("Codex quick settings hand the selected option to the original command", as
     args: "",
   } satisfies WorkerCommandRequest
 
-  assert.deepEqual(await adapter.handle(request, context), {
-    handled: false,
-    args: "openai",
-  })
+  for (const action of CODEX_QUICK_ACTIONS) {
+    context.openView = async (view) => {
+      opened = view
+      return { command: action.command }
+    }
+    assert.deepEqual(await adapter.handle(request, context), {
+      handled: false,
+      args: action.command,
+    })
+  }
   assert.equal(opened?.viewId, "codex.quick-settings")
   assert.deepEqual(
     await adapter.handle({ ...request, args: "usage" }, context),

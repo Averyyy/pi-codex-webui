@@ -149,9 +149,8 @@ async function deployWorker(packageName, directory) {
   const workerRoot = path.join(root, "dist", "workers", directory)
   const stagingRoot = `${workerRoot}.staging`
   await run(
-    process.execPath,
+    pnpmEntrypoint,
     [
-      pnpmEntrypoint,
       "--filter",
       packageName,
       "deploy",

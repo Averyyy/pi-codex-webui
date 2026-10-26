@@ -202,6 +202,10 @@ class WebVirtualTerminal implements PiTerminal {
     })
   }
 
+  setProgramStatus() {
+    // WebUI reports agent status through session events.
+  }
+
   sendInput(data: string) {
     this.inputBuffer.process(data)
   }

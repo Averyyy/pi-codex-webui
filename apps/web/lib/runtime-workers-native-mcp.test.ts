@@ -345,6 +345,13 @@ for (const kind of ["pi", "pi-client"] as const) {
       }
     )
     const sessionId = randomUUID()
+    const exited = new Promise<number | null>((resolve) =>
+      child.once("exit", (code) => resolve(code))
+    )
+    let stderr = ""
+    child.stderr!.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString()
+    })
     const messages: WorkerToHostMessage[] = []
     child.on("message", (raw: unknown) =>
       messages.push(workerToHostMessageSchema.parse(raw))
@@ -443,16 +450,22 @@ for (const kind of ["pi", "pi-client"] as const) {
       const finished = await executed
       assert.match(JSON.stringify(finished), /fixture result/)
       assert.deepEqual(toolArguments, [{ value: "from script" }])
+      child.send({ type: "runtime.shutdown", requestId: randomUUID() })
+      const shutdownTimeout = setTimeout(() => child.kill(), 5_000)
+      try {
+        assert.equal(await exited, 0, stderr)
+      } finally {
+        clearTimeout(shutdownTimeout)
+      }
     } catch (error) {
       throw new Error(
-        `${error instanceof Error ? error.message : String(error)}; requests=${JSON.stringify(requests)}; events=${JSON.stringify(messages.slice(-5))}`
+        `${error instanceof Error ? error.message : String(error)}; stderr=${stderr}; requests=${JSON.stringify(requests)}; events=${JSON.stringify(messages.slice(-5))}`
       )
     } finally {
-      const exited = new Promise<void>((resolve) =>
-        child.once("exit", () => resolve())
-      )
-      child.send({ type: "runtime.shutdown", requestId: randomUUID() })
+      if (child.exitCode === null && child.signalCode === null) child.kill()
       await exited
+      mcp.closeAllConnections()
+      piServer.closeAllConnections()
       await Promise.all([
         new Promise<void>((resolve) => mcp.close(() => resolve())),
         new Promise<void>((resolve) => piServer.close(() => resolve())),

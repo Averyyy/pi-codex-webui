@@ -15,20 +15,20 @@
     "@pi-web-codex/extension-sdk": "workspace:*",
     "proper-lockfile": "^4.1.2",
     "semver": "^7.8.5",
-    "strip-json-comments": "^3.1.1"
+    "strip-json-comments": "^5.0.3"
   },
   "devDependencies": {
-    "@earendil-works/pi-coding-agent": "1.0.2",
-    "@earendil-works/pi-tui": "1.0.2",
-    "@types/node": "^26.1.1",
+    "@earendil-works/pi-coding-agent": "1.4.0",
+    "@earendil-works/pi-tui": "1.4.0",
+    "@types/node": "^26.6.5",
     "@types/proper-lockfile": "^4.1.4",
-    "@types/semver": "^7.7.1",
+    "@types/semver": "^7.8.0",
     "@workspace/eslint-config": "workspace:*",
     "@workspace/runtime-protocol": "workspace:*",
     "@workspace/typescript-config": "workspace:*",
     "@xterm/addon-serialize": "0.14.0",
     "@xterm/headless": "6.0.0",
-    "eslint": "^9",
-    "typescript": "^5.9.3"
+    "eslint": "^9.39.5",
+    "typescript": "^6.0.3"
   }
 }

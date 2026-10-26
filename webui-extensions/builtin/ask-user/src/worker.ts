@@ -76,7 +76,7 @@ async function askBatch(
       viewId: "ask-user.dialog",
       placement: "session.dialog",
       blocking: true,
-      title: `${DIALOG_TITLE}（${index + 1}/${batch.questions.length}）`,
+      title: `${batch.heading ?? DIALOG_TITLE}（${index + 1}/${batch.questions.length}）`,
       state,
     })
     const result = parseAskDialogResult(rawResult, entry)

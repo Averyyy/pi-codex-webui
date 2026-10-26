@@ -1,6 +1,6 @@
 {
   "name": "pi-web-codex",
-  "version": "0.1.34",
+  "version": "0.1.35",
   "description": "A local Web Host for Pi coding-agent workflows.",
   "license": "MIT",
   "keywords": [
@@ -56,13 +56,13 @@
   "devDependencies": {
     "@workspace/eslint-config": "workspace:*",
     "@workspace/typescript-config": "workspace:*",
-    "prettier": "^3.9.5",
-    "prettier-plugin-tailwindcss": "^0.8.0",
-    "turbo": "^2.10.4",
-    "tsx": "^4.23.1",
-    "typescript": "^5.9.3"
+    "prettier": "^3.9.10",
+    "prettier-plugin-tailwindcss": "^0.8.1",
+    "turbo": "^2.11.10",
+    "tsx": "^4.23.15",
+    "typescript": "^6.0.3"
   },
-  "packageManager": "pnpm@11.12.0",
+  "packageManager": "pnpm@12.15.0",
   "engines": {
     "node": ">=22.19 <23 || >=24"
   },

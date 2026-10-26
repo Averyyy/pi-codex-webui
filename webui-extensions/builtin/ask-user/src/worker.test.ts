@@ -369,15 +369,60 @@ test("cancelling any question cancels the whole questions batch", async () => {
   ])
 })
 
+for (const cancelled of [false, true]) {
+  test(`batch headings are retained when cancelled is ${cancelled}`, async () => {
+    const registrations = await loadWorkerExtensionForTest(initialize)
+    const adapter = registrations.toolExecutions.get("ask-user.execute")!
+    const titles: string[] = []
+    const current = runtime(async () =>
+      cancelled
+        ? { cancelled: true }
+        : { cancelled: false, response: { kind: "freeform", text: "Agreed" } }
+    )
+    const openView = current.value.openView
+    current.value.openView = async (input) => {
+      titles.push((input as { title: string }).title)
+      return openView(input)
+    }
+    const result = await adapter.execute(
+      {
+        ...current.request,
+        params: {
+          question: "  Release decisions  ",
+          questions: [{ question: "Ship today?" }, { question: "Which region?" }],
+        },
+      },
+      current.value
+    )
+    assert.equal(result.handled, true)
+    if (!result.handled) throw new Error("Batch was not handled")
+    const details = result.result.details as {
+      heading: string
+      questions: { question: string }[]
+      cancelled: boolean
+    }
+    assert.equal(details.heading, "Release decisions")
+    assert.equal(details.cancelled, cancelled)
+    assert.deepEqual(details.questions.map((entry) => entry.question), [
+      "Ship today?",
+      "Which region?",
+    ])
+    assert.equal(titles[0], "Release decisions（1/2）")
+    if (!cancelled) {
+      assert.equal(titles[1], "Release decisions（2/2）")
+      assert.match(
+        (result.result.content[0] as { text: string }).text,
+        /^Release decisions\nUser answered 2 of 2 questions:/
+      )
+    }
+  })
+}
+
 test("rejects invalid questions batches before opening a dialog", async () => {
   const registrations = await loadWorkerExtensionForTest(initialize)
   const adapter = registrations.toolExecutions.get("ask-user.execute")
   assert.ok(adapter)
   const invalid = [
-    [
-      { ...BATCH_PARAMS, question: "Top?" },
-      /Use exactly one of question or questions/,
-    ],
     [
       { ...BATCH_PARAMS, options: ["A"] },
       /options cannot be set at the top level/,

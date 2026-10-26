@@ -57,15 +57,18 @@ test("a real Pi TUI surface renders, accepts input, and closes", async () => {
     "test",
     "inline",
     "aboveEditor",
-    (surfaceTui) => ({
-      render: () => [`Value: ${value}`],
-      handleInput(data) {
-        inputs.push(data)
-        value += data
-        surfaceTui.requestRender()
-      },
-      invalidate() {},
-    })
+    (surfaceTui) => {
+      surfaceTui.terminal.setProgramStatus({ state: "working" })
+      return {
+        render: () => [`Value: ${value}`],
+        handleInput(data) {
+          inputs.push(data)
+          value += data
+          surfaceTui.requestRender()
+        },
+        invalidate() {},
+      }
+    }
   )
 
   const firstRender = await waitForWrite("Value: ")

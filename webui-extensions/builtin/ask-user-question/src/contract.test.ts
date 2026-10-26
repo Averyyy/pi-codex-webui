@@ -42,6 +42,27 @@ function params() {
   })
 }
 
+test("reports unanswered questions when submitting a partial questionnaire", () => {
+  const questions = params()
+  const answer = parseAskUserDialogResult(
+    {
+      cancelled: false,
+      responses: [{ questionIndex: 0, kind: "option", optionIndex: 0 }],
+    },
+    questions
+  )
+  const result = buildQuestionnaireResponse(answer, questions)
+  assert.deepEqual(result.details.unanswered, [1])
+  assert.match(result.content[0]!.text, /unanswered: "Which checks\?"\./)
+  assert.deepEqual(
+    buildQuestionnaireResponse({ answers: [], cancelled: false }, questions),
+    {
+      content: [{ type: "text", text: "User declined to answer questions" }],
+      details: { answers: [], cancelled: true },
+    }
+  )
+})
+
 test("validates the complete 2.7.1 parameter limits", () => {
   assert.doesNotThrow(() =>
     parseQuestionParams({

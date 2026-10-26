@@ -923,7 +923,6 @@ async function shutdown() {
     if (draftToCleanup) cleanupDraftSession(draftToCleanup)
   }
   process.disconnect?.()
-  setImmediate(() => process.exit(0))
 }
 
 async function replaceSession(

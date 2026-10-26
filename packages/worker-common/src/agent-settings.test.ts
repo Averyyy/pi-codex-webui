@@ -41,6 +41,7 @@ for (const worker of ["worker-pi", "worker-pi-client"]) {
         "bash",
         "edit",
         "write",
+        "codemode",
       ])
       await writeFile(
         path.join(agentDir, "settings.json"),

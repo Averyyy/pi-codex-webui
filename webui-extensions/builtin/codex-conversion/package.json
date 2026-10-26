@@ -14,12 +14,12 @@
     "@pi-web-codex/extension-sdk": "workspace:*"
   },
   "devDependencies": {
-    "@types/node": "^26.1.1",
+    "@types/node": "^26.6.5",
     "@workspace/eslint-config": "workspace:*",
     "@workspace/typescript-config": "workspace:*",
-    "eslint": "^9",
-    "tsup": "^8.5.1",
-    "typescript": "^5.9.3"
+    "eslint": "^9.39.5",
+    "tsup": "^9.0.0",
+    "typescript": "^6.0.3"
   },
   "piWebCodex": {
     "apiVersion": 1,
@@ -34,14 +34,31 @@
         "target": {
           "packageName": "@howaboua/pi-codex-conversion",
           "extensionPath": "**/dist/index.js",
-          "version": ">=3.0.23 <3.1.0",
-          "testedVersions": ["3.0.23", "3.0.31", "3.0.33", "3.0.34", "3.0.35", "3.0.37", "3.0.39", "3.0.41", "3.0.42", "3.0.43", "3.0.44", "3.0.45"],
+          "version": ">=3.0.23 <3.1.0 || >=4.0.4 <4.1.0",
+          "testedVersions": [
+            "3.0.23",
+            "3.0.31",
+            "3.0.33",
+            "3.0.34",
+            "3.0.35",
+            "3.0.37",
+            "3.0.39",
+            "3.0.41",
+            "3.0.42",
+            "3.0.43",
+            "3.0.44",
+            "3.0.45",
+            "4.0.4"
+          ],
           "compatibility": {
             "mode": "probe",
             "onUntestedVersion": "allow-if-probe-passes"
           }
         },
-        "runtimes": ["pi", "pi-client"],
+        "runtimes": [
+          "pi",
+          "pi-client"
+        ],
         "worker": "./dist/worker.mjs",
         "client": "./dist/client.mjs",
         "contributes": {

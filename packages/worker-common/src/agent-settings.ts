@@ -28,6 +28,7 @@ export function resolvedAgentSettings(manager: SettingsManager): AgentSettings {
       "bash",
       "edit",
       "write",
+      "codemode",
     ],
     codemode: {
       mode: settings.codemode?.mode ?? "on",

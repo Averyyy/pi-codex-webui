@@ -30,7 +30,7 @@ function context() {
           origin: "package",
         },
         packageName: "pi-intercom",
-        packageVersion: "0.13.0",
+        packageVersion: "0.18.1",
       },
       commands: new Set(["intercom"]),
       tools: new Set(["intercom"]),
@@ -171,4 +171,23 @@ test("forwards replyTo independently and reports undelivered actions", async () 
     peers: "Current session: web",
     error: "Reply was not delivered",
   })
+})
+
+test("reports intercom connection errors carried in tool details", async () => {
+  const registrations = await loadWorkerExtensionForTest(initialize)
+  const action = registrations.actions.get("intercom.execute")!
+  const runtime = context()
+  runtime.result({
+    content: [{ type: "text", text: "Intercom not connected: broker unavailable" }],
+    details: { error: true },
+  })
+  const state = await action.handle(
+    { instanceId: "view", input: { action: "status" } },
+    runtime.value
+  )
+  assert.deepEqual(state, {
+    peers: "Current session: web",
+    error: "Intercom not connected: broker unavailable",
+  })
+  assert.deepEqual(runtime.updated(), state)
 })

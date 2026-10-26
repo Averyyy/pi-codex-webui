@@ -14,20 +14,20 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@earendil-works/pi-ai": "npm:@averyyy/pi-ai@1.0.1-piclient.1",
-    "@earendil-works/pi-coding-agent": "npm:@averyyy/pi-coding-agent@1.0.1-piclient.1",
-    "@earendil-works/pi-tui": "npm:@averyyy/pi-tui@1.0.1-piclient.1",
+    "@earendil-works/pi-ai": "npm:@averyyy/pi-ai@1.4.0-piclient.10",
+    "@earendil-works/pi-coding-agent": "npm:@averyyy/pi-coding-agent@1.4.0-piclient.10",
+    "@earendil-works/pi-tui": "npm:@averyyy/pi-tui@1.4.0-piclient.10",
     "proper-lockfile": "^4.1.2"
   },
   "devDependencies": {
-    "@types/node": "^26.1.1",
+    "@types/node": "^26.6.5",
     "@types/proper-lockfile": "^4.1.4",
     "@workspace/eslint-config": "workspace:*",
     "@workspace/runtime-protocol": "workspace:*",
     "@workspace/typescript-config": "workspace:*",
     "@workspace/worker-common": "workspace:*",
-    "eslint": "^9",
-    "tsup": "^8.5.1",
-    "typescript": "^5.9.3"
+    "eslint": "^9.39.5",
+    "tsup": "^9.0.0",
+    "typescript": "^6.0.3"
   }
 }

@@ -12,9 +12,9 @@
     "@pi-web-codex/extension-sdk": "workspace:*"
   },
   "devDependencies": {
-    "@types/node": "^26.1.1",
-    "tsup": "^8.5.1",
-    "typescript": "^5.9.3"
+    "@types/node": "^26.6.5",
+    "tsup": "^9.0.0",
+    "typescript": "^6.0.3"
   },
   "piWebCodex": {
     "apiVersion": 1,
@@ -29,7 +29,7 @@
         "target": {
           "packageName": "pi-resource-center",
           "extensionPath": "**/extensions/resource-center/index.ts",
-          "version": ">=0.3.1 <0.4.0",
+          "version": ">=0.3.1 <0.5.0",
           "testedVersions": ["0.3.1"],
           "compatibility": {
             "mode": "probe",
