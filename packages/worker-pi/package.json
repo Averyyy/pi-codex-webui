@@ -20,7 +20,7 @@
     "proper-lockfile": "^4.1.2"
   },
   "devDependencies": {
-    "@types/node": "^26.6.5",
+    "@types/node": "^26.6.6",
     "@types/proper-lockfile": "^4.1.4",
     "@workspace/eslint-config": "workspace:*",
     "@workspace/runtime-protocol": "workspace:*",

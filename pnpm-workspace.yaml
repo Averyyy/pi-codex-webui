@@ -21,10 +21,10 @@ minimumReleaseAgeExclude:
   - '@earendil-works/pi-mcp@1.4.0'
   - '@earendil-works/pi-telemetry@1.4.0'
   - '@earendil-works/pi-tui@1.4.0'
-  - '@averyyy/pi-agent-core@1.4.0-piclient.10'
-  - '@averyyy/pi-ai@1.4.0-piclient.10'
-  - '@averyyy/pi-coding-agent@1.4.0-piclient.10'
-  - '@averyyy/pi-tui@1.4.0-piclient.10'
+  - '@averyyy/pi-agent-core@1.4.0-piclient.14'
+  - '@averyyy/pi-ai@1.4.0-piclient.14'
+  - '@averyyy/pi-coding-agent@1.4.0-piclient.14'
+  - '@averyyy/pi-tui@1.4.0-piclient.14'
   - react-resizable-panels@4.15.0
   - '@typescript-eslint/eslint-plugin@8.72.1'
   - '@typescript-eslint/parser@8.72.1'
@@ -37,6 +37,8 @@ minimumReleaseAgeExclude:
   - '@typescript-eslint/utils@8.72.1'
   - '@typescript-eslint/visitor-keys@8.72.1'
   - typescript-eslint@8.72.1
+  - '@types/node@26.6.6'
+  - lucide-react@1.63.0
 
 patchedDependencies:
   next-themes@0.4.6: patches/next-themes@0.4.6.patch

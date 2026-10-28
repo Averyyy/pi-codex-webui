@@ -2,6 +2,12 @@
 
 All notable changes to `pi-web-codex` are documented here.
 
+## [0.1.36] - 2026-10-29
+
+### Changed
+
+- Updated Pi Client to 1.4.0-piclient.14, Lucide icons to 1.63.0, shadcn CLI to 4.23.0, Node.js types to 26.6.6, and pnpm to 12.16.1.
+
 ## [0.1.35] - 2026-10-27
 
 ### Changed

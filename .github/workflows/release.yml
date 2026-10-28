@@ -47,7 +47,7 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 12.15.0
+          version: 12.16.1
 
       - name: Record source revision
         id: source
