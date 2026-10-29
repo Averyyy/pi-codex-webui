@@ -2,6 +2,12 @@
 
 All notable changes to `pi-web-codex` are documented here.
 
+## [0.1.37] - 2026-10-30
+
+### Changed
+
+- Updated Lucide icons to 1.64.0 and react-resizable-panels to 4.15.1 for its React type peer declaration.
+
 ## [0.1.36] - 2026-10-29
 
 ### Changed
