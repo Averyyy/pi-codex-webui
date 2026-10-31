@@ -2,6 +2,13 @@
 
 All notable changes to `pi-web-codex` are documented here.
 
+## [0.1.38] - 2026-11-01
+
+### Changed
+
+- Update Pi Client to 1.4.0-piclient.18 with server-owned public model catalogs and account support.
+- Update Lucide icons to 1.66.0 and resizable panels to 4.16.0.
+
 ## [0.1.37] - 2026-10-30
 
 ### Changed

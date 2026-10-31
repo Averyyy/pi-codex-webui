@@ -89,26 +89,8 @@ class PiServerFixture {
         return
       }
 
-      if (request.method === "GET" && pathname === "/api/models") {
-        const model = {
-          id: "fixture-model",
-          name: "Fixture model",
-          api: "openai-completions",
-          provider: "fixture",
-          baseUrl: `http://${request.headers.host}/v1`,
-          reasoning: false,
-          input: ["text"],
-          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-          contextWindow: 16_000,
-          maxTokens: 2_000,
-        }
-        sendJson(response, 200, {
-          models: [model],
-          available: [model],
-          providers: [
-            { id: "fixture", fetchDeferred: false, cancelDeferred: false },
-          ],
-        })
+      if (request.method === "GET" && pathname === "/api/accounts") {
+        sendJson(response, 200, { accounts: [] })
         return
       }
 
@@ -362,7 +344,7 @@ test("Pi Client worker speaks the authenticated pi-server protocol", async () =>
         method,
         requestPath,
       ]),
-      fixture.requests.map(() => ["GET", "/api/models"])
+      fixture.requests.map(() => ["GET", "/api/accounts"])
     )
 
     const firstPromptId = randomUUID()

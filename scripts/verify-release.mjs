@@ -522,8 +522,8 @@ async function assertTaskTerminal(url, mutationHeaders, packageVersion) {
   }
 }
 
-// Pi Client workers load the model catalog and register an observer connection.
-async function startPiServerCatalogStub() {
+// Pi Client workers read server accounts and register an observer connection.
+async function startPiServerStub() {
   const server = createHttpServer(async (request, response) => {
     if (request.url?.startsWith("/api/observer/connect?")) {
       response.writeHead(200, { "Content-Type": "text/event-stream" })
@@ -543,17 +543,13 @@ async function startPiServerCatalogStub() {
       response.end(JSON.stringify({ accepted: true }))
       return
     }
-    const found = request.method === "GET" && request.url === "/api/models"
-    response.writeHead(found ? 200 : 404, {
-      "Content-Type": "application/json",
-    })
-    response.end(
-      JSON.stringify(
-        found
-          ? { models: [], available: [], providers: [] }
-          : { error: "Not found" }
-      )
-    )
+    if (request.method === "GET" && request.url === "/api/accounts") {
+      response.writeHead(200, { "Content-Type": "application/json" })
+      response.end(JSON.stringify({ accounts: [] }))
+      return
+    }
+    response.writeHead(404, { "Content-Type": "application/json" })
+    response.end(JSON.stringify({ error: "Not found" }))
   })
   await new Promise((resolve, reject) => {
     server.once("error", reject)
@@ -569,7 +565,7 @@ async function startPiServerCatalogStub() {
 }
 
 async function assertPiClientTask(url, mutationHeaders) {
-  const piServer = await startPiServerCatalogStub()
+  const piServer = await startPiServerStub()
   try {
     await assertPiClientTaskWithServer(url, mutationHeaders, piServer.url)
   } finally {
