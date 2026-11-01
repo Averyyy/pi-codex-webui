@@ -25,7 +25,7 @@ minimumReleaseAgeExclude:
   - '@averyyy/pi-ai@1.4.0-piclient.18'
   - '@averyyy/pi-coding-agent@1.4.0-piclient.18'
   - '@averyyy/pi-tui@1.4.0-piclient.18'
-  - react-resizable-panels@4.16.0
+  - react-resizable-panels@4.16.1
   - '@typescript-eslint/eslint-plugin@8.72.1'
   - '@typescript-eslint/parser@8.72.1'
   - '@typescript-eslint/project-service@8.72.1'
@@ -39,6 +39,7 @@ minimumReleaseAgeExclude:
   - typescript-eslint@8.72.1
   - '@types/node@26.6.6'
   - lucide-react@1.66.0
+  - globals@17.14.0
 
 patchedDependencies:
   next-themes@0.4.6: patches/next-themes@0.4.6.patch

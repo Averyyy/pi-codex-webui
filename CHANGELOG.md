@@ -2,6 +2,12 @@
 
 All notable changes to `pi-web-codex` are documented here.
 
+## [0.1.39] - 2026-11-02
+
+### Changed
+
+- Update resizable panels to 4.16.1 and ESLint global definitions to 17.14.0.
+
 ## [0.1.38] - 2026-11-01
 
 ### Changed
