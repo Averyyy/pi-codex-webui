@@ -2,6 +2,13 @@
 
 All notable changes to `pi-web-codex` are documented here.
 
+## [0.1.40] - 2026-11-03
+
+### Changed
+
+- Update Pi to 1.5.0 and Pi Client to 1.5.0-piclient.1.
+- Update Next.js and its ESLint plugin to 16.4.4, and semver to 7.8.6.
+
 ## [0.1.39] - 2026-11-02
 
 ### Changed
